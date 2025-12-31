@@ -7,21 +7,15 @@ final class ProcessTapController {
     private let logger: Logger
     private let queue = DispatchQueue(label: "ProcessTapController", qos: .userInitiated)
 
-    // Thread-safe volume access
-    private var _volume: Float = 1.0
-    private var volumeLock = os_unfair_lock()
+    // Lock-free volume access for real-time audio safety
+    // Aligned Float32 reads/writes are atomic on Apple platforms.
+    // Audio thread may read slightly stale volume values, which is acceptable
+    // for volume control where exact synchronization isn't critical.
+    private nonisolated(unsafe) var _volume: Float = 1.0
 
     var volume: Float {
-        get {
-            os_unfair_lock_lock(&volumeLock)
-            defer { os_unfair_lock_unlock(&volumeLock) }
-            return _volume
-        }
-        set {
-            os_unfair_lock_lock(&volumeLock)
-            _volume = newValue
-            os_unfair_lock_unlock(&volumeLock)
-        }
+        get { _volume }
+        set { _volume = newValue }
     }
 
     // Core Audio state
