@@ -52,6 +52,10 @@ extension AudioDeviceID {
     func readDeviceUID() throws -> String {
         try readString(kAudioDevicePropertyDeviceUID)
     }
+
+    func readNominalSampleRate() throws -> Float64 {
+        try read(kAudioDevicePropertyNominalSampleRate, defaultValue: Float64(48000))
+    }
 }
 
 // MARK: - Process List
