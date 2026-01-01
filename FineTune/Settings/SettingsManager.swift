@@ -40,6 +40,11 @@ final class SettingsManager {
             logger.debug("Loaded settings with \(self.settings.appVolumes.count) app volumes")
         } catch {
             logger.error("Failed to load settings: \(error.localizedDescription)")
+            // Backup corrupted file before resetting
+            let backupURL = settingsURL.deletingPathExtension().appendingPathExtension("backup.json")
+            try? FileManager.default.removeItem(at: backupURL)  // Remove old backup if exists
+            try? FileManager.default.copyItem(at: settingsURL, to: backupURL)
+            logger.warning("Backed up corrupted settings to \(backupURL.lastPathComponent)")
             settings = Settings()
         }
     }
