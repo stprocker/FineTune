@@ -72,6 +72,14 @@ final class SettingsManager {
         }
     }
 
+    /// Immediately writes pending changes to disk.
+    /// Call this on app termination to prevent data loss.
+    func flushSync() {
+        saveTask?.cancel()
+        saveTask = nil
+        writeToDisk()
+    }
+
     private func writeToDisk() {
         do {
             let directory = settingsURL.deletingLastPathComponent()
