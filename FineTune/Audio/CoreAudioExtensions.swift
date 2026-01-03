@@ -283,5 +283,27 @@ extension AudioDeviceID {
         // No volume control available
         return 1.0
     }
+
+    /// Sets the scalar volume (0.0 to 1.0) for the device.
+    /// Uses VirtualMainVolume via AudioHardwareService to match system volume slider behavior.
+    /// Returns true if successful, false otherwise.
+    func setOutputVolumeScalar(_ volume: Float) -> Bool {
+        let clampedVolume = Swift.max(0.0, Swift.min(1.0, volume))
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        guard AudioObjectHasProperty(self, &address) else {
+            return false
+        }
+
+        var volumeValue: Float32 = clampedVolume
+        let size = UInt32(MemoryLayout<Float32>.size)
+        let err = AudioHardwareServiceSetPropertyData(self, &address, 0, nil, size, &volumeValue)
+        return err == noErr
+    }
 }
 
