@@ -172,3 +172,33 @@ extension AudioDeviceID {
     }
 }
 
+// MARK: - Device Volume
+
+extension AudioDeviceID {
+    /// Reads the scalar volume (0.0 to 1.0) for the main output channel.
+    /// Returns 1.0 for devices without volume control (HDMI, aggregate devices, etc.)
+    func readOutputVolumeScalar() -> Float {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: 0  // Channel 0 = main/master
+        )
+
+        // Check if property exists first
+        guard AudioObjectHasProperty(self, &address) else {
+            return 1.0  // Device doesn't support volume control
+        }
+
+        var volume: Float32 = 1.0
+        var size = UInt32(MemoryLayout<Float32>.size)
+        let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume)
+
+        if err == noErr {
+            return volume
+        } else {
+            // Error reading volume - assume full volume
+            return 1.0
+        }
+    }
+}
+

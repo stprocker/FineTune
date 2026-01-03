@@ -38,6 +38,9 @@ final class ProcessTapController {
     // Used during device switching to prevent clicks/pops
     private nonisolated(unsafe) var _forceSilence: Bool = false
 
+    // Device volume compensation scalar (applied during/after crossfade)
+    // Computed as: sourceDeviceVolume / destinationDeviceVolume
+    private nonisolated(unsafe) var _deviceVolumeCompensation: Float = 1.0
 
     // Ramp coefficient for ~30ms smoothing, computed from device sample rate on activation
     // Formula: 1 - exp(-1 / (sampleRate * rampTimeSeconds))
@@ -178,6 +181,7 @@ final class ProcessTapController {
 
         // Initialize current to target to skip initial fade-in
         _primaryCurrentVolume = _volume
+        _deviceVolumeCompensation = 1.0  // No compensation on first activation
 
         // Only set activated after complete success
         activated = true
@@ -227,25 +231,57 @@ final class ProcessTapController {
     /// Performs a crossfade switch using two simultaneous taps.
     /// Secondary callback drives timing via sample counting for sample-accurate transitions.
     private func performCrossfadeSwitch(to newOutputUID: String) async throws {
-        logger.info("[CROSSFADE] Step 1: Preparing crossfade state")
+        logger.info("[CROSSFADE] Step 1: Reading device volumes for compensation")
 
-        // 1. Enable crossfade BEFORE secondary tap starts, so it begins silent
-        // Secondary callback will see _isCrossfading=true and output sin(0)=0 from first sample
+        // Read source device volume (need to find the physical device behind our aggregate)
+        var sourceVolume: Float = 1.0
+        if let sourceUID = currentDeviceUID {
+            do {
+                let devices = try AudioObjectID.readDeviceList()
+                if let sourceDevice = devices.first(where: { (try? $0.readDeviceUID()) == sourceUID }) {
+                    sourceVolume = sourceDevice.readOutputVolumeScalar()
+                    logger.debug("[CROSSFADE] Source device volume: \(sourceVolume)")
+                }
+            } catch {
+                logger.warning("[CROSSFADE] Failed to read source volume: \(error.localizedDescription)")
+            }
+        }
+
+        // Read destination device volume
+        var destVolume: Float = 1.0
+        do {
+            let devices = try AudioObjectID.readDeviceList()
+            if let destDevice = devices.first(where: { (try? $0.readDeviceUID()) == newOutputUID }) {
+                destVolume = destDevice.readOutputVolumeScalar()
+                logger.debug("[CROSSFADE] Destination device volume: \(destVolume)")
+            }
+        } catch {
+            logger.warning("[CROSSFADE] Failed to read destination volume: \(error.localizedDescription)")
+        }
+
+        // Calculate compensation: source/dest to maintain perceived loudness
+        let compensation = destVolume > 0.001 ? sourceVolume / destVolume : 1.0
+        _deviceVolumeCompensation = compensation
+        logger.info("[CROSSFADE] Volume compensation: \(compensation) (source=\(sourceVolume), dest=\(destVolume))")
+
+        logger.info("[CROSSFADE] Step 2: Preparing crossfade state")
+
+        // Enable crossfade BEFORE secondary tap starts, so it begins silent
         _crossfadeProgress = 0
         _secondarySampleCount = 0
         _isCrossfading = true
 
-        // 2. Create secondary tap (it will start at sin(0) = 0 = silent)
-        logger.info("[CROSSFADE] Step 2: Creating secondary tap for new device")
+        // Create secondary tap (it will start at sin(0) = 0 = silent)
+        logger.info("[CROSSFADE] Step 3: Creating secondary tap for new device")
         try createSecondaryTap(for: newOutputUID)
 
-        // 3. Wait for secondary tap to warm up and start producing samples
-        logger.info("[CROSSFADE] Step 3: Waiting for secondary tap warmup...")
+        // Wait for secondary tap to warm up and start producing samples
+        logger.info("[CROSSFADE] Step 4: Waiting for secondary tap warmup...")
         try await Task.sleep(for: .milliseconds(20))
 
-        logger.info("[CROSSFADE] Step 4: Crossfade in progress (\(CrossfadeConfig.duration * 1000)ms)")
+        logger.info("[CROSSFADE] Step 5: Crossfade in progress (\(CrossfadeConfig.duration * 1000)ms)")
 
-        // 5. Poll for completion (don't control timing - secondary callback does)
+        // Poll for completion (don't control timing - secondary callback does)
         let timeoutMs = Int(CrossfadeConfig.duration * 1000) + 100  // Add 100ms safety margin
         let pollIntervalMs: UInt64 = 5
         var elapsedMs: Int = 0
@@ -258,8 +294,8 @@ final class ProcessTapController {
         // Small buffer to ensure final samples processed
         try await Task.sleep(for: .milliseconds(10))
 
-        // 6. Crossfade complete - destroy primary, promote secondary
-        logger.info("[CROSSFADE] Step 5: Crossfade complete (progress=\(self._crossfadeProgress)), promoting secondary")
+        // Crossfade complete - destroy primary, promote secondary
+        logger.info("[CROSSFADE] Step 6: Crossfade complete (progress=\(self._crossfadeProgress)), promoting secondary")
         _isCrossfading = false
 
         destroyPrimaryTap()
@@ -562,8 +598,8 @@ final class ProcessTapController {
                 // Per-sample volume ramping (one-pole lowpass)
                 currentVol += (targetVol - currentVol) * rampCoefficient
 
-                // Apply gain with crossfade multiplier
-                var sample = inputSamples[i] * currentVol * crossfadeMultiplier
+                // Apply gain with crossfade multiplier and device volume compensation
+                var sample = inputSamples[i] * currentVol * crossfadeMultiplier * _deviceVolumeCompensation
 
                 // Soft-knee limiter (prevents harsh clipping when boosting)
                 sample = softLimit(sample)
@@ -618,8 +654,8 @@ final class ProcessTapController {
                 // Per-sample volume ramping
                 currentVol += (targetVol - currentVol) * secondaryRampCoefficient
 
-                // Apply ramped gain with crossfade multiplier
-                var sample = inputSamples[i] * currentVol * crossfadeMultiplier
+                // Apply ramped gain with crossfade multiplier and device volume compensation
+                var sample = inputSamples[i] * currentVol * crossfadeMultiplier * _deviceVolumeCompensation
 
                 // Soft-knee limiter
                 sample = softLimit(sample)
