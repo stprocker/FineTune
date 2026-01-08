@@ -11,6 +11,7 @@ struct DeviceVolumeRowView: View {
     let onSetAsDefault: () -> Void
 
     @State private var sliderValue: Double  // 0-1
+    @State private var isEditing = false    // True while user is dragging
 
     init(
         device: AudioDevice,
@@ -71,18 +72,24 @@ struct DeviceVolumeRowView: View {
             .buttonStyle(.plain)
             .help(isMuted ? "Unmute" : "Mute")
 
-            // Slider
-            Slider(value: $sliderValue, in: 0...1)
-                .frame(minWidth: 120)
-                .tint(.white.opacity(0.7))
-                .opacity(isMuted ? 0.5 : 1.0)
-                .onChange(of: sliderValue) { _, newValue in
-                    // Auto-unmute when slider is moved while muted
-                    if isMuted && newValue != Double(volume) {
-                        onMuteToggle()
-                    }
-                    onVolumeChange(Float(newValue))
+            // Slider - decoupled from external updates during user interaction
+            Slider(
+                value: $sliderValue,
+                in: 0...1,
+                onEditingChanged: { editing in
+                    isEditing = editing
                 }
+            )
+            .frame(minWidth: 120)
+            .tint(.white.opacity(0.7))
+            .opacity(isMuted ? 0.5 : 1.0)
+            .onChange(of: sliderValue) { _, newValue in
+                // Auto-unmute when slider is moved while muted
+                if isMuted && newValue != Double(volume) {
+                    onMuteToggle()
+                }
+                onVolumeChange(Float(newValue))
+            }
 
             // Percentage
             Text("\(Int(sliderValue * 100))%")
@@ -91,6 +98,9 @@ struct DeviceVolumeRowView: View {
                 .frame(width: 40, alignment: .trailing)
         }
         .onChange(of: volume) { _, newValue in
+            // Only sync from external changes when user is NOT dragging.
+            // This prevents feedback loops from Bluetooth latency causing jitter.
+            guard !isEditing else { return }
             sliderValue = Double(newValue)
         }
     }

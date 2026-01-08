@@ -10,6 +10,7 @@ struct AppVolumeRowView: View {
     let onDeviceSelected: (String) -> Void
 
     @State private var sliderValue: Double  // 0-1, log-mapped position
+    @State private var isEditing = false    // True while user is dragging
 
     init(
         app: AudioApp,
@@ -39,20 +40,26 @@ struct AppVolumeRowView: View {
             Text(app.name)
                 .lineLimit(1)
 
-            Slider(value: $sliderValue, in: 0...1)
-                .frame(minWidth: 100)
-                .tint(.white.opacity(0.7))
-                .overlay(alignment: .center) {
-                    // Unity marker at center (100% = native volume)
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.4))
-                        .frame(width: 1, height: 8)
-                        .allowsHitTesting(false)
+            Slider(
+                value: $sliderValue,
+                in: 0...1,
+                onEditingChanged: { editing in
+                    isEditing = editing
                 }
-                .onChange(of: sliderValue) { _, newValue in
-                    let gain = VolumeMapping.sliderToGain(newValue)
-                    onVolumeChange(gain)
-                }
+            )
+            .frame(minWidth: 100)
+            .tint(.white.opacity(0.7))
+            .overlay(alignment: .center) {
+                // Unity marker at center (100% = native volume)
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.4))
+                    .frame(width: 1, height: 8)
+                    .allowsHitTesting(false)
+            }
+            .onChange(of: sliderValue) { _, newValue in
+                let gain = VolumeMapping.sliderToGain(newValue)
+                onVolumeChange(gain)
+            }
 
             // Show linear percentage (0-200%) matching slider position
             Text("\(Int(sliderValue * 200))%")
@@ -67,6 +74,8 @@ struct AppVolumeRowView: View {
             )
         }
         .onChange(of: volume) { _, newValue in
+            // Only sync from external changes when user is NOT dragging
+            guard !isEditing else { return }
             sliderValue = VolumeMapping.gainToSlider(newValue)
         }
     }
