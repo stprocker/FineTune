@@ -7,7 +7,7 @@ enum BiquadMath {
     static let graphicEQQ: Double = 1.4
 
     /// Compute peaking EQ biquad coefficients
-    /// Returns [b0, b1, b2, -a1, -a2] (a1/a2 negated for vDSP)
+    /// Returns [b0, b1, b2, a1, a2] normalized by a0 for vDSP_biquad
     static func peakingEQCoefficients(
         frequency: Double,
         gainDB: Float,
@@ -27,18 +27,19 @@ enum BiquadMath {
         let a1 = -2.0 * cosW
         let a2 = 1.0 - alpha / A
 
-        // Normalize by a0, negate a1/a2 for vDSP_biquad format
+        // Normalize by a0 for vDSP_biquad format
+        // Note: vDSP uses difference equation y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] + a1*y[n-1] + a2*y[n-2]
         return [
             b0 / a0,
             b1 / a0,
             b2 / a0,
-            -(a1 / a0),
-            -(a2 / a0)
+            a1 / a0,
+            a2 / a0
         ]
     }
 
     /// Compute coefficients for all 10 bands
-    /// Returns 50 Doubles: [band0: b0,b1,b2,-a1,-a2, band1: ..., ...]
+    /// Returns 50 Doubles: [band0: b0,b1,b2,a1,a2, band1: ..., ...]
     static func coefficientsForAllBands(
         gains: [Float],
         sampleRate: Double
