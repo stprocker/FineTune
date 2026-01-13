@@ -9,6 +9,12 @@ final class EQProcessor: @unchecked Sendable {
 
     private let sampleRate: Double
 
+    /// Currently applied EQ settings (needed for sample rate updates)
+    private var _currentSettings: EQSettings?
+
+    /// Read-only access to current settings
+    var currentSettings: EQSettings? { _currentSettings }
+
     // Lock-free state for RT-safe access
     private nonisolated(unsafe) var _eqSetup: vDSP_biquad_Setup?
     private nonisolated(unsafe) var _isEnabled: Bool = true
@@ -47,6 +53,7 @@ final class EQProcessor: @unchecked Sendable {
     /// Update EQ settings (call from main thread)
     func updateSettings(_ settings: EQSettings) {
         _isEnabled = settings.isEnabled
+        _currentSettings = settings
 
         let coefficients = BiquadMath.coefficientsForAllBands(
             gains: settings.clampedGains,
