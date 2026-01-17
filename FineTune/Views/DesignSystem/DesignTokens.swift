@@ -8,35 +8,99 @@ enum DesignTokens {
     // MARK: - Colors
 
     enum Colors {
-        // MARK: Background & Surface
+        // MARK: Text (Vibrancy-aware)
 
-        /// Clear background - relies on .thickMaterial
-        static let surfaceBackground = Color.clear
+        /// Primary text - automatically adapts for vibrancy on materials
+        static let textPrimary: Color = .primary
 
-        /// Row card background - matches idea design #1E2125
-        static let rowCard = Color(red: 0.118, green: 0.129, blue: 0.145)
+        /// Secondary text - slightly muted, still vibrant
+        static let textSecondary: Color = .secondary
 
-        /// Row card hover - slightly brighter than rowCard
-        static let rowCardHover = Color(red: 0.16, green: 0.17, blue: 0.19)
+        /// Tertiary text - for less important content
+        static let textTertiary = Color(nsColor: .tertiaryLabelColor)
 
-        /// Row active/pressed state
-        static let rowActive = Color.white.opacity(0.14)
+        /// Quaternary text - very subtle
+        static let textQuaternary = Color(nsColor: .quaternaryLabelColor)
+
+        // MARK: Interactive
+
+        /// Default interactive element color
+        static let interactiveDefault: Color = .primary.opacity(0.7)
+
+        /// Hovered interactive element color
+        static let interactiveHover: Color = .primary.opacity(0.9)
+
+        /// Active/pressed interactive element color
+        static let interactiveActive: Color = .primary
+
+        /// System accent color for selections and primary actions
+        static let accentPrimary: Color = .accentColor
+
+        /// Mute button active (muted state) - red for visibility
+        static let mutedIndicator = Color(nsColor: .systemRed).opacity(0.85)
+
+        /// Default device indicator - uses accent color
+        static let defaultDevice: Color = .accentColor
+
+        // MARK: Separators & Borders
+
+        /// System separator color - adapts to appearance
+        static let separator = Color(nsColor: .separatorColor)
+
+        /// Subtle border for glass elements
+        static let glassBorder = Color(nsColor: .separatorColor).opacity(0.3)
+
+        /// Hover-state border
+        static let glassBorderHover = Color(nsColor: .separatorColor).opacity(0.5)
 
         // MARK: Slider
 
-        /// Slider track background (unfilled)
-        static let sliderTrack = Color.white.opacity(0.12)
+        /// Slider track background (unfilled) - visible on glass
+        static let sliderTrack: Color = .primary.opacity(0.15)
 
-        /// Slider filled track
-        static let sliderFill = Color.white.opacity(0.7)
+        /// Slider filled track - uses accent color
+        static let sliderFill: Color = .accentColor
 
-        /// Slider thumb color
-        static let sliderThumb = Color.white
+        /// Slider thumb
+        static let sliderThumb: Color = .white
 
         /// Unity marker on slider
-        static let unityMarker = Color.white.opacity(0.4)
+        static let unityMarker: Color = .primary.opacity(0.5)
 
-        // MARK: VU Meter
+        // MARK: Control Elements
+
+        /// EQ/slider thumb background
+        static let thumbBackground: Color = .white
+
+        /// EQ/slider thumb center dot
+        static let thumbDot: Color = .black.opacity(0.7)
+
+        // MARK: Glass Effects
+
+        /// Popup background overlay
+        static let popupOverlay: Color = .black.opacity(0.4)
+
+        /// Recessed panel background (EQ panel)
+        static let recessedBackground: Color = .black.opacity(0.3)
+
+        // MARK: Menu/Picker
+
+        /// Menu button background
+        static let menuBackground: Color = .clear
+
+        /// Menu button border
+        static let menuBorder: Color = .white.opacity(0.12)
+
+        /// Menu button border on hover
+        static let menuBorderHover: Color = .white.opacity(0.25)
+
+        /// Picker background
+        static let pickerBackground: Color = .primary.opacity(0.08)
+
+        /// Picker hover
+        static let pickerHover: Color = .primary.opacity(0.12)
+
+        // MARK: VU Meter (Professional audio standard - NOT themed)
 
         /// VU meter green segments (bars 0-3, safe levels)
         static let vuGreen = Color(red: 0.20, green: 0.78, blue: 0.40)
@@ -51,59 +115,27 @@ enum DesignTokens {
         static let vuRed = Color(red: 0.90, green: 0.25, blue: 0.25)
 
         /// VU meter unlit bar color
-        static let vuUnlit = Color.white.opacity(0.08)
+        static let vuUnlit: Color = .primary.opacity(0.08)
 
-        /// VU meter muted state (gray bars to show "active but muted")
-        static let vuMuted = Color.white.opacity(0.35)
+        /// VU meter muted state
+        static let vuMuted: Color = .primary.opacity(0.35)
 
-        // MARK: Text
-
-        /// Primary text color
-        static let textPrimary = Color.primary
-
-        /// Secondary text color
-        static let textSecondary = Color.secondary
-
-        /// Tertiary/subtle text color
-        static let textTertiary = Color.secondary.opacity(0.6)
-
-        // MARK: Interactive
-
-        /// Default interactive element color
-        static let interactiveDefault = Color.white.opacity(0.7)
-
-        /// Hovered interactive element color
-        static let interactiveHover = Color.white.opacity(0.9)
-
-        /// Active/pressed interactive element color
-        static let interactiveActive = Color.white
-
-        /// Mute button active (muted state)
-        static let mutedIndicator = Color.red.opacity(0.85)
-
-        /// Default device indicator
-        static let defaultDevice = Color.blue
-
-        // MARK: Picker
-
-        /// Device picker button background
-        static let pickerBackground = Color.white.opacity(0.08)
-
-        /// Device picker hover background
-        static let pickerHover = Color.white.opacity(0.12)
     }
 
     // MARK: - Typography
 
     enum Typography {
-        /// Section header text (e.g., "OUTPUT DEVICES")
-        static let sectionHeader = Font.system(size: 11, weight: .semibold)
+        /// Section header text (e.g., "OUTPUT DEVICES") - prominent and bold
+        static let sectionHeader = Font.system(size: 12, weight: .bold)
+
+        /// Section header letter spacing (tighter at larger size)
+        static let sectionHeaderTracking: CGFloat = 1.2
 
         /// App/device name in rows
         static let rowName = Font.system(size: 13, weight: .regular)
 
         /// Bold variant for default device name
-        static let rowNameBold = Font.system(size: 13, weight: .medium)
+        static let rowNameBold = Font.system(size: 13, weight: .semibold)
 
         /// Volume percentage display
         static let percentage = Font.system(size: 11, weight: .medium, design: .monospaced)
@@ -113,9 +145,12 @@ enum DesignTokens {
 
         /// Device picker text
         static let pickerText = Font.system(size: 11, weight: .regular)
+
+        /// EQ frequency labels
+        static let eqLabel = Font.system(size: 9, weight: .medium, design: .monospaced)
     }
 
-    // MARK: - Spacing
+    // MARK: - Spacing (standard 1× multiplier)
 
     enum Spacing {
         /// 2pt - Extra extra small
@@ -143,12 +178,12 @@ enum DesignTokens {
     // MARK: - Dimensions
 
     enum Dimensions {
-        // MARK: Base Configuration (single source of truth)
+        // MARK: Base Configuration
 
-        /// Main popup width - change this to resize proportional dimensions
+        /// Main popup width
         static let popupWidth: CGFloat = 580
 
-        /// Content padding (used for derived calculations)
+        /// Content padding
         static var contentPadding: CGFloat { Spacing.lg }
 
         /// Available content width after padding
@@ -156,13 +191,18 @@ enum DesignTokens {
             popupWidth - (contentPadding * 2)
         }
 
-        // MARK: Fixed Dimensions (don't scale with popup)
+        // MARK: Fixed Dimensions
 
         /// Max height for scrollable content
         static let maxScrollHeight: CGFloat = 400
 
+        // MARK: Corner Radii (rounded style - 10pt)
+
         /// Corner radius for popup
         static let cornerRadius: CGFloat = 12
+
+        /// Corner radius for row cards (glass bars)
+        static let rowRadius: CGFloat = 10
 
         /// Corner radius for buttons/pickers
         static let buttonRadius: CGFloat = 6
@@ -170,51 +210,49 @@ enum DesignTokens {
         /// App/device icon size
         static let iconSize: CGFloat = 22
 
-        /// Small icon size (in pickers, buttons)
+        /// Small icon size
         static let iconSizeSmall: CGFloat = 14
 
-        /// Minimal slider track height
-        static let sliderTrackHeight: CGFloat = 4
+        // MARK: Slider Dimensions (minimal style)
 
-        /// Slider thumb diameter
-        static let sliderThumbSize: CGFloat = 14
+        /// Slider track height
+        static let sliderTrackHeight: CGFloat = 3
 
-        /// Minimum touch/click target
-        static let minTouchTarget: CGFloat = 24
+        /// Slider thumb width (pill shape)
+        static let sliderThumbWidth: CGFloat = 16
 
-        /// Standard row content height (ensures DeviceRow and AppRow match)
+        /// Slider thumb height (pill shape)
+        static let sliderThumbHeight: CGFloat = 10
+
+        /// Circular thumb size
+        static let sliderThumbSize: CGFloat = 12
+
+        /// Minimum touch target
+        static let minTouchTarget: CGFloat = 16
+
+        /// Row content height
         static let rowContentHeight: CGFloat = 28
 
         // MARK: Component Widths
 
-        /// Slider width (fixed for alignment)
+        /// Slider width
         static let sliderWidth: CGFloat = 140
 
-        /// Minimum slider width (for DeviceRow flexible slider)
+        /// Minimum slider width
         static let sliderMinWidth: CGFloat = 120
 
-        /// VU meter total width (fixed)
+        /// VU meter width
         static let vuMeterWidth: CGFloat = 28
 
-        /// Fixed width for controls section (mute + slider + % + VU + picker)
-        /// Ensures sliders align across all rows
+        /// Controls section width
         static var controlsWidth: CGFloat {
-            contentWidth - iconSize - Spacing.sm - 100  // Leave ~100pt min for app name
+            contentWidth - iconSize - Spacing.sm - 100
         }
 
-        /// Device picker width - derived so it aligns across rows
-        static var pickerWidth: CGFloat {
-            // controlsWidth - (Mute + Slider + % + VU + 4 spacings)
-            // = controlsWidth - (24 + 140 + 36 + 28 + 4*8)
-            controlsWidth - 260
-        }
+        /// Percentage text width
+        static let percentageWidth: CGFloat = 32
 
-        // MARK: Content-driven Dimensions (fixed to fit text)
-
-        /// Percentage text width (fits "200%")
-        static let percentageWidth: CGFloat = 36
-
-        // MARK: VU Meter Internals
+        // MARK: VU Meter
 
         /// VU meter bar height
         static let vuMeterBarHeight: CGFloat = 10
@@ -222,33 +260,22 @@ enum DesignTokens {
         /// VU meter bar spacing
         static let vuMeterBarSpacing: CGFloat = 2
 
-        /// Number of VU meter bars
+        /// VU meter bar count
         static let vuMeterBarCount: Int = 8
+
     }
 
-    // MARK: - Animation
+    // MARK: - Animation (smooth style - macOS-like springs)
 
     enum Animation {
-        /// Standard spring for UI interactions
-        static let spring = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.75)
-
         /// Quick spring for small elements
-        static let quick = SwiftUI.Animation.spring(response: 0.2, dampingFraction: 0.8)
+        static let quick = SwiftUI.Animation.spring(response: 0.2, dampingFraction: 0.85)
 
-        /// Gentle spring for larger movements
-        static let gentle = SwiftUI.Animation.spring(response: 0.4, dampingFraction: 0.7)
+        /// Hover transition (brief and precise per HIG)
+        static let hover = SwiftUI.Animation.easeOut(duration: 0.12)
 
-        /// Hover transition duration
-        static let hover = SwiftUI.Animation.easeOut(duration: 0.15)
-
-        /// VU meter level change animation
+        /// VU meter level change
         static let vuMeterLevel = SwiftUI.Animation.linear(duration: 0.05)
-
-        /// VU meter peak decay animation
-        static let vuMeterDecay = SwiftUI.Animation.easeOut(duration: 0.3)
-
-        /// Slider thumb appear/disappear
-        static let thumbReveal = SwiftUI.Animation.easeOut(duration: 0.12)
     }
 
     // MARK: - Timing
@@ -257,7 +284,7 @@ enum DesignTokens {
         /// VU meter update interval (30fps)
         static let vuMeterUpdateInterval: TimeInterval = 1.0 / 30.0
 
-        /// VU meter peak hold duration before decay (industry standard: 1-3s)
+        /// VU meter peak hold duration
         static let vuMeterPeakHold: TimeInterval = 0.5
     }
 }
