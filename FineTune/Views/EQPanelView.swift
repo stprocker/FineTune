@@ -8,11 +8,8 @@ struct EQPanelView: View {
 
     private let frequencyLabels = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
 
-    private var currentPreset: EQPreset? {
-        EQPreset.allCases.first { preset in
-            preset.settings.bandGains == settings.bandGains
-        }
-    }
+    /// Cached preset matching to avoid O(n) lookup on every view update
+    @State private var cachedPreset: EQPreset?
 
     var body: some View {
         // Entire EQ panel content inside recessed background
@@ -42,7 +39,7 @@ struct EQPanelView: View {
                         .foregroundColor(DesignTokens.Colors.textSecondary)
 
                     EQPresetPicker(
-                        selectedPreset: currentPreset,
+                        selectedPreset: cachedPreset,
                         onPresetSelected: onPresetSelected
                     )
                 }
@@ -75,6 +72,16 @@ struct EQPanelView: View {
         .padding(.horizontal, 2)
         .padding(.vertical, 4)
         // No outer background - parent ExpandableGlassRow provides the glass container
+        .onAppear {
+            updateCachedPreset()
+        }
+        .onChange(of: settings.bandGains) { _, _ in
+            updateCachedPreset()
+        }
+    }
+
+    private func updateCachedPreset() {
+        cachedPreset = EQPreset.allCases.first { $0.settings.bandGains == settings.bandGains }
     }
 }
 

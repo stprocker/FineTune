@@ -8,7 +8,7 @@ struct VUMeter: View {
     var isMuted: Bool = false
 
     @State private var peakLevel: Float = 0
-    @State private var peakHoldTimer: Timer?
+    @State private var peakDecayTask: Task<Void, Never>?
 
     private let barCount = DesignTokens.Dimensions.vuMeterBarCount
 
@@ -30,40 +30,39 @@ struct VUMeter: View {
                 // New peak - capture and start decay timer
                 peakLevel = newLevel
                 startPeakDecayTimer()
-            } else if peakLevel > newLevel && peakHoldTimer == nil {
-                // Level dropped below peak and no timer running - start decay
+            } else if peakLevel > newLevel && peakDecayTask == nil {
+                // Level dropped below peak and no task running - start decay
                 startPeakDecayTimer()
             }
         }
         .onDisappear {
-            peakHoldTimer?.invalidate()
-            peakHoldTimer = nil
+            peakDecayTask?.cancel()
+            peakDecayTask = nil
         }
     }
 
     private func startPeakDecayTimer() {
-        peakHoldTimer?.invalidate()
-        // After hold period, start gradual decay using repeating timer
-        peakHoldTimer = Timer.scheduledTimer(withTimeInterval: DesignTokens.Timing.vuMeterPeakHold, repeats: false) { [self] _ in
-            // Start the gradual decay timer
-            startGradualDecay()
-        }
-    }
+        // Cancel any existing decay task
+        peakDecayTask?.cancel()
 
-    private func startGradualDecay() {
-        peakHoldTimer?.invalidate()
-        // Decay ~24dB over 2.8 seconds (BBC PPM standard)
-        // At 30fps, that's ~84 frames, so decay rate ≈ 0.012 per frame (linear in amplitude)
-        peakHoldTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [self] timer in
+        // Start new decay task - holds for a period then gradually decays
+        peakDecayTask = Task { @MainActor in
+            // Hold period before decay starts
+            try? await Task.sleep(for: .seconds(DesignTokens.Timing.vuMeterPeakHold))
+            guard !Task.isCancelled else { return }
+
+            // Gradual decay at ~30fps
+            // Decay ~24dB over 2.8 seconds (BBC PPM standard)
             let decayRate: Float = 0.012  // Per-frame decay
-            if peakLevel > level {
+            let frameInterval: Duration = .seconds(1.0 / 30.0)
+
+            while !Task.isCancelled && peakLevel > level {
+                try? await Task.sleep(for: frameInterval)
+                guard !Task.isCancelled else { return }
+
                 withAnimation(DesignTokens.Animation.vuMeterLevel) {
                     peakLevel = max(level, peakLevel - decayRate)
                 }
-            } else {
-                // Peak has reached current level, stop decaying
-                timer.invalidate()
-                peakHoldTimer = nil
             }
         }
     }

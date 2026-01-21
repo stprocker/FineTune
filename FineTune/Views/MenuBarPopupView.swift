@@ -159,13 +159,17 @@ struct MenuBarPopupView: View {
     private func appsContent(scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             ForEach(audioEngine.apps) { app in
-                if let deviceUID = audioEngine.getDeviceUID(for: app) {
-                    AppRowWithLevelPolling(
-                        app: app,
-                        volume: audioEngine.getVolume(for: app),
-                        isMuted: audioEngine.getMute(for: app),
-                        devices: audioEngine.outputDevices,
-                        selectedDeviceUID: deviceUID,
+                // Use explicit device routing if available, otherwise fall back to default output device
+                let deviceUID = audioEngine.getDeviceUID(for: app)
+                    ?? audioEngine.deviceVolumeMonitor.defaultDeviceUID
+                    ?? audioEngine.outputDevices.first?.uid
+                    ?? ""
+                AppRowWithLevelPolling(
+                    app: app,
+                    volume: audioEngine.getVolume(for: app),
+                    isMuted: audioEngine.getMute(for: app),
+                    devices: audioEngine.outputDevices,
+                    selectedDeviceUID: deviceUID,
                         getAudioLevel: { audioEngine.getAudioLevel(for: app) },
                         isPopupVisible: isPopupVisible,
                         onVolumeChange: { volume in
@@ -208,9 +212,8 @@ struct MenuBarPopupView: View {
                                 isEQAnimating = false
                             }
                         }
-                    )
-                    .id(app.id)
-                }
+                )
+                .id(app.id)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

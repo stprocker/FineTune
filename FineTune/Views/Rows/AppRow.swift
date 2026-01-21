@@ -235,7 +235,7 @@ struct AppRowWithLevelPolling: View {
     let onEQToggle: () -> Void
 
     @State private var displayLevel: Float = 0
-    @State private var levelTimer: Timer?
+    @State private var levelPollingTask: Task<Void, Never>?
 
     init(
         app: AudioApp,
@@ -307,20 +307,24 @@ struct AppRowWithLevelPolling: View {
     }
 
     private func startLevelPolling() {
-        // Guard against duplicate timers
-        guard levelTimer == nil else { return }
+        // Guard against duplicate tasks
+        guard levelPollingTask == nil else { return }
 
-        levelTimer = Timer.scheduledTimer(
-            withTimeInterval: DesignTokens.Timing.vuMeterUpdateInterval,
-            repeats: true
-        ) { _ in
-            displayLevel = getAudioLevel()
+        // Capture getAudioLevel to avoid implicit self capture
+        let pollLevel = getAudioLevel
+        let interval = DesignTokens.Timing.vuMeterUpdateInterval
+
+        levelPollingTask = Task { @MainActor in
+            while !Task.isCancelled {
+                displayLevel = pollLevel()
+                try? await Task.sleep(for: .seconds(interval))
+            }
         }
     }
 
     private func stopLevelPolling() {
-        levelTimer?.invalidate()
-        levelTimer = nil
+        levelPollingTask?.cancel()
+        levelPollingTask = nil
     }
 }
 
