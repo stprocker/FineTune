@@ -25,13 +25,30 @@ final class AudioProcessMonitor {
     /// Function type for the private responsibility API
     private typealias ResponsibilityFunc = @convention(c) (pid_t) -> pid_t
 
+    /// Cached reference to the private responsibility API function.
+    /// nil means we haven't tried to resolve it yet, .none means it's unavailable.
+    private static var responsibilityFuncCache: ResponsibilityFunc??
+
     /// Gets the "responsible" PID for a process using Apple's private API.
     /// This is what Activity Monitor uses to show the correct parent for XPC services.
+    /// Falls back gracefully if the private API is unavailable (e.g., future macOS versions).
     private func getResponsiblePID(for pid: pid_t) -> pid_t? {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -1), "responsibility_get_pid_responsible_for_pid") else {
+        // Resolve and cache the function pointer on first call
+        if Self.responsibilityFuncCache == nil {
+            if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -1), "responsibility_get_pid_responsible_for_pid") {
+                Self.responsibilityFuncCache = unsafeBitCast(symbol, to: ResponsibilityFunc.self)
+            } else {
+                // Symbol not available - cache the failure so we don't keep trying
+                Self.responsibilityFuncCache = .some(nil)
+                logger.debug("Private responsibility API not available, using fallback process tree walking")
+            }
+        }
+
+        guard let responsibilityFunc = Self.responsibilityFuncCache ?? nil else {
             return nil
         }
-        let responsiblePID = unsafeBitCast(symbol, to: ResponsibilityFunc.self)(pid)
+
+        let responsiblePID = responsibilityFunc(pid)
         return responsiblePID > 0 && responsiblePID != pid ? responsiblePID : nil
     }
 
@@ -224,7 +241,9 @@ final class AudioProcessMonitor {
     }
 
     deinit {
-        // Note: Can't call stop() here due to MainActor isolation
-        // Listeners will be cleaned up when the process exits
+        // WARNING: Can't call stop() here due to MainActor isolation.
+        // Callers MUST call stop() before releasing this object to remove CoreAudio listeners.
+        // Orphaned listeners can corrupt coreaudiod state and break System Settings.
+        // AudioEngine.stopSync() handles this for normal app termination.
     }
 }

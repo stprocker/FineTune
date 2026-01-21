@@ -35,6 +35,8 @@ final class DeviceVolumeMonitor {
 
     /// Flag to control the recursive observation loop
     private var isObservingDeviceList = false
+    /// Task handle for device list observation (allows explicit cancellation)
+    private var observationTask: Task<Void, Never>?
 
     private var defaultDeviceAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -94,8 +96,10 @@ final class DeviceVolumeMonitor {
     func stop() {
         logger.debug("Stopping device volume monitor")
 
-        // Stop the device list observation loop
+        // Stop the device list observation loop and cancel the task
         isObservingDeviceList = false
+        observationTask?.cancel()
+        observationTask = nil
 
         // Remove default device listener
         if let block = defaultDeviceListenerBlock {
@@ -324,7 +328,10 @@ final class DeviceVolumeMonitor {
                 let deviceID = device.id
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .milliseconds(200))
-                    guard let self, self.volumes.keys.contains(deviceID) else { return }
+                    // Verify device is still tracked AND still valid (could have been unplugged)
+                    guard let self,
+                          self.volumes.keys.contains(deviceID),
+                          deviceID.isValid else { return }
                     let confirmedVolume = deviceID.readOutputVolumeScalar()
                     self.volumes[deviceID] = confirmedVolume
                     let confirmedMute = deviceID.readMuteState()
@@ -340,24 +347,33 @@ final class DeviceVolumeMonitor {
         guard !isObservingDeviceList else { return }
         isObservingDeviceList = true
 
-        func observe() {
-            guard isObservingDeviceList else { return }
-            withObservationTracking {
-                _ = self.deviceMonitor.outputDevices
-            } onChange: { [weak self] in
-                Task { @MainActor [weak self] in
-                    guard let self, self.isObservingDeviceList else { return }
-                    self.logger.debug("Device list changed, refreshing volume listeners")
-                    self.refreshDeviceListeners()
-                    observe()
+        // Use a stored task that can be explicitly cancelled to prevent observation leaks
+        observationTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let strongSelf = self, strongSelf.isObservingDeviceList else { break }
+
+                // Wait for the next change using withObservationTracking
+                await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = strongSelf.deviceMonitor.outputDevices
+                    } onChange: {
+                        continuation.resume()
+                    }
                 }
+
+                // Check cancellation and self validity again after waking
+                guard !Task.isCancelled, let strongSelf = self, strongSelf.isObservingDeviceList else { break }
+
+                strongSelf.logger.debug("Device list changed, refreshing volume listeners")
+                strongSelf.refreshDeviceListeners()
             }
         }
-        observe()
     }
 
     deinit {
-        // Note: Can't call stop() here due to MainActor isolation
-        // Listeners will be cleaned up when the process exits
+        // WARNING: Can't call stop() here due to MainActor isolation.
+        // Callers MUST call stop() before releasing this object to remove CoreAudio listeners.
+        // Orphaned listeners can corrupt coreaudiod state and break System Settings.
+        // AudioEngine.stopSync() handles this for normal app termination.
     }
 }

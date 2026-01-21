@@ -21,7 +21,7 @@ extension AudioDeviceID {
         if AudioObjectHasProperty(self, &address) {
             var volume: Float32 = 1.0
             var size = UInt32(MemoryLayout<Float32>.size)
-            let err = AudioHardwareServiceGetPropertyData(self, &address, 0, nil, &size, &volume)
+            let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume)
             if err == noErr {
                 return volume
             }
@@ -76,7 +76,7 @@ extension AudioDeviceID {
 
         var volumeValue: Float32 = clampedVolume
         let size = UInt32(MemoryLayout<Float32>.size)
-        let err = AudioHardwareServiceSetPropertyData(self, &address, 0, nil, size, &volumeValue)
+        let err = AudioObjectSetPropertyData(self, &address, 0, nil, size, &volumeValue)
         return err == noErr
     }
 }

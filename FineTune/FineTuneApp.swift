@@ -38,12 +38,17 @@ struct FineTuneApp: App {
             // If not granted, notifications will silently not appear - acceptable behavior
         }
 
-        // Flush settings on app termination to prevent data loss from debounced saves
+        // Clean up audio engine and flush settings on app termination
+        // CRITICAL: Must stop audio engine to remove CoreAudio property listeners
+        // Orphaned listeners can corrupt coreaudiod state and break System Settings
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { [settings] _ in
+        ) { [engine, settings] _ in
+            // Stop audio engine first to remove all CoreAudio listeners
+            engine.stopSync()
+            // Then flush settings to prevent data loss from debounced saves
             settings.flushSync()
         }
     }

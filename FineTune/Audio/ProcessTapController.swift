@@ -260,6 +260,8 @@ final class ProcessTapController {
         } catch {
             // Fall back to destroy/recreate if crossfade fails
             logger.warning("[SWITCH] Crossfade failed: \(error.localizedDescription), using fallback")
+            // Clean up any partially-created secondary tap resources before fallback
+            cleanupSecondaryTap()
             guard let tapDesc = tapDescription else {
                 throw NSError(domain: "ProcessTapController", code: -1, userInfo: [NSLocalizedDescriptionKey: "No tap description available"])
             }
@@ -504,6 +506,34 @@ final class ProcessTapController {
         tapDescription = nil
     }
 
+    /// Cleans up secondary tap resources if crossfade fails.
+    /// Must be called before falling back to destructive switch to prevent resource leaks.
+    private func cleanupSecondaryTap() {
+        // Reset crossfade state first
+        _isCrossfading = false
+        _crossfadeProgress = 0
+        _secondarySampleCount = 0
+        _secondarySamplesProcessed = 0
+
+        // Clean up secondary tap resources if they exist
+        if secondaryAggregateID.isValid {
+            AudioDeviceStop(secondaryAggregateID, secondaryDeviceProcID)
+            if let procID = secondaryDeviceProcID {
+                AudioDeviceDestroyIOProcID(secondaryAggregateID, procID)
+            }
+            AudioHardwareDestroyAggregateDevice(secondaryAggregateID)
+        }
+        if secondaryTapID.isValid {
+            AudioHardwareDestroyProcessTap(secondaryTapID)
+        }
+
+        // Clear secondary references
+        secondaryDeviceProcID = nil
+        secondaryAggregateID = .unknown
+        secondaryTapID = .unknown
+        secondaryTapDescription = nil
+    }
+
     /// Promotes secondary tap to primary after crossfade.
     private func promoteSecondaryToPrimary() {
         processTapID = secondaryTapID
@@ -511,16 +541,12 @@ final class ProcessTapController {
         deviceProcID = secondaryDeviceProcID
         tapDescription = secondaryTapDescription
 
-        // Update ramp coefficient for new device sample rate
-        if let deviceSampleRate = try? aggregateDeviceID.readNominalSampleRate() {
-            let rampTimeSeconds: Float = 0.030
-            rampCoefficient = 1 - exp(-1 / (Float(deviceSampleRate) * rampTimeSeconds))
-        }
-
-        // Update EQ processor sample rate to match new device
-        if let deviceSampleRate = try? aggregateDeviceID.readNominalSampleRate() {
-            eqProcessor?.updateSampleRate(deviceSampleRate)
-        }
+        // Update ramp coefficient and EQ processor sample rate for new device
+        // Read sample rate once to avoid redundant CoreAudio calls and potential inconsistency
+        let deviceSampleRate = (try? aggregateDeviceID.readNominalSampleRate()) ?? 48000
+        let rampTimeSeconds: Float = 0.030
+        rampCoefficient = 1 - exp(-1 / (Float(deviceSampleRate) * rampTimeSeconds))
+        eqProcessor?.updateSampleRate(deviceSampleRate)
 
         // Transfer volume state from secondary to primary (prevents volume jump)
         _primaryCurrentVolume = _secondaryCurrentVolume
@@ -997,11 +1023,13 @@ final class ProcessTapController {
         // Dispatch blocking teardown to background queue
         DispatchQueue.global(qos: .utility).async {
             // Clean up secondary resources if they exist
-            if secAggregate.isValid {
-                AudioDeviceStop(secAggregate, secProcID)
-                if let procID = secProcID {
-                    AudioDeviceDestroyIOProcID(secAggregate, procID)
-                }
+            // Check both aggregate ID and procID are valid before calling stop/destroy
+            if secAggregate.isValid, let procID = secProcID {
+                AudioDeviceStop(secAggregate, procID)
+                AudioDeviceDestroyIOProcID(secAggregate, procID)
+                AudioHardwareDestroyAggregateDevice(secAggregate)
+            } else if secAggregate.isValid {
+                // Aggregate exists but no procID - just destroy the aggregate
                 AudioHardwareDestroyAggregateDevice(secAggregate)
             }
             if secTap.isValid {
@@ -1009,11 +1037,13 @@ final class ProcessTapController {
             }
 
             // Clean up primary resources
-            if primaryAggregate.isValid {
-                AudioDeviceStop(primaryAggregate, primaryProcID)
-                if let procID = primaryProcID {
-                    AudioDeviceDestroyIOProcID(primaryAggregate, procID)
-                }
+            // Check both aggregate ID and procID are valid before calling stop/destroy
+            if primaryAggregate.isValid, let procID = primaryProcID {
+                AudioDeviceStop(primaryAggregate, procID)
+                AudioDeviceDestroyIOProcID(primaryAggregate, procID)
+                AudioHardwareDestroyAggregateDevice(primaryAggregate)
+            } else if primaryAggregate.isValid {
+                // Aggregate exists but no procID - just destroy the aggregate
                 AudioHardwareDestroyAggregateDevice(primaryAggregate)
             }
             if primaryTap.isValid {

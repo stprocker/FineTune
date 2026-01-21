@@ -102,11 +102,25 @@ final class AudioEngine {
     func stop() {
         processMonitor.stop()
         deviceMonitor.stop()
+        deviceVolumeMonitor.stop()
         for tap in taps.values {
             tap.invalidate()
         }
         taps.removeAll()
         logger.info("AudioEngine stopped")
+    }
+
+    /// Synchronous stop for use in app termination handlers.
+    /// CRITICAL: Removes all CoreAudio property listeners to prevent corrupting coreaudiod state.
+    /// Must be called before app exits to avoid orphaned listeners that can break System Settings.
+    nonisolated func stopSync() {
+        // Use DispatchQueue.main.sync to execute on MainActor synchronously
+        // This is safe in termination handlers where we need to block until cleanup completes
+        DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                self.stop()
+            }
+        }
     }
 
     func setVolume(for app: AudioApp, to volume: Float) {
@@ -332,24 +346,27 @@ final class AudioEngine {
         }
 
         // Schedule cleanup for newly stale PIDs (with grace period)
+        // Grace period of 1 second allows for brief audio interruptions without destroying taps
+        // This is generous enough to handle most transient cases while still cleaning up promptly
         for pid in stalePIDs {
             guard pendingCleanup[pid] == nil else { continue }  // Already pending
 
             pendingCleanup[pid] = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
 
-                // Double-check still stale
+                // Double-check still stale - app may have reappeared during grace period
                 let currentPIDs = Set(self.apps.map { $0.id })
                 guard !currentPIDs.contains(pid) else {
                     self.pendingCleanup.removeValue(forKey: pid)
+                    self.logger.debug("Cleanup cancelled for PID \(pid) - app reappeared during grace period")
                     return
                 }
 
                 // Now safe to cleanup
                 if let tap = self.taps.removeValue(forKey: pid) {
                     tap.invalidate()
-                    self.logger.debug("Cleaned up stale tap for PID \(pid)")
+                    self.logger.info("Cleaned up stale tap for PID \(pid) after grace period")
                 }
                 self.appDeviceRouting.removeValue(forKey: pid)
                 self.pendingCleanup.removeValue(forKey: pid)

@@ -137,7 +137,9 @@ final class AudioDeviceMonitor {
     }
 
     deinit {
-        // Note: Can't call stop() here due to MainActor isolation
-        // Listeners will be cleaned up when the process exits
+        // WARNING: Can't call stop() here due to MainActor isolation.
+        // Callers MUST call stop() before releasing this object to remove CoreAudio listeners.
+        // Orphaned listeners can corrupt coreaudiod state and break System Settings.
+        // AudioEngine.stopSync() handles this for normal app termination.
     }
 }
