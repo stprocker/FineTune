@@ -90,6 +90,12 @@ final class AudioDeviceMonitor {
                     continue
                 }
 
+                // Strictly ignore our own private aggregate devices to prevent recursion/loops.
+                // Even though we set kAudioAggregateDeviceIsPrivateKey: true, they can sometimes leak into the list.
+                if name.hasPrefix("FineTune-") {
+                    continue
+                }
+
                 // Try Core Audio icon first (via LRU cache), fall back to SF Symbol
                 let icon = DeviceIconCache.shared.icon(for: uid) {
                     deviceID.readDeviceIcon()
@@ -191,6 +197,8 @@ final class AudioDeviceMonitor {
                       let name = try? deviceID.readDeviceName() else {
                     continue
                 }
+
+                if name.hasPrefix("FineTune-") { continue }
 
                 let iconSymbol = deviceID.suggestedIconSymbol()
                 devices.append(DeviceData(id: deviceID, uid: uid, name: name, iconSymbol: iconSymbol))

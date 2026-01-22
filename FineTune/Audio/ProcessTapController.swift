@@ -197,18 +197,23 @@ final class ProcessTapController {
 
         logger.debug("Created aggregate device #\(self.aggregateDeviceID)")
 
-        // Compute ramp coefficient from actual device sample rate
-        let sampleRate: Float64
-        if let deviceSampleRate = try? aggregateDeviceID.readNominalSampleRate() {
-            sampleRate = deviceSampleRate
-            logger.info("Device sample rate: \(sampleRate) Hz")
-        } else {
-            sampleRate = 48000
-            logger.warning("Failed to read sample rate, using default: \(sampleRate) Hz")
+        // CRITICAL: Ensure aggregate device is using the correct sample rate from the target device.
+        // We set MainSubDevice above, which should lock the clock, but we verify here.
+        var sampleRate: Float64 = 48000
+        if let targetID = deviceMonitor?.device(for: outputUID)?.id {
+             if let rate = try? targetID.readNominalSampleRate() {
+                 sampleRate = rate
+                 logger.debug("Target device \(outputUID) sample rate: \(rate) Hz")
+             }
+        } else if let rate = try? aggregateDeviceID.readNominalSampleRate() {
+            // Fallback: read from aggregate itself
+            sampleRate = rate
         }
+        
+        // Compute ramp coefficient from confirmed sample rate
         let rampTimeSeconds: Float = 0.030  // 30ms smoothing
         rampCoefficient = 1 - exp(-1 / (Float(sampleRate) * rampTimeSeconds))
-        logger.debug("Ramp coefficient: \(self.rampCoefficient)")
+        logger.debug("Configured for sample rate: \(sampleRate) Hz, Ramp: \(self.rampCoefficient)")
 
         // Initialize EQ processor with device sample rate
         eqProcessor = EQProcessor(sampleRate: sampleRate)
@@ -441,13 +446,16 @@ final class ProcessTapController {
         logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryAggregateID)")
 
         // Initialize sample-accurate crossfade timing from secondary device sample rate
-        // Note: _secondarySampleCount is already set to 0 in performCrossfadeSwitch() before this is called
-        let sampleRate: Double
-        if let deviceSampleRate = try? secondaryAggregateID.readNominalSampleRate() {
+        // Look up target device sample rate to ensure accuracy
+        var sampleRate: Float64 = 48000
+        if let targetID = deviceMonitor?.device(for: outputUID)?.id {
+             if let rate = try? targetID.readNominalSampleRate() {
+                 sampleRate = rate
+             }
+        } else if let deviceSampleRate = try? secondaryAggregateID.readNominalSampleRate() {
             sampleRate = deviceSampleRate
-        } else {
-            sampleRate = 48000
         }
+        
         _crossfadeTotalSamples = CrossfadeConfig.totalSamples(at: sampleRate)
 
         // Compute ramp coefficient for secondary device's sample rate

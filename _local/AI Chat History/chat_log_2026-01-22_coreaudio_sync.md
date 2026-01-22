@@ -152,3 +152,32 @@ deviceVolumeMonitor.onDefaultDeviceChangedExternally = { [weak self] deviceUID i
     self.routeAllApps(to: deviceUID)
 }
 ```
+
+---
+
+## Part 4: Fixing "Angry Robot Noises" and System Settings Freeze (Commit Pending)
+
+### Problem
+User reported "output in sound settings still freezes and i still get an angry robot noise when i open sound settings."
+
+### Root Cause Analysis
+1.  **Recursive Device Monitoring (The Freeze):** FineTune creates "Aggregate Devices" to tap audio. These devices were leaking into the global device list. `AudioDeviceMonitor` picked them up, causing FineTune to try to manage its own virtual devices, creating an infinite recursion loop that locked the HAL (Hardware Abstraction Layer).
+2.  **Sample Rate Mismatch (The Robot Noise):** The aggregate devices were sometimes defaulting to 48kHz even if the target hardware was 44.1kHz (or vice versa). This clock drift caused aliasing artifacts ("robot noise").
+
+### Solution
+
+1.  **Strict Device Filtering:**
+    - Updated `AudioDeviceMonitor.swift` to strictly ignore any device whose name starts with "FineTune-".
+    - This breaks the recursion loop: FineTune no longer "sees" its own machinery.
+
+2.  **Explicit Sample Rate Configuration:**
+    - Updated `ProcessTapController.swift` (`activate` and `createSecondaryTap`) to:
+        1. Resolve the target device's UID to an ID.
+        2. Explicitly read the **target device's nominal sample rate**.
+        3. Configure the EQ processor and crossfade timing using this exact rate.
+    - This ensures the tap, the aggregate, and the hardware are all clock-locked.
+
+### Files Modified
+- `FineTune/Audio/AudioDeviceMonitor.swift`
+- `FineTune/Audio/ProcessTapController.swift`
+
