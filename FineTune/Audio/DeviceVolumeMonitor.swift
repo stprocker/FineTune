@@ -58,6 +58,8 @@ final class DeviceVolumeMonitor {
 
     init(deviceMonitor: AudioDeviceMonitor) {
         self.deviceMonitor = deviceMonitor
+        // Read default device synchronously so UI has correct value before first render
+        refreshDefaultDevice()
     }
 
     func start() {
