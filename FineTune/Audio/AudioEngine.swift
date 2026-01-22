@@ -197,8 +197,19 @@ final class AudioEngine {
     /// Called when user selects a device in the OUTPUT DEVICES section.
     /// This provides macOS-like "switch all audio" behavior.
     func routeAllApps(to deviceUID: String) {
-        logger.info("Routing all apps to device: \(deviceUID)")
-        for app in apps {
+        guard !apps.isEmpty else {
+            logger.debug("No apps to route - only setting system default")
+            return
+        }
+
+        let appsToSwitch = apps.filter { appDeviceRouting[$0.id] != deviceUID }
+        if appsToSwitch.isEmpty {
+            logger.debug("All \(self.apps.count) app(s) already on device: \(deviceUID)")
+            return
+        }
+
+        logger.info("Routing \(appsToSwitch.count)/\(self.apps.count) app(s) to device: \(deviceUID)")
+        for app in appsToSwitch {
             setDevice(for: app, deviceUID: deviceUID)
         }
     }
