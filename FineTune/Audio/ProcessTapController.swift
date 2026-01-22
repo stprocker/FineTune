@@ -345,6 +345,7 @@ final class ProcessTapController {
         _secondarySampleCount = 0
         _secondarySamplesProcessed = 0  // Reset warmup counter for new secondary tap
         _isCrossfading = true
+        OSMemoryBarrier()  // Ensure audio callbacks see crossfade state before secondary tap starts
 
         // Create secondary tap (it will start at sin(0) = 0 = silent)
         logger.info("[CROSSFADE] Step 3: Creating secondary tap for new device")
@@ -355,8 +356,8 @@ final class ProcessTapController {
         }
 
         // Wait for secondary tap to warm up and start producing samples
-        // Bluetooth devices need much longer warmup due to connection latency
-        let warmupMs = isBluetoothDestination ? 300 : 50
+        // Bluetooth devices need much longer warmup due to A2DP connection latency (can take 500ms+)
+        let warmupMs = isBluetoothDestination ? 500 : 50
         logger.info("[CROSSFADE] Step 4: Waiting for secondary tap warmup (\(warmupMs)ms)...")
         try await Task.sleep(for: .milliseconds(UInt64(warmupMs)))
 
@@ -364,8 +365,8 @@ final class ProcessTapController {
 
         // Poll for completion (don't control timing - secondary callback does)
         // Wait for BOTH: crossfade animation complete AND secondary tap warmup complete
-        // Bluetooth gets extended timeout to account for connection latency
-        let timeoutMs = Int(CrossfadeConfig.duration * 1000) + (isBluetoothDestination ? 400 : 100)
+        // Bluetooth gets extended timeout to account for A2DP connection latency
+        let timeoutMs = Int(CrossfadeConfig.duration * 1000) + (isBluetoothDestination ? 600 : 100)
         let pollIntervalMs: UInt64 = 5
         var elapsedMs: Int = 0
 
@@ -387,6 +388,7 @@ final class ProcessTapController {
         // Callback checks _isCrossfading, and if false, uses eqProcessor.
         // eqProcessor must already be the promoted one when this happens.
         _isCrossfading = false
+        OSMemoryBarrier()  // Ensure audio callback sees this before starting EQ processing
 
         logger.info("[CROSSFADE] Complete")
     }
@@ -514,6 +516,7 @@ final class ProcessTapController {
         _crossfadeProgress = 0
         _secondarySampleCount = 0
         _secondarySamplesProcessed = 0
+        OSMemoryBarrier()  // Ensure audio callback sees reset state
 
         // Clean up secondary tap resources if they exist
         if secondaryAggregateID.isValid {
@@ -611,6 +614,7 @@ final class ProcessTapController {
         logger.info("[SWITCH-DESTROY] Device volumes: source=\(sourceVolume), dest=\(destVolume) (no compensation applied)")
 
         _forceSilence = true
+        OSMemoryBarrier()  // Ensure audio thread sees this write immediately
         logger.info("[SWITCH-DESTROY] Enabled _forceSilence=true")
 
         try await Task.sleep(for: .milliseconds(100))
@@ -623,6 +627,7 @@ final class ProcessTapController {
         try await Task.sleep(for: .milliseconds(150))
 
         _forceSilence = false
+        OSMemoryBarrier()  // Ensure audio thread sees this write before fade-in starts
 
         // Gradual fade-in
         for i in 1...10 {
@@ -913,6 +918,11 @@ final class ProcessTapController {
         }
 
         // Copy input to output with ramped gain and crossfade
+        // Use secondaryRampCoefficient during crossfade (we ARE the secondary),
+        // but switch to rampCoefficient after promotion to primary.
+        // This prevents coefficient corruption when a new secondary is created during the next switch.
+        let activeRampCoef = _isCrossfading ? secondaryRampCoefficient : rampCoefficient
+
         for (inputBuffer, outputBuffer) in zip(inputBuffers, outputBuffers) {
             guard let inputData = inputBuffer.mData,
                   let outputData = outputBuffer.mData else { continue }
@@ -923,7 +933,7 @@ final class ProcessTapController {
 
             for i in 0..<sampleCount {
                 // Per-sample volume ramping
-                currentVol += (targetVol - currentVol) * secondaryRampCoefficient
+                currentVol += (targetVol - currentVol) * activeRampCoef
 
                 // Apply ramped gain with crossfade multiplier and device volume compensation
                 var sample = inputSamples[i] * currentVol * crossfadeMultiplier * _deviceVolumeCompensation
@@ -1001,6 +1011,7 @@ final class ProcessTapController {
 
         // Stop crossfade immediately if in progress
         _isCrossfading = false
+        OSMemoryBarrier()  // Ensure audio callback sees this before teardown begins
 
         // Capture all IDs before clearing - teardown happens on background queue
         // to avoid blocking main thread (AudioDeviceDestroyIOProcID blocks until callback finishes)

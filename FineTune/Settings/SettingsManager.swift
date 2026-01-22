@@ -90,10 +90,23 @@ final class SettingsManager {
 
     /// Immediately writes pending changes to disk.
     /// Call this on app termination to prevent data loss.
-    func flushSync() {
-        saveTask?.cancel()
-        saveTask = nil
-        writeToDisk()
+    /// Must be nonisolated to guarantee synchronous execution from termination handlers.
+    nonisolated func flushSync() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                saveTask?.cancel()
+                saveTask = nil
+                writeToDisk()
+            }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    self.saveTask?.cancel()
+                    self.saveTask = nil
+                    self.writeToDisk()
+                }
+            }
+        }
     }
 
     private func writeToDisk() {

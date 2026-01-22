@@ -21,9 +21,17 @@ struct EQSettings: Codable, Equatable {
         self.isEnabled = isEnabled
     }
 
-    /// Returns gains clamped to valid range
+    /// Returns gains clamped to valid range and padded/truncated to exactly bandCount elements.
+    /// This provides defensive validation against corrupted settings files.
     var clampedGains: [Float] {
-        bandGains.map { max(Self.minGainDB, min(Self.maxGainDB, $0)) }
+        var gains = bandGains.map { max(Self.minGainDB, min(Self.maxGainDB, $0)) }
+        // Ensure exactly bandCount elements (defensive against corrupted settings)
+        if gains.count < Self.bandCount {
+            gains.append(contentsOf: Array(repeating: Float(0), count: Self.bandCount - gains.count))
+        } else if gains.count > Self.bandCount {
+            gains = Array(gains.prefix(Self.bandCount))
+        }
+        return gains
     }
 
     /// Flat EQ preset

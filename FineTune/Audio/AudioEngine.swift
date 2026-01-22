@@ -114,11 +114,17 @@ final class AudioEngine {
     /// CRITICAL: Removes all CoreAudio property listeners to prevent corrupting coreaudiod state.
     /// Must be called before app exits to avoid orphaned listeners that can break System Settings.
     nonisolated func stopSync() {
-        // Use DispatchQueue.main.sync to execute on MainActor synchronously
-        // This is safe in termination handlers where we need to block until cleanup completes
-        DispatchQueue.main.sync {
+        // Check if already on main thread to avoid deadlock.
+        // NSApplication.willTerminateNotification fires on main thread, so we must handle this case.
+        if Thread.isMainThread {
             MainActor.assumeIsolated {
                 self.stop()
+            }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    self.stop()
+                }
             }
         }
     }
