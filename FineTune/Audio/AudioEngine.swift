@@ -226,9 +226,10 @@ final class AudioEngine {
                 deviceUID = savedDeviceUID
                 logger.debug("Applying saved device routing to \(app.name): \(deviceUID)")
             } else {
-                // New app or saved device no longer exists: assign to current macOS default
+                // New app or saved device no longer exists: assign to current macOS default output device
+                // Note: Uses DefaultOutputDevice (where apps play), NOT DefaultSystemOutputDevice (for system sounds)
                 do {
-                    deviceUID = try AudioDeviceID.readDefaultSystemOutputDeviceUID()
+                    deviceUID = try AudioDeviceID.readDefaultOutputDeviceUID()
                     settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
                     logger.debug("App \(app.name) assigned to default device: \(deviceUID)")
                 } catch {
@@ -291,10 +292,10 @@ final class AudioEngine {
 
     /// Called when device disappears - updates routing and switches taps immediately
     private func handleDeviceDisconnected(_ deviceUID: String, name deviceName: String) {
-        // Get fallback device: macOS default, or first available device
+        // Get fallback device: macOS default output, or first available device
         let fallbackDevice: (uid: String, name: String)
         do {
-            let uid = try AudioDeviceID.readDefaultSystemOutputDeviceUID()
+            let uid = try AudioDeviceID.readDefaultOutputDeviceUID()
             let name = deviceMonitor.device(for: uid)?.name ?? "Default Output"
             fallbackDevice = (uid: uid, name: name)
         } catch {

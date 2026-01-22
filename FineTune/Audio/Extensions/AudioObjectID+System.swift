@@ -71,6 +71,18 @@ extension AudioDeviceID {
         return try deviceID.readDeviceUID()
     }
 
+    static func readDefaultOutputDevice() throws -> AudioDeviceID {
+        try AudioObjectID.system.read(
+            kAudioHardwarePropertyDefaultOutputDevice,
+            defaultValue: AudioDeviceID.unknown
+        )
+    }
+
+    static func readDefaultOutputDeviceUID() throws -> String {
+        let deviceID = try readDefaultOutputDevice()
+        return try deviceID.readDeviceUID()
+    }
+
     static func setDefaultOutputDevice(_ deviceID: AudioDeviceID) throws {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
