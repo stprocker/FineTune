@@ -30,6 +30,13 @@ final class DeviceVolumeMonitor {
     /// Called when any device's mute state changes (deviceID, isMuted)
     var onMuteChanged: ((AudioDeviceID, Bool) -> Void)?
 
+    /// Called when default device changes externally (e.g., from System Settings)
+    /// This allows AudioEngine to route all apps to the new device
+    var onDefaultDeviceChangedExternally: ((_ deviceUID: String) -> Void)?
+
+    /// Flag to track if WE initiated the default device change (prevents feedback loop)
+    private var isSettingDefaultDevice = false
+
     private let deviceMonitor: AudioDeviceMonitor
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "DeviceVolumeMonitor")
 
@@ -204,6 +211,10 @@ final class DeviceVolumeMonitor {
             return
         }
 
+        // Set flag to prevent our own change from triggering onDefaultDeviceChangedExternally
+        isSettingDefaultDevice = true
+        defer { isSettingDefaultDevice = false }
+
         do {
             try AudioDeviceID.setDefaultOutputDevice(deviceID)
             logger.debug("Set default output device to \(deviceID)")
@@ -257,7 +268,13 @@ final class DeviceVolumeMonitor {
 
     /// Handles default device change notification by reading on background thread to avoid blocking MainActor
     private func handleDefaultDeviceChanged() {
-        logger.debug("Default output device changed")
+        // Skip if we initiated this change (prevents feedback loop)
+        guard !isSettingDefaultDevice else {
+            logger.debug("Default device changed (self-initiated, ignoring)")
+            return
+        }
+
+        logger.debug("Default output device changed externally")
         Task.detached { [weak self] in
             // Read CoreAudio properties on background thread to avoid blocking MainActor
             let newDeviceID = try? AudioDeviceID.readDefaultOutputDevice()
@@ -269,6 +286,11 @@ final class DeviceVolumeMonitor {
                     self.defaultDeviceID = id
                     self.defaultDeviceUID = newDeviceUID
                     self.logger.debug("Default device updated: \(id), UID: \(newDeviceUID ?? "nil")")
+
+                    // Notify AudioEngine to route all apps to the new device
+                    if let uid = newDeviceUID {
+                        self.onDefaultDeviceChangedExternally?(uid)
+                    }
                 }
             }
         }

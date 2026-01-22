@@ -59,6 +59,13 @@ final class AudioEngine {
                 }
             }
 
+            // Sync external default device changes (e.g., from System Settings) to all tapped apps
+            deviceVolumeMonitor.onDefaultDeviceChangedExternally = { [weak self] deviceUID in
+                guard let self else { return }
+                self.logger.info("System default device changed externally to: \(deviceUID)")
+                self.routeAllApps(to: deviceUID)
+            }
+
             processMonitor.onAppsChanged = { [weak self] _ in
                 self?.cleanupStaleTaps()
                 self?.applyPersistedSettings()

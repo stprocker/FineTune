@@ -20,3 +20,5 @@ __Snapshots__/
 # macOS
 .DS_Store
 *.swp
+.gemini/
+gha-creds-*.json
