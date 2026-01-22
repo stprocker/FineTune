@@ -163,7 +163,7 @@ struct MenuBarPopupView: View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             ForEach(audioEngine.apps) { app in
                 // Use explicit device routing if available, otherwise fall back to default output device
-                let deviceUID = audioEngine.getDeviceUID(for: app)
+                let deviceUID = audioEngine.appDeviceRouting[app.id]
                     ?? audioEngine.deviceVolumeMonitor.defaultDeviceUID
                     ?? audioEngine.outputDevices.first?.uid
                     ?? ""
