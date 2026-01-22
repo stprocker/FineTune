@@ -106,7 +106,10 @@ struct MenuBarPopupView: View {
                     volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
                     isMuted: deviceVolumeMonitor.muteStates[device.id] ?? false,
                     onSetDefault: {
+                        // 1. Set macOS system default (for apps that follow system default)
                         deviceVolumeMonitor.setDefaultDevice(device.id)
+                        // 2. Route all currently-playing apps to this device
+                        audioEngine.routeAllApps(to: device.uid)
                     },
                     onVolumeChange: { volume in
                         deviceVolumeMonitor.setVolume(for: device.id, to: volume)
