@@ -36,15 +36,16 @@ final class AudioDeviceMonitor {
         refresh()
 
         deviceListListenerBlock = { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                self?.handleDeviceListChanged()
+            // Listener fires on coreAudioListenerQueue - do CoreAudio reads here, not on MainActor
+            Task.detached { [weak self] in
+                await self?.handleDeviceListChangedAsync()
             }
         }
 
         let status = AudioObjectAddPropertyListenerBlock(
             .system,
             &deviceListAddress,
-            .main,
+            coreAudioListenerQueue,
             deviceListListenerBlock!
         )
 
@@ -57,7 +58,7 @@ final class AudioDeviceMonitor {
         logger.debug("Stopping audio device monitor")
 
         if let block = deviceListListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &deviceListAddress, .main, block)
+            AudioObjectRemovePropertyListenerBlock(.system, &deviceListAddress, coreAudioListenerQueue, block)
             deviceListListenerBlock = nil
         }
     }
@@ -133,6 +134,87 @@ final class AudioDeviceMonitor {
             let name = deviceNames[uid] ?? uid
             logger.info("Device disconnected: \(name) (\(uid))")
             onDeviceDisconnected?(uid, name)
+        }
+    }
+
+    /// Async handler that reads CoreAudio on background thread, updates UI on MainActor
+    private func handleDeviceListChangedAsync() async {
+        // Capture current state before background work
+        let previousUIDs = await MainActor.run { knownDeviceUIDs }
+        let deviceNames = await MainActor.run {
+            Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
+        }
+
+        // Do CoreAudio reads on current (background) thread
+        let deviceData = Self.readDeviceDataFromCoreAudio()
+
+        // Update UI state on MainActor (icon resolution happens here)
+        await MainActor.run { [weak self] in
+            guard let self else { return }
+            let devices = self.createAudioDevices(from: deviceData)
+            self.outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            self.knownDeviceUIDs = Set(devices.map(\.uid))
+            self.devicesByUID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.uid, $0) })
+            self.devicesByID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.id, $0) })
+
+            // Notify disconnected devices
+            let disconnectedUIDs = previousUIDs.subtracting(self.knownDeviceUIDs)
+            for uid in disconnectedUIDs {
+                let name = deviceNames[uid] ?? uid
+                self.logger.info("Device disconnected: \(name) (\(uid))")
+                self.onDeviceDisconnected?(uid, name)
+            }
+        }
+    }
+
+    /// Intermediate struct for device data read on background thread
+    private struct DeviceData: Sendable {
+        let id: AudioDeviceID
+        let uid: String
+        let name: String
+        let iconSymbol: String
+    }
+
+    /// Reads device list from CoreAudio - can be called from any thread.
+    /// Returns raw data; icons are resolved on MainActor.
+    private nonisolated static func readDeviceDataFromCoreAudio() -> [DeviceData] {
+        do {
+            let deviceIDs = try AudioObjectID.readDeviceList()
+            var devices: [DeviceData] = []
+
+            for deviceID in deviceIDs {
+                guard deviceID.hasOutputStreams() else { continue }
+                guard !deviceID.isAggregateDevice() else { continue }
+                guard !deviceID.isVirtualDevice() else { continue }
+
+                guard let uid = try? deviceID.readDeviceUID(),
+                      let name = try? deviceID.readDeviceName() else {
+                    continue
+                }
+
+                let iconSymbol = deviceID.suggestedIconSymbol()
+                devices.append(DeviceData(id: deviceID, uid: uid, name: name, iconSymbol: iconSymbol))
+            }
+
+            return devices
+        } catch {
+            return []
+        }
+    }
+
+    /// Converts DeviceData to AudioDevice on MainActor (for icon cache access)
+    private func createAudioDevices(from deviceData: [DeviceData]) -> [AudioDevice] {
+        deviceData.map { data in
+            let icon = DeviceIconCache.shared.icon(for: data.uid) {
+                data.id.readDeviceIcon()
+            } ?? NSImage(systemSymbolName: data.iconSymbol, accessibilityDescription: data.name)
+
+            return AudioDevice(
+                id: data.id,
+                uid: data.uid,
+                name: data.name,
+                icon: icon
+            )
         }
     }
 

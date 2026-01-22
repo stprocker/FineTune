@@ -73,6 +73,9 @@ struct MenuBarPopupView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             isPopupVisible = true
+            // Re-sync default device in case of missed listener updates
+            deviceVolumeMonitor.refreshDefaultDevice()
+            updateSortedDevices()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             isPopupVisible = false

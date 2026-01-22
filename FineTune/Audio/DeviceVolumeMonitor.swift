@@ -3,6 +3,12 @@ import AppKit
 import AudioToolbox
 import os
 
+/// Shared background queue for all CoreAudio property listener callbacks.
+/// Using a dedicated queue avoids blocking the main thread during HAL operations,
+/// which can cause deadlocks with other apps (like System Settings) that also
+/// interact with CoreAudio on the main thread.
+let coreAudioListenerQueue = DispatchQueue(label: "com.finetune.coreaudio-listeners", qos: .userInitiated)
+
 @Observable
 @MainActor
 final class DeviceVolumeMonitor {
@@ -32,6 +38,12 @@ final class DeviceVolumeMonitor {
     /// Mute listeners for each tracked device
     private var muteListeners: [AudioDeviceID: AudioObjectPropertyListenerBlock] = [:]
     private var defaultDeviceListenerBlock: AudioObjectPropertyListenerBlock?
+    private var serviceRestartListenerBlock: AudioObjectPropertyListenerBlock?
+
+    /// Debounce tasks to coalesce rapid listener callbacks
+    private var defaultDeviceDebounceTask: Task<Void, Never>?
+    private var volumeDebounceTasks: [AudioDeviceID: Task<Void, Never>] = [:]
+    private var muteDebounceTasks: [AudioDeviceID: Task<Void, Never>] = [:]
 
     /// Flag to control the recursive observation loop
     private var isObservingDeviceList = false
@@ -56,6 +68,12 @@ final class DeviceVolumeMonitor {
         mElement: kAudioObjectPropertyElementMain
     )
 
+    private var serviceRestartAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyServiceRestarted,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
     init(deviceMonitor: AudioDeviceMonitor) {
         self.deviceMonitor = deviceMonitor
         // Read default device synchronously so UI has correct value before first render
@@ -73,22 +91,45 @@ final class DeviceVolumeMonitor {
         // Read volumes for all devices and set up listeners
         refreshDeviceListeners()
 
-        // Listen for default output device changes
+        // Listen for default output device changes (with debouncing)
         defaultDeviceListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                self?.handleDefaultDeviceChanged()
+                self?.defaultDeviceDebounceTask?.cancel()
+                self?.defaultDeviceDebounceTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(50))
+                    guard !Task.isCancelled else { return }
+                    self?.handleDefaultDeviceChanged()
+                }
             }
         }
 
         let defaultDeviceStatus = AudioObjectAddPropertyListenerBlock(
             .system,
             &defaultDeviceAddress,
-            .main,
+            coreAudioListenerQueue,
             defaultDeviceListenerBlock!
         )
 
         if defaultDeviceStatus != noErr {
             logger.error("Failed to add default device listener: \(defaultDeviceStatus)")
+        }
+
+        // Listen for coreaudiod restart to recover from daemon crashes
+        serviceRestartListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.handleServiceRestarted()
+            }
+        }
+
+        let serviceRestartStatus = AudioObjectAddPropertyListenerBlock(
+            .system,
+            &serviceRestartAddress,
+            coreAudioListenerQueue,
+            serviceRestartListenerBlock!
+        )
+
+        if serviceRestartStatus != noErr {
+            logger.error("Failed to add service restart listener: \(serviceRestartStatus)")
         }
 
         // Observe device list changes from deviceMonitor using withObservationTracking
@@ -103,10 +144,28 @@ final class DeviceVolumeMonitor {
         observationTask?.cancel()
         observationTask = nil
 
+        // Cancel all debounce tasks
+        defaultDeviceDebounceTask?.cancel()
+        defaultDeviceDebounceTask = nil
+        for task in volumeDebounceTasks.values {
+            task.cancel()
+        }
+        volumeDebounceTasks.removeAll()
+        for task in muteDebounceTasks.values {
+            task.cancel()
+        }
+        muteDebounceTasks.removeAll()
+
         // Remove default device listener
         if let block = defaultDeviceListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &defaultDeviceAddress, .main, block)
+            AudioObjectRemovePropertyListenerBlock(.system, &defaultDeviceAddress, coreAudioListenerQueue, block)
             defaultDeviceListenerBlock = nil
+        }
+
+        // Remove service restart listener
+        if let block = serviceRestartListenerBlock {
+            AudioObjectRemovePropertyListenerBlock(.system, &serviceRestartAddress, coreAudioListenerQueue, block)
+            serviceRestartListenerBlock = nil
         }
 
         // Remove all volume listeners
@@ -168,9 +227,11 @@ final class DeviceVolumeMonitor {
         }
     }
 
-    // MARK: - Private Methods
+    // MARK: - Internal Methods
 
-    private func refreshDefaultDevice() {
+    /// Re-reads the default output device from CoreAudio.
+    /// Called on startup and when popup becomes visible to catch any missed updates.
+    func refreshDefaultDevice() {
         do {
             let newDeviceID: AudioDeviceID = try AudioObjectID.system.read(
                 kAudioHardwarePropertyDefaultOutputDevice,
@@ -192,9 +253,25 @@ final class DeviceVolumeMonitor {
         }
     }
 
+    // MARK: - Private Methods
+
+    /// Handles default device change notification by reading on background thread to avoid blocking MainActor
     private func handleDefaultDeviceChanged() {
         logger.debug("Default output device changed")
-        refreshDefaultDevice()
+        Task.detached { [weak self] in
+            // Read CoreAudio properties on background thread to avoid blocking MainActor
+            let newDeviceID = try? AudioDeviceID.readDefaultOutputDevice()
+            let newDeviceUID = try? newDeviceID?.readDeviceUID()
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if let id = newDeviceID, id.isValid {
+                    self.defaultDeviceID = id
+                    self.defaultDeviceUID = newDeviceUID
+                    self.logger.debug("Default device updated: \(id), UID: \(newDeviceUID ?? "nil")")
+                }
+            }
+        }
     }
 
     /// Synchronizes volume and mute listeners with the current device list from deviceMonitor
@@ -243,7 +320,7 @@ final class DeviceVolumeMonitor {
         let status = AudioObjectAddPropertyListenerBlock(
             deviceID,
             &address,
-            .main,
+            coreAudioListenerQueue,
             block
         )
 
@@ -257,16 +334,32 @@ final class DeviceVolumeMonitor {
         guard let block = volumeListeners[deviceID] else { return }
 
         var address = volumeAddress
-        AudioObjectRemovePropertyListenerBlock(deviceID, &address, .main, block)
+        AudioObjectRemovePropertyListenerBlock(deviceID, &address, coreAudioListenerQueue, block)
         volumeListeners.removeValue(forKey: deviceID)
     }
 
+    /// Handles volume change notification with debouncing and background read
     private func handleVolumeChanged(for deviceID: AudioDeviceID) {
         guard deviceID.isValid else { return }
-        let newVolume = deviceID.readOutputVolumeScalar()
-        volumes[deviceID] = newVolume
-        onVolumeChanged?(deviceID, newVolume)
-        logger.debug("Volume changed for device \(deviceID): \(newVolume)")
+
+        // Cancel any pending debounce for this device
+        volumeDebounceTasks[deviceID]?.cancel()
+        volumeDebounceTasks[deviceID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(30))
+            guard !Task.isCancelled else { return }
+
+            // Read on background thread
+            await Task.detached { [weak self] in
+                let newVolume = deviceID.readOutputVolumeScalar()
+
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.volumes[deviceID] = newVolume
+                    self.onVolumeChanged?(deviceID, newVolume)
+                    self.logger.debug("Volume changed for device \(deviceID): \(newVolume)")
+                }
+            }.value
+        }
     }
 
     private func addMuteListener(for deviceID: AudioDeviceID) {
@@ -285,7 +378,7 @@ final class DeviceVolumeMonitor {
         let status = AudioObjectAddPropertyListenerBlock(
             deviceID,
             &address,
-            .main,
+            coreAudioListenerQueue,
             block
         )
 
@@ -299,44 +392,108 @@ final class DeviceVolumeMonitor {
         guard let block = muteListeners[deviceID] else { return }
 
         var address = muteAddress
-        AudioObjectRemovePropertyListenerBlock(deviceID, &address, .main, block)
+        AudioObjectRemovePropertyListenerBlock(deviceID, &address, coreAudioListenerQueue, block)
         muteListeners.removeValue(forKey: deviceID)
     }
 
+    /// Handles mute change notification with debouncing and background read
     private func handleMuteChanged(for deviceID: AudioDeviceID) {
         guard deviceID.isValid else { return }
-        let newMuteState = deviceID.readMuteState()
-        muteStates[deviceID] = newMuteState
-        onMuteChanged?(deviceID, newMuteState)
-        logger.debug("Mute changed for device \(deviceID): \(newMuteState)")
+
+        // Cancel any pending debounce for this device
+        muteDebounceTasks[deviceID]?.cancel()
+        muteDebounceTasks[deviceID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(30))
+            guard !Task.isCancelled else { return }
+
+            // Read on background thread
+            await Task.detached { [weak self] in
+                let newMuteState = deviceID.readMuteState()
+
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.muteStates[deviceID] = newMuteState
+                    self.onMuteChanged?(deviceID, newMuteState)
+                    self.logger.debug("Mute changed for device \(deviceID): \(newMuteState)")
+                }
+            }.value
+        }
+    }
+
+    /// Handles coreaudiod restart - re-reads all state to recover from daemon crash
+    private func handleServiceRestarted() {
+        logger.warning("coreaudiod service restarted - re-reading all device state")
+
+        // Re-read default device on background thread
+        Task.detached { [weak self] in
+            let newDeviceID = try? AudioDeviceID.readDefaultOutputDevice()
+            let newDeviceUID = try? newDeviceID?.readDeviceUID()
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if let id = newDeviceID, id.isValid {
+                    self.defaultDeviceID = id
+                    self.defaultDeviceUID = newDeviceUID
+                }
+                // Re-read all device volumes and mute states
+                self.readAllStates()
+                self.logger.debug("Recovered from coreaudiod restart")
+            }
+        }
     }
 
     /// Reads the current volume and mute state for all tracked devices.
     /// For Bluetooth devices, schedules a delayed re-read because the HAL may report
     /// default volume (1.0) for 50-200ms after the device appears.
     private func readAllStates() {
-        for device in deviceMonitor.outputDevices {
-            let volume = device.id.readOutputVolumeScalar()
-            volumes[device.id] = volume
+        // Capture device IDs to read
+        let devices = deviceMonitor.outputDevices
 
-            let muted = device.id.readMuteState()
-            muteStates[device.id] = muted
+        // Do CoreAudio reads on background thread to avoid blocking MainActor
+        Task.detached { [weak self] in
+            var volumeResults: [AudioDeviceID: Float] = [:]
+            var muteResults: [AudioDeviceID: Bool] = [:]
+            var bluetoothDeviceIDs: [AudioDeviceID] = []
 
-            // Bluetooth devices may not have valid volume immediately after appearing.
-            // The HAL returns 1.0 (default) until the BT firmware handshake completes.
-            // Schedule a delayed re-read to get the actual volume.
-            let transportType = device.id.readTransportType()
-            if transportType == .bluetooth || transportType == .bluetoothLE {
-                let deviceID = device.id
-                Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .milliseconds(200))
-                    // Verify device is still tracked AND still valid (could have been unplugged)
-                    guard let self,
-                          self.volumes.keys.contains(deviceID),
-                          deviceID.isValid else { return }
-                    let confirmedVolume = deviceID.readOutputVolumeScalar()
+            for device in devices {
+                let volume = device.id.readOutputVolumeScalar()
+                let muted = device.id.readMuteState()
+                volumeResults[device.id] = volume
+                muteResults[device.id] = muted
+
+                let transportType = device.id.readTransportType()
+                if transportType == .bluetooth || transportType == .bluetoothLE {
+                    bluetoothDeviceIDs.append(device.id)
+                }
+            }
+
+            // Update state on MainActor
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                for (deviceID, volume) in volumeResults {
+                    self.volumes[deviceID] = volume
+                }
+                for (deviceID, muted) in muteResults {
+                    self.muteStates[deviceID] = muted
+                }
+            }
+
+            // Schedule delayed re-read for Bluetooth devices
+            for deviceID in bluetoothDeviceIDs {
+                try? await Task.sleep(for: .milliseconds(200))
+
+                // Check if device is still tracked before re-reading
+                let stillTracked = await MainActor.run { [weak self] in
+                    self?.volumes.keys.contains(deviceID) ?? false
+                }
+                guard stillTracked else { continue }
+
+                let confirmedVolume = deviceID.readOutputVolumeScalar()
+                let confirmedMute = deviceID.readMuteState()
+
+                await MainActor.run { [weak self] in
+                    guard let self, self.volumes.keys.contains(deviceID) else { return }
                     self.volumes[deviceID] = confirmedVolume
-                    let confirmedMute = deviceID.readMuteState()
                     self.muteStates[deviceID] = confirmedMute
                     self.logger.debug("Bluetooth device \(deviceID) re-read volume: \(confirmedVolume), muted: \(confirmedMute)")
                 }

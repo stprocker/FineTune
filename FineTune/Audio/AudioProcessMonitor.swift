@@ -95,18 +95,17 @@ final class AudioProcessMonitor {
 
         logger.debug("Starting audio process monitor")
 
-        // Set up listener first
+        // Set up listener first - fires on coreAudioListenerQueue
         processListListenerBlock = { [weak self] numberAddresses, addresses in
-            Task { @MainActor [weak self] in
-                self?.logger.debug("[DIAG] kAudioHardwarePropertyProcessObjectList fired")
-                self?.refresh()
+            Task.detached { [weak self] in
+                await self?.refreshAsync()
             }
         }
 
         let status = AudioObjectAddPropertyListenerBlock(
             .system,
             &processListAddress,
-            .main,
+            coreAudioListenerQueue,
             processListListenerBlock!
         )
 
@@ -123,7 +122,7 @@ final class AudioProcessMonitor {
 
         // Remove process list listener
         if let block = processListListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &processListAddress, .main, block)
+            AudioObjectRemovePropertyListenerBlock(.system, &processListAddress, coreAudioListenerQueue, block)
             processListListenerBlock = nil
         }
 
@@ -180,6 +179,65 @@ final class AudioProcessMonitor {
         }
     }
 
+    /// Async version that does CoreAudio reads on background thread
+    private func refreshAsync() async {
+        // Read process list on background thread (current thread)
+        guard let processIDs = try? AudioObjectID.readProcessList() else { return }
+        let myPID = Foundation.ProcessInfo.processInfo.processIdentifier
+
+        // Collect process info on background thread
+        struct AudioProcessData {
+            let objectID: AudioObjectID
+            let pid: pid_t
+            let bundleID: String?
+            let isRunning: Bool
+        }
+
+        var processInfos: [AudioProcessData] = []
+        for objectID in processIDs {
+            let isRunning = objectID.readProcessIsRunning()
+            guard isRunning else { continue }
+            guard let pid = try? objectID.readProcessPID(), pid != myPID else { continue }
+            let bundleID = objectID.readProcessBundleID()
+            processInfos.append(AudioProcessData(objectID: objectID, pid: pid, bundleID: bundleID, isRunning: isRunning))
+        }
+
+        // Do app resolution and UI updates on MainActor
+        await MainActor.run { [weak self] in
+            guard let self else { return }
+
+            let runningApps = NSWorkspace.shared.runningApplications
+            var apps: [AudioApp] = []
+
+            for info in processInfos {
+                let directApp = runningApps.first { $0.processIdentifier == info.pid }
+                let isRealApp = directApp?.bundleURL?.pathExtension == "app"
+                let resolvedApp = isRealApp ? directApp : self.findResponsibleApp(for: info.pid, in: runningApps)
+
+                let name = resolvedApp?.localizedName
+                    ?? info.bundleID?.components(separatedBy: ".").last
+                    ?? "Unknown"
+                let icon = resolvedApp?.icon
+                    ?? NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
+                    ?? NSImage()
+                let bundleID = resolvedApp?.bundleIdentifier ?? info.bundleID
+
+                let app = AudioApp(
+                    id: info.pid,
+                    objectID: info.objectID,
+                    name: name,
+                    icon: icon,
+                    bundleID: bundleID
+                )
+                apps.append(app)
+            }
+
+            self.updateProcessListeners(for: processIDs)
+            self.activeApps = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            self.onAppsChanged?(self.activeApps)
+        }
+    }
+
     private func updateProcessListeners(for processIDs: [AudioObjectID]) {
         let currentSet = Set(processIDs)
 
@@ -206,12 +264,12 @@ final class AudioProcessMonitor {
         )
 
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                self?.refresh()
+            Task.detached { [weak self] in
+                await self?.refreshAsync()
             }
         }
 
-        let status = AudioObjectAddPropertyListenerBlock(objectID, &address, .main, block)
+        let status = AudioObjectAddPropertyListenerBlock(objectID, &address, coreAudioListenerQueue, block)
 
         if status == noErr {
             processListenerBlocks[objectID] = block
@@ -229,7 +287,7 @@ final class AudioProcessMonitor {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        AudioObjectRemovePropertyListenerBlock(objectID, &address, .main, block)
+        AudioObjectRemovePropertyListenerBlock(objectID, &address, coreAudioListenerQueue, block)
     }
 
     private func removeAllProcessListeners() {
