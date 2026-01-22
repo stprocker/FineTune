@@ -1,0 +1,173 @@
+{"app_name":"remotepairingd","timestamp":"2026-01-22 15:18:51.00 -0500","app_version":"1.0","slice_uuid":"b0e7505f-3349-3e68-84fa-15334cc90d0d","build_version":"240","platform":1,"bundleID":"com.apple.CoreDevice.remotepairingd","share_with_app_devs":0,"is_first_party":1,"bug_type":"309","os_version":"macOS 26.3 (25D5101c)","roots_installed":0,"name":"remotepairingd","incident_id":"C9E5A0E9-D84E-4218-AF3E-7EEFE4F1E577"}
+{
+  "uptime" : 3600,
+  "procRole" : "Unspecified",
+  "version" : 2,
+  "userID" : 501,
+  "deployVersion" : 210,
+  "modelCode" : "Mac16,5",
+  "coalitionID" : 2394,
+  "osVersion" : {
+    "train" : "macOS 26.3",
+    "build" : "25D5101c",
+    "releaseType" : "User"
+  },
+  "captureTime" : "2026-01-22 15:18:51.0634 -0500",
+  "codeSigningMonitor" : 2,
+  "incident" : "C9E5A0E9-D84E-4218-AF3E-7EEFE4F1E577",
+  "pid" : 32457,
+  "translated" : false,
+  "cpuType" : "ARM-64",
+  "procLaunch" : "2026-01-22 15:18:51.0195 -0500",
+  "procStartAbsTime" : 86793609990,
+  "procExitAbsTime" : 86794660273,
+  "procName" : "remotepairingd",
+  "procPath" : "\/Library\/Apple\/*\/RemotePairing.framework\/Versions\/A\/XPCServices\/remotepairingd.xpc\/Contents\/MacOS\/remotepairingd",
+  "bundleInfo" : {"CFBundleShortVersionString":"1.0","CFBundleVersion":"240","CFBundleIdentifier":"com.apple.CoreDevice.remotepairingd"},
+  "buildInfo" : {"ProjectName":"RemotePairing_host","SourceVersion":"240000000000000","BuildVersion":"3786"},
+  "parentProc" : "launchd",
+  "parentPid" : 1,
+  "coalitionName" : "com.apple.CoreDevice.remotepairingd",
+  "crashReporterKey" : "A901D058-9136-10D8-2464-63175DE43B8E",
+  "appleIntelligenceStatus" : {"state":"available"},
+  "developerMode" : 1,
+  "consecutiveCrashCount" : 18,
+  "throttleTimeout" : 1200,
+  "codeSigningID" : "com.apple.CoreDevice.remotepairingd",
+  "codeSigningTeamID" : "",
+  "codeSigningFlags" : 570522369,
+  "codeSigningValidationCategory" : 1,
+  "codeSigningTrustLevel" : 4294967295,
+  "codeSigningAuxiliaryInfo" : 0,
+  "instructionByteStream" : {"beforePC":"IAAg1MEF+LfpAwC54gMDquMDBKrkAwWq5QMGquYDB6rnAwiqQgMAlA==","atPC":"IAAg1CgAgFKJEoBS6BMAuekHAPlIAIBS6AMAOSAbANAAUD2RIxsA8A=="},
+  "bootSessionUUID" : "5EF19651-EEFA-40D1-A712-74D4E20F8A5F",
+  "sip" : "enabled",
+  "exception" : {"codes":"0x0000000000000001, 0x00000001b12fa9d4","rawCodes":[1,7267658196],"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},
+  "termination" : {"flags":0,"code":5,"namespace":"SIGNAL","indicator":"Trace\/BPT trap: 5","byProc":"exc handler","byPid":32457},
+  "os_fault" : {"process":"remotepairingd"},
+  "extMods" : {"caller":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"system":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"targeted":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"warnings":0},
+  "faultingThread" : 0,
+  "threads" : [{"triggered":true,"id":220615,"threadState":{"x":[{"value":4356297752},{"value":8589934595},{"value":2833},{"value":53},{"value":4356305280},{"value":3},{"value":32},{"value":0},{"value":18446744065119617024},{"value":8589934595},{"value":3},{"value":7},{"value":8791026541615629344},{"value":4518},{"value":4356195232},{"value":6053968214320234560},{"value":10570229804771459184},{"value":6896136929418001},{"value":0},{"value":17293822569102704800},{"value":6134346368},{"value":4356302064},{"value":4356297744},{"value":4356297744},{"value":7271231760,"symbolLocation":11482,"symbol":"(anonymous namespace)::OldDemangler::demangleIdentifier(unsigned int, std::__1::optional<swift::Demangle::__runtime::Node::Kind>)::op_char_table"},{"value":0},{"value":11686841040292850360,"symbolLocation":11686841033026437120,"symbol":"swift_cvw_initWithCopy"},{"value":4333248512},{"value":54404579520}],"flavor":"ARM_THREAD_STATE64","lr":{"value":9318229111273925076},"cpsr":{"value":1610612736},"fp":{"value":6134346304},"sp":{"value":6134346176},"esr":{"value":4060086273,"description":"(Breakpoint) brk 1"},"pc":{"value":7267658196,"matchesCrashFrame":1},"far":{"value":0}},"queue":"com.apple.main-thread","frames":[{"imageOffset":1276372,"symbol":"_assertionFailure(_:_:file:line:flags:)","symbolLocation":176,"imageIndex":5},{"imageOffset":1982348,"symbol":"swift_errorInMain","symbolLocation":604,"imageIndex":5},{"imageOffset":41396,"symbol":"main","symbolLocation":3800,"imageIndex":0},{"imageOffset":36180,"symbol":"start","symbolLocation":7184,"imageIndex":6}]},{"id":220618,"frames":[],"threadState":{"x":[{"value":6134902784},{"value":4867},{"value":6134366208},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6134902784},"esr":{"value":1442840704,"description":"(Syscall)"},"pc":{"value":6934256532},"far":{"value":0}}}],
+  "usedImages" : [
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4332535808,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.CoreDevice.remotepairingd",
+    "size" : 671744,
+    "uuid" : "b0e7505f-3349-3e68-84fa-15334cc90d0d",
+    "path" : "\/Library\/Apple\/*\/RemotePairing.framework\/Versions\/A\/XPCServices\/remotepairingd.xpc\/Contents\/MacOS\/remotepairingd",
+    "name" : "remotepairingd",
+    "CFBundleVersion" : "240"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4349673472,
+    "CFBundleShortVersionString" : "1819.80.14",
+    "CFBundleIdentifier" : "com.apple.mobiledevice",
+    "size" : 4423680,
+    "uuid" : "dff7fbdd-610c-30b7-88e1-1eae84fb3cf8",
+    "path" : "\/Library\/Apple\/*\/MobileDevice.framework\/Versions\/A\/MobileDevice",
+    "name" : "MobileDevice",
+    "CFBundleVersion" : "1819.80.14"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4336746496,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.Mercury",
+    "size" : 540672,
+    "uuid" : "b7081e3a-e1b9-3819-a424-91912606ecd1",
+    "path" : "\/Library\/Apple\/*\/Mercury.framework\/Versions\/A\/Mercury",
+    "name" : "Mercury",
+    "CFBundleVersion" : "67"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4341760000,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.RemotePairing",
+    "size" : 1343488,
+    "uuid" : "48efd0da-2849-337a-8155-1ed664d20b8e",
+    "path" : "\/Library\/Apple\/*\/RemotePairing.framework\/Versions\/A\/RemotePairing",
+    "name" : "RemotePairing",
+    "CFBundleVersion" : "240"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4333977600,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.DeviceInterface",
+    "size" : 704512,
+    "uuid" : "2bcf7a56-2139-35b4-87c3-4d6e9cfd95d9",
+    "path" : "\/Library\/Apple\/*\/DeviceInterface.framework\/Versions\/A\/DeviceInterface",
+    "name" : "DeviceInterface",
+    "CFBundleVersion" : "1"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 7266381824,
+    "size" : 5826240,
+    "uuid" : "ed89644d-5d11-3abc-a1a4-dd7eba87ce9d",
+    "path" : "\/usr\/lib\/swift\/libswiftCore.dylib",
+    "name" : "libswiftCore.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6930272256,
+    "size" : 651264,
+    "uuid" : "118a3c1b-f0e8-3a0f-8e56-f995fa0effa9",
+    "path" : "\/usr\/lib\/dyld",
+    "name" : "dyld"
+  },
+  {
+    "size" : 0,
+    "source" : "A",
+    "base" : 0,
+    "uuid" : "00000000-0000-0000-0000-000000000000"
+  }
+],
+  "sharedCache" : {
+  "base" : 6929186816,
+  "size" : 5756551168,
+  "uuid" : "a7c30c67-e4c5-3c46-a337-f4a6d1c8e91c"
+},
+  "vmSummary" : "ReadOnly portion of Libraries: Total=895.9M resident=0K(0%) swapped_out_or_unallocated=895.9M(100%)\nWritable regions: Total=94.0M written=176K(0%) resident=176K(0%) swapped_out=0K(0%) unallocated=93.8M(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nActivity Tracing                   256K        1 \nKernel Alloc Once                   32K        1 \nMALLOC                            84.9M       12 \nMALLOC guard page                 3104K        4 \nSTACK GUARD                       56.0M        2 \nStack                             8720K        2 \nVM_ALLOCATE                        544K        3 \n__AUTH                            1402K      160 \n__AUTH_CONST                      18.8M      358 \n__CTF                               824        1 \n__DATA                            4449K      318 \n__DATA_CONST                      15.5M      359 \n__DATA_DIRTY                      1383K      299 \n__FONT_DATA                        2352        1 \n__LINKEDIT                       590.7M        6 \n__OBJC_RO                         78.4M        1 \n__OBJC_RW                         2571K        1 \n__TEXT                           305.2M      369 \n__TPRO_CONST                       128K        2 \ndyld private memory                176K        4 \nmapped file                         80K        1 \npage table in kernel               176K        1 \nshared memory                      656K        7 \n===========                     =======  ======= \nTOTAL                              1.1G     1913 \n",
+  "legacyInfo" : {
+  "threadTriggered" : {
+    "queue" : "com.apple.main-thread"
+  }
+},
+  "logWritingSignature" : "c7a278c087543c2e2f352b2fa48daf61ad41a2a6",
+  "roots_installed" : 0,
+  "bug_type" : "309",
+  "trmStatus" : 1,
+  "trialInfo" : {
+  "rollouts" : [
+    {
+      "rolloutId" : "645eb1d0417dab722a215927",
+      "factorPackIds" : [
+
+      ],
+      "deploymentId" : 250000006
+    },
+    {
+      "rolloutId" : "6761d0c9df60af01adb250fb",
+      "factorPackIds" : [
+
+      ],
+      "deploymentId" : 250000008
+    }
+  ],
+  "experiments" : [
+
+  ]
+}
+}
