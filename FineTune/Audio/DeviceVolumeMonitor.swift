@@ -37,6 +37,10 @@ final class DeviceVolumeMonitor {
     /// Flag to track if WE initiated the default device change (prevents feedback loop)
     private var isSettingDefaultDevice = false
 
+    /// Timestamp of the last self-initiated default device change
+    /// Used to ignore subsequent listener callbacks that are just echoes of our own action
+    private var lastSelfChangeTimestamp: TimeInterval = 0
+
     private let deviceMonitor: AudioDeviceMonitor
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "DeviceVolumeMonitor")
 
@@ -103,7 +107,9 @@ final class DeviceVolumeMonitor {
             Task { @MainActor [weak self] in
                 self?.defaultDeviceDebounceTask?.cancel()
                 self?.defaultDeviceDebounceTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .milliseconds(50))
+                    // Wait 300ms to let System Settings finish its handshake with coreaudiod
+                    // before we potentially hammer the HAL with app re-routing.
+                    try? await Task.sleep(for: .milliseconds(300))
                     guard !Task.isCancelled else { return }
                     self?.handleDefaultDeviceChanged()
                 }
@@ -218,6 +224,18 @@ final class DeviceVolumeMonitor {
         do {
             try AudioDeviceID.setDefaultOutputDevice(deviceID)
             logger.debug("Set default output device to \(deviceID)")
+            
+            // Record timestamp to ignore the subsequent listener callback (feedback loop prevention)
+            lastSelfChangeTimestamp = Date().timeIntervalSince1970
+            
+            // Manually trigger the notification so apps route immediately.
+            // We ignore the listener callback, so this is required for apps to follow the selection.
+            if let uid = try? deviceID.readDeviceUID() {
+                // Update local state immediately for UI responsiveness
+                self.defaultDeviceID = deviceID
+                self.defaultDeviceUID = uid
+                self.onDefaultDeviceChangedExternally?(uid)
+            }
         } catch {
             logger.error("Failed to set default device: \(error.localizedDescription)")
         }
@@ -269,7 +287,9 @@ final class DeviceVolumeMonitor {
     /// Handles default device change notification by reading on background thread to avoid blocking MainActor
     private func handleDefaultDeviceChanged() {
         // Skip if we initiated this change (prevents feedback loop)
-        guard !isSettingDefaultDevice else {
+        // Check both the flag (for synchronous re-entry) and the timestamp (for async listener latency)
+        let now = Date().timeIntervalSince1970
+        if isSettingDefaultDevice || (now - lastSelfChangeTimestamp < 1.0) {
             logger.debug("Default device changed (self-initiated, ignoring)")
             return
         }

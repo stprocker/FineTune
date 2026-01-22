@@ -91,6 +91,34 @@ Added callback mechanism so external default device changes trigger `routeAllApp
 
 ---
 
+## Part 3: Fixing System Settings Contention & Feedback Loops (Commit Pending)
+
+### Problem
+Despite Part 1 & 2, users reported "Still having issues with being able to click sound output on mac os settings."
+
+### Root Cause Analysis
+1.  **Feedback Loop Leak:** The `isSettingDefaultDevice` flag was cleared by `defer` *before* the async listener callback fired. This caused FineTune to react to its own changes as if they were external, triggering a redundant `routeAllApps` storm.
+2.  **HAL Contention:** When System Settings changes the device, FineTune immediately (within 50ms) launched parallel tasks to destroy/recreate 10+ process taps. This hammered `coreaudiod` while System Settings was still trying to handshake with the new device, causing UI freezes.
+
+### Solution
+
+1.  **Timestamp-Based Loop Prevention:**
+    - Added `lastSelfChangeTimestamp` to `DeviceVolumeMonitor`.
+    - In `setDefaultDevice`, record the current time.
+    - In `handleDefaultDeviceChanged`, ignore any changes within **1.0 second** of a self-change. This robustly filters out our own echoes.
+
+2.  **Explicit Routing Trigger:**
+    - Since we now ignore the listener callback for self-changes, `setDefaultDevice` must manually trigger `onDefaultDeviceChangedExternally` upon success. This ensures apps route instantly when clicked in FineTune, without waiting for the roundtrip.
+
+3.  **Increased Debounce:**
+    - Increased `handleDefaultDeviceChanged` debounce from **50ms** to **300ms**.
+    - This gives System Settings (and `coreaudiod`) breathing room to settle its internal state before FineTune starts the heavy lifting of re-routing apps.
+
+### Files Modified
+- `FineTune/Audio/DeviceVolumeMonitor.swift`
+
+---
+
 ## Testing Checklist
 
 1. Launch FineTune with audio playing in an app
