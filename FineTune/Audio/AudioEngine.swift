@@ -193,6 +193,16 @@ final class AudioEngine {
         appDeviceRouting[app.id]
     }
 
+    /// Routes all currently-active apps to the specified device.
+    /// Called when user selects a device in the OUTPUT DEVICES section.
+    /// This provides macOS-like "switch all audio" behavior.
+    func routeAllApps(to deviceUID: String) {
+        logger.info("Routing all apps to device: \(deviceUID)")
+        for app in apps {
+            setDevice(for: app, deviceUID: deviceUID)
+        }
+    }
+
     func applyPersistedSettings() {
         for app in apps {
             guard !appliedPIDs.contains(app.id) else { continue }
