@@ -3,19 +3,7 @@ import AudioToolbox
 import os
 
 final class ProcessTapController {
-    /// Configuration for crossfade behavior
-    private enum CrossfadeConfig {
-        static let defaultDuration: TimeInterval = 0.050  // 50ms
-
-        static var duration: TimeInterval {
-            let custom = UserDefaults.standard.double(forKey: "FineTuneCrossfadeDuration")
-            return custom > 0 ? custom : defaultDuration
-        }
-
-        static func totalSamples(at sampleRate: Double) -> Int64 {
-            Int64(sampleRate * duration)
-        }
-    }
+    // CrossfadeConfig is now defined in Crossfade/CrossfadeState.swift
 
     let app: AudioApp
     private let logger: Logger
@@ -90,28 +78,11 @@ final class ProcessTapController {
     // EQ processor (pre-allocated at activation)
     private var eqProcessor: EQProcessor?
 
-    // Tap format info (drives audio processing assumptions)
-    private struct TapFormat {
-        let asbd: AudioStreamBasicDescription
-        let channelCount: Int
-        let isInterleaved: Bool
-        let isFloat32: Bool
-        let sampleRate: Double
-    }
-
+    // Tap format info (TapFormat is defined in Types/TapFormat.swift)
     private nonisolated(unsafe) var primaryFormat: TapFormat?
     private nonisolated(unsafe) var secondaryFormat: TapFormat?
 
-    private struct ConverterState {
-        var inputASBD: AudioStreamBasicDescription
-        var outputASBD: AudioStreamBasicDescription
-        var procASBD: AudioStreamBasicDescription
-        var inputConverter: AudioConverterRef?
-        var outputConverter: AudioConverterRef?
-        var procBuffer: UnsafeMutablePointer<Float>
-        var procBufferFrames: Int
-    }
-
+    // Converter state (ConverterState is defined in Processing/AudioFormatConverter.swift)
     private nonisolated(unsafe) var primaryConverter: ConverterState?
     private nonisolated(unsafe) var secondaryConverter: ConverterState?
 
@@ -134,31 +105,13 @@ final class ProcessTapController {
     private var targetDeviceUID: String
     private(set) var currentDeviceUID: String?
 
-    // Core Audio state (primary tap)
-    private var processTapID: AudioObjectID = .unknown
-    private var aggregateDeviceID: AudioObjectID = .unknown
-    private var deviceProcID: AudioDeviceIOProcID?
-    private var tapDescription: CATapDescription?
+    // Core Audio resources (encapsulated for safe cleanup)
+    private var primaryResources = TapResources()
+    private var secondaryResources = TapResources()
     private var activated = false
 
-    // Secondary tap for crossfade (only exists during device switch)
-    private var secondaryTapID: AudioObjectID = .unknown
-    private var secondaryAggregateID: AudioObjectID = .unknown
-    private var secondaryDeviceProcID: AudioDeviceIOProcID?
-    private var secondaryTapDescription: CATapDescription?
-
-    // Crossfade state: 0 = full primary, 1 = full secondary
-    private nonisolated(unsafe) var _crossfadeProgress: Float = 0
-    private nonisolated(unsafe) var _isCrossfading: Bool = false
-
-    // Sample-accurate crossfade timing (secondary callback drives progress)
-    private nonisolated(unsafe) var _secondarySampleCount: Int64 = 0
-    private nonisolated(unsafe) var _crossfadeTotalSamples: Int64 = 0
-
-    // Warmup tracking: don't destroy primary until secondary has processed enough samples
-    // Ensures secondary HAL I/O thread is fully connected before app unmutes
-    private nonisolated(unsafe) var _secondarySamplesProcessed: Int = 0
-    private let minimumWarmupSamples: Int = 2048  // ~43ms at 48kHz
+    // Crossfade state machine (RT-safe, lock-free access from audio callbacks)
+    private nonisolated(unsafe) var crossfadeState = CrossfadeState()
 
     init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil) {
         self.app = app
@@ -169,53 +122,24 @@ final class ProcessTapController {
 
     // MARK: - Tap/Device Format Helpers
 
-    private func resolveOutputStreamInfo(for deviceUID: String) -> (deviceID: AudioDeviceID, streamID: AudioStreamID, streamIndex: Int, streamFormat: AudioStreamBasicDescription)? {
-        let deviceID: AudioDeviceID
-        if let device = deviceMonitor?.device(for: deviceUID) {
-            deviceID = device.id
-        } else if let id = (try? AudioObjectID.readDeviceList())?.first(where: { (try? $0.readDeviceUID()) == deviceUID }) {
-            deviceID = id
-        } else {
-            logger.error("Failed to resolve device ID for UID: \(deviceUID)")
+    /// Resolves output stream info using the shared extension.
+    /// Wrapper to add logging on failure.
+    private func resolveOutputStreamInfo(for deviceUID: String) -> OutputStreamInfo? {
+        guard let info = AudioObjectID.resolveOutputStreamInfo(for: deviceUID, using: deviceMonitor) else {
+            logger.error("Failed to resolve output stream for device UID: \(deviceUID)")
             return nil
         }
-
-        guard let streamIDs = try? deviceID.readOutputStreamIDs(), !streamIDs.isEmpty else {
-            logger.error("No output streams for device UID: \(deviceUID)")
-            return nil
-        }
-
-        // Prefer first active stream, fallback to index 0
-        let activeIndex = streamIDs.firstIndex { streamID in
-            (try? streamID.readBool(kAudioStreamPropertyIsActive)) ?? true
-        } ?? 0
-
-        let streamID = streamIDs[activeIndex]
-        let streamFormat = (try? streamID.readVirtualFormat()) ?? AudioStreamBasicDescription()
-        return (deviceID, streamID, activeIndex, streamFormat)
+        return info
     }
 
+    /// Creates a TapFormat from an ASBD (delegated to TapFormat constructor)
     private func makeTapFormat(from asbd: AudioStreamBasicDescription, fallbackSampleRate: Double) -> TapFormat {
-        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
-        let isLinearPCM = asbd.mFormatID == kAudioFormatLinearPCM
-        let bits = Int(asbd.mBitsPerChannel)
-        let channels = max(1, Int(asbd.mChannelsPerFrame))
-        let sampleRate = asbd.mSampleRate > 0 ? asbd.mSampleRate : fallbackSampleRate
-        return TapFormat(
-            asbd: asbd,
-            channelCount: channels,
-            isInterleaved: !isNonInterleaved,
-            isFloat32: isLinearPCM && isFloat && bits == 32,
-            sampleRate: sampleRate
-        )
+        TapFormat(asbd: asbd, fallbackSampleRate: fallbackSampleRate)
     }
 
+    /// Human-readable format description (delegated to TapFormat.description)
     private func describeASBD(_ asbd: AudioStreamBasicDescription) -> String {
-        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
-        let formatID = asbd.mFormatID == kAudioFormatLinearPCM ? "lpcm" : "\(asbd.mFormatID)"
-        return "\(Int(asbd.mSampleRate)) Hz, \(Int(asbd.mChannelsPerFrame)) ch, \(Int(asbd.mBitsPerChannel))-bit, \(isFloat ? "float" : "int"), \(isNonInterleaved ? "non-interleaved" : "interleaved"), \(formatID)"
+        TapFormat(asbd: asbd).description
     }
 
     private func updatePrimaryFormat(from tapID: AudioObjectID, fallbackSampleRate: Double) {
@@ -240,109 +164,17 @@ final class ProcessTapController {
         }
     }
 
-    // MARK: - Converter Setup
-
-    private struct ConverterInputContext {
-        let bufferList: UnsafePointer<AudioBufferList>
-        let frames: UInt32
-    }
-
-    private static let converterInputProc: AudioConverterComplexInputDataProc = { _, ioNumberDataPackets, ioData, _, inUserData in
-        guard let inUserData else { return -1 }
-        let context = inUserData.assumingMemoryBound(to: ConverterInputContext.self)
-        let availableFrames = context.pointee.frames
-        if availableFrames == 0 {
-            ioNumberDataPackets.pointee = 0
-            return noErr
-        }
-        ioNumberDataPackets.pointee = min(ioNumberDataPackets.pointee, availableFrames)
-        ioData.pointee = context.pointee.bufferList.pointee
-        return noErr
-    }
-
-    private func makeProcASBD(sampleRate: Double) -> AudioStreamBasicDescription {
-        AudioStreamBasicDescription(
-            mSampleRate: sampleRate,
-            mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-            mBytesPerPacket: 8,
-            mFramesPerPacket: 1,
-            mBytesPerFrame: 8,
-            mChannelsPerFrame: 2,
-            mBitsPerChannel: 32,
-            mReserved: 0
-        )
-    }
+    // MARK: - Converter Setup (delegated to AudioFormatConverter)
 
     private func configureConverter(
         for format: TapFormat,
         deviceID: AudioDeviceID
     ) -> ConverterState? {
-        if format.isFloat32, format.isInterleaved, format.channelCount == 2 {
-            return nil
-        }
-
-        guard format.channelCount <= 2 else {
-            logger.warning("Unsupported channel count for conversion: \(format.channelCount)")
-            return nil
-        }
-
-        let procASBD = makeProcASBD(sampleRate: format.sampleRate)
-
-        var inputConverter: AudioConverterRef?
-        var outputConverter: AudioConverterRef?
-
-        var inputASBD = format.asbd
-        var outputASBD = format.asbd
-
-        let inputStatus = AudioConverterNew(&inputASBD, &procASBD, &inputConverter)
-        guard inputStatus == noErr, let inConverter = inputConverter else {
-            logger.error("Failed to create input converter: \(inputStatus)")
-            return nil
-        }
-
-        let outputStatus = AudioConverterNew(&procASBD, &outputASBD, &outputConverter)
-        guard outputStatus == noErr, let outConverter = outputConverter else {
-            AudioConverterDispose(inConverter)
-            logger.error("Failed to create output converter: \(outputStatus)")
-            return nil
-        }
-
-        if format.channelCount == 1 {
-            var upmixMap: [Int32] = [0, 0]
-            let mapSize = UInt32(MemoryLayout<Int32>.size * upmixMap.count)
-            AudioConverterSetProperty(inConverter, kAudioConverterChannelMap, mapSize, &upmixMap)
-
-            var downmixMap: [Int32] = [0]
-            let downmixSize = UInt32(MemoryLayout<Int32>.size * downmixMap.count)
-            AudioConverterSetProperty(outConverter, kAudioConverterChannelMap, downmixSize, &downmixMap)
-        }
-
-        let bufferFrames = Int((try? deviceID.readBufferFrameSize()) ?? 4096)
-        let procBuffer = UnsafeMutablePointer<Float>.allocate(capacity: bufferFrames * 2)
-        procBuffer.initialize(repeating: 0, count: bufferFrames * 2)
-
-        return ConverterState(
-            inputASBD: inputASBD,
-            outputASBD: outputASBD,
-            procASBD: procASBD,
-            inputConverter: inConverter,
-            outputConverter: outConverter,
-            procBuffer: procBuffer,
-            procBufferFrames: bufferFrames
-        )
+        AudioFormatConverter.configure(for: format, deviceID: deviceID, logger: logger)
     }
 
     private func destroyConverter(_ state: inout ConverterState?) {
-        guard let state = state else { return }
-        if let converter = state.inputConverter {
-            AudioConverterDispose(converter)
-        }
-        if let converter = state.outputConverter {
-            AudioConverterDispose(converter)
-        }
-        state.procBuffer.deallocate()
-        state = nil
+        AudioFormatConverter.destroy(&state)
     }
 
     func activate() throws {
@@ -359,7 +191,7 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to resolve output stream for device \(outputUID)"])
         }
 
-        logger.debug("Target device stream format: \(describeASBD(streamInfo.streamFormat))")
+        logger.debug("Target device stream format: \(self.describeASBD(streamInfo.streamFormat))")
 
         // Create process tap that matches the target device stream format.
         let processNumber = NSNumber(value: app.objectID)
@@ -367,7 +199,7 @@ final class ProcessTapController {
         tapDesc.uuid = UUID()
         tapDesc.isPrivate = true
         tapDesc.muteBehavior = .mutedWhenTapped  // Mute original, we provide the audio
-        self.tapDescription = tapDesc
+        self.primaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
         var err = AudioHardwareCreateProcessTap(tapDesc, &tapID)
@@ -375,7 +207,7 @@ final class ProcessTapController {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err), userInfo: [NSLocalizedDescriptionKey: "Failed to create process tap: \(err)"])
         }
 
-        processTapID = tapID
+        primaryResources.tapID = tapID
         logger.debug("Created process tap #\(tapID)")
         let fallbackSampleRate = streamInfo.streamFormat.mSampleRate > 0
         ? streamInfo.streamFormat.mSampleRate
@@ -402,48 +234,47 @@ final class ProcessTapController {
             ]
         ]
 
-        aggregateDeviceID = .unknown
-        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &aggregateDeviceID)
+        primaryResources.aggregateDeviceID = .unknown
+        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &primaryResources.aggregateDeviceID)
         guard err == noErr else {
             cleanupPartialActivation()
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err), userInfo: [NSLocalizedDescriptionKey: "Failed to create aggregate device: \(err)"])
         }
 
-        logger.debug("Created aggregate device #\(self.aggregateDeviceID)")
+        logger.debug("Created aggregate device #\(self.primaryResources.aggregateDeviceID)")
 
         // Ensure aggregate device matches the tap/device sample rate.
         let tapSampleRate = primaryFormat?.sampleRate ?? fallbackSampleRate
-        if AudioDeviceID(aggregateDeviceID).setNominalSampleRate(tapSampleRate) {
-            logger.debug("Aggregate sample rate set to \(tapSampleRate) Hz (tap: \(describeASBD(primaryFormat?.asbd ?? AudioStreamBasicDescription())))")
+        if AudioDeviceID(primaryResources.aggregateDeviceID).setNominalSampleRate(tapSampleRate) {
+            logger.debug("Aggregate sample rate set to \(tapSampleRate) Hz (tap: \(self.describeASBD(self.primaryFormat?.asbd ?? AudioStreamBasicDescription())))")
         } else {
             logger.warning("Failed to set aggregate sample rate to \(tapSampleRate) Hz")
         }
 
         destroyConverter(&primaryConverter)
         if let format = primaryFormat {
-            logger.debug("Primary tap format summary: \(describeASBD(format.asbd))")
-            primaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(aggregateDeviceID))
+            logger.debug("Primary tap format summary: \(self.describeASBD(format.asbd))")
+            primaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(primaryResources.aggregateDeviceID))
             if primaryConverter != nil {
-                logger.debug("Primary converter enabled (input: \(describeASBD(format.asbd)) -> proc: 2ch float -> output: \(describeASBD(format.asbd)))")
+                logger.debug("Primary converter enabled (input: \(self.describeASBD(format.asbd)) -> proc: 2ch float -> output: \(self.describeASBD(format.asbd)))")
             } else {
                 logger.debug("Primary converter not required (format already safe)")
             }
         }
 
         if let format = primaryFormat, !format.isFloat32 {
-            logger.warning("Non-float tap format detected, conversion required: \(describeASBD(format.asbd))")
+            logger.warning("Non-float tap format detected, conversion required: \(self.describeASBD(format.asbd))")
         }
 
         // Compute ramp coefficient from confirmed sample rate
-        let rampTimeSeconds: Float = 0.030  // 30ms smoothing
-        rampCoefficient = 1 - exp(-1 / (Float(tapSampleRate) * rampTimeSeconds))
+        rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: tapSampleRate, rampTime: VolumeRamper.defaultRampTime)
         logger.debug("Configured for sample rate: \(tapSampleRate) Hz, Ramp: \(self.rampCoefficient)")
 
         // Initialize EQ processor with device sample rate
         eqProcessor = EQProcessor(sampleRate: tapSampleRate)
 
         // Create IO proc with gain processing
-        err = AudioDeviceCreateIOProcIDWithBlock(&deviceProcID, aggregateDeviceID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
+        err = AudioDeviceCreateIOProcIDWithBlock(&primaryResources.deviceProcID, primaryResources.aggregateDeviceID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
             guard let self else { return }
             self.processAudio(inInputData, to: outOutputData)
         }
@@ -453,7 +284,7 @@ final class ProcessTapController {
         }
 
         // Start the device
-        err = AudioDeviceStart(aggregateDeviceID, deviceProcID)
+        err = AudioDeviceStart(primaryResources.aggregateDeviceID, primaryResources.deviceProcID)
         guard err == noErr else {
             cleanupPartialActivation()
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err), userInfo: [NSLocalizedDescriptionKey: "Failed to start device: \(err)"])
@@ -566,14 +397,18 @@ final class ProcessTapController {
 
         logger.info("[CROSSFADE] Step 2: Preparing crossfade state")
 
-        // Enable crossfade BEFORE secondary tap starts, so it begins silent
-        _crossfadeProgress = 0
-        _secondarySampleCount = 0
-        _secondarySamplesProcessed = 0  // Reset warmup counter for new secondary tap
-        _isCrossfading = true
+        // Enable crossfade BEFORE secondary tap starts, so it begins silent.
+        // NOTE: Can't use crossfadeState.beginCrossfade(at:) here because we don't know
+        // the sample rate until after tap creation. isActive must be true before the
+        // secondary callback starts to ensure secondaryMultiplier returns 0 (silent).
+        // totalSamples is set later in createSecondaryTap() once sample rate is known.
+        crossfadeState.progress = 0
+        crossfadeState.secondarySampleCount = 0
+        crossfadeState.secondarySamplesProcessed = 0
+        crossfadeState.isActive = true
         OSMemoryBarrier()  // Ensure audio callbacks see crossfade state before secondary tap starts
 
-        // Create secondary tap (it will start at sin(0) = 0 = silent)
+        // Create secondary tap (starts at sin(0) = 0 = silent because isActive=true)
         logger.info("[CROSSFADE] Step 3: Creating secondary tap for new device")
         try createSecondaryTap(for: newOutputUID)
 
@@ -596,7 +431,7 @@ final class ProcessTapController {
         let pollIntervalMs: UInt64 = 5
         var elapsedMs: Int = 0
 
-        while (_crossfadeProgress < 1.0 || _secondarySamplesProcessed < minimumWarmupSamples) && elapsedMs < timeoutMs {
+        while (!crossfadeState.isCrossfadeComplete || !crossfadeState.isWarmupComplete) && elapsedMs < timeoutMs {
             try await Task.sleep(for: .milliseconds(pollIntervalMs))
             elapsedMs += Int(pollIntervalMs)
         }
@@ -608,13 +443,7 @@ final class ProcessTapController {
         logger.info("[CROSSFADE] Crossfade complete, promoting secondary")
 
         destroyPrimaryTap()
-        promoteSecondaryToPrimary()
-
-        // Set _isCrossfading = false AFTER promotion to avoid race condition:
-        // Callback checks _isCrossfading, and if false, uses eqProcessor.
-        // eqProcessor must already be the promoted one when this happens.
-        _isCrossfading = false
-        OSMemoryBarrier()  // Ensure audio callback sees this before starting EQ processing
+        promoteSecondaryToPrimary()  // Also resets crossfade state after promotion
 
         logger.info("[CROSSFADE] Complete")
     }
@@ -632,7 +461,7 @@ final class ProcessTapController {
         tapDesc.uuid = UUID()
         tapDesc.isPrivate = true
         tapDesc.muteBehavior = .mutedWhenTapped  // Must mute to prevent audio on system default after primary destroyed
-        secondaryTapDescription = tapDesc
+        secondaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
         var err = AudioHardwareCreateProcessTap(tapDesc, &tapID)
@@ -640,7 +469,7 @@ final class ProcessTapController {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create secondary tap: \(err)"])
         }
-        secondaryTapID = tapID
+        secondaryResources.tapID = tapID
         let fallbackSampleRate = streamInfo.streamFormat.mSampleRate > 0
         ? streamInfo.streamFormat.mSampleRate
         : (try? streamInfo.deviceID.readNominalSampleRate()) ?? 48000
@@ -667,67 +496,66 @@ final class ProcessTapController {
             ]
         ]
 
-        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &secondaryAggregateID)
+        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &secondaryResources.aggregateDeviceID)
         guard err == noErr else {
             // Clean up tap
-            AudioHardwareDestroyProcessTap(secondaryTapID)
-            secondaryTapID = .unknown
+            AudioHardwareDestroyProcessTap(secondaryResources.tapID)
+            secondaryResources.tapID = .unknown
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create secondary aggregate: \(err)"])
         }
-        logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryAggregateID)")
+        logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryResources.aggregateDeviceID)")
 
         // Initialize sample-accurate crossfade timing from secondary tap format
         let sampleRate = secondaryFormat?.sampleRate ?? fallbackSampleRate
-        if AudioDeviceID(secondaryAggregateID).setNominalSampleRate(sampleRate) {
-            logger.debug("[CROSSFADE] Secondary aggregate sample rate set to \(sampleRate) Hz (tap: \(describeASBD(secondaryFormat?.asbd ?? AudioStreamBasicDescription())))")
+        if AudioDeviceID(secondaryResources.aggregateDeviceID).setNominalSampleRate(sampleRate) {
+            logger.debug("[CROSSFADE] Secondary aggregate sample rate set to \(sampleRate) Hz (tap: \(self.describeASBD(self.secondaryFormat?.asbd ?? AudioStreamBasicDescription())))")
         }
 
         destroyConverter(&secondaryConverter)
         if let format = secondaryFormat {
-            logger.debug("[CROSSFADE] Secondary tap format summary: \(describeASBD(format.asbd))")
-            secondaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(secondaryAggregateID))
+            logger.debug("[CROSSFADE] Secondary tap format summary: \(self.describeASBD(format.asbd))")
+            secondaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(secondaryResources.aggregateDeviceID))
             if secondaryConverter != nil {
-                logger.debug("[CROSSFADE] Secondary converter enabled (input: \(describeASBD(format.asbd)) -> proc: 2ch float -> output: \(describeASBD(format.asbd)))")
+                logger.debug("[CROSSFADE] Secondary converter enabled (input: \(self.describeASBD(format.asbd)) -> proc: 2ch float -> output: \(self.describeASBD(format.asbd)))")
             } else {
                 logger.debug("[CROSSFADE] Secondary converter not required (format already safe)")
             }
         }
 
-        _crossfadeTotalSamples = CrossfadeConfig.totalSamples(at: sampleRate)
+        crossfadeState.totalSamples = CrossfadeConfig.totalSamples(at: sampleRate)
 
         // Compute ramp coefficient for secondary device's sample rate
-        let rampTimeSeconds: Float = 0.030  // 30ms smoothing (same as primary)
-        secondaryRampCoefficient = 1 - exp(-1 / (Float(sampleRate) * rampTimeSeconds))
+        secondaryRampCoefficient = VolumeRamper.computeCoefficient(sampleRate: sampleRate, rampTime: VolumeRamper.defaultRampTime)
 
         // Initialize secondary volume to match primary for smooth handoff
         _secondaryCurrentVolume = _primaryCurrentVolume
 
         // Create IO proc for secondary
-        err = AudioDeviceCreateIOProcIDWithBlock(&secondaryDeviceProcID, secondaryAggregateID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
+        err = AudioDeviceCreateIOProcIDWithBlock(&secondaryResources.deviceProcID, secondaryResources.aggregateDeviceID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
             guard let self else { return }
             self.processAudioSecondary(inInputData, to: outOutputData)
         }
         guard err == noErr else {
-            AudioHardwareDestroyAggregateDevice(secondaryAggregateID)
-            AudioHardwareDestroyProcessTap(secondaryTapID)
-            secondaryAggregateID = .unknown
-            secondaryTapID = .unknown
+            AudioHardwareDestroyAggregateDevice(secondaryResources.aggregateDeviceID)
+            AudioHardwareDestroyProcessTap(secondaryResources.tapID)
+            secondaryResources.aggregateDeviceID = .unknown
+            secondaryResources.tapID = .unknown
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create secondary IO proc: \(err)"])
         }
 
         // Start secondary device
-        err = AudioDeviceStart(secondaryAggregateID, secondaryDeviceProcID)
+        err = AudioDeviceStart(secondaryResources.aggregateDeviceID, secondaryResources.deviceProcID)
         guard err == noErr else {
-            if let procID = secondaryDeviceProcID {
-                AudioDeviceDestroyIOProcID(secondaryAggregateID, procID)
+            if let procID = secondaryResources.deviceProcID {
+                AudioDeviceDestroyIOProcID(secondaryResources.aggregateDeviceID, procID)
             }
-            AudioHardwareDestroyAggregateDevice(secondaryAggregateID)
-            AudioHardwareDestroyProcessTap(secondaryTapID)
-            secondaryDeviceProcID = nil
-            secondaryAggregateID = .unknown
-            secondaryTapID = .unknown
+            AudioHardwareDestroyAggregateDevice(secondaryResources.aggregateDeviceID)
+            AudioHardwareDestroyProcessTap(secondaryResources.tapID)
+            secondaryResources.deviceProcID = nil
+            secondaryResources.aggregateDeviceID = .unknown
+            secondaryResources.tapID = .unknown
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
                           userInfo: [NSLocalizedDescriptionKey: "Failed to start secondary device: \(err)"])
         }
@@ -737,21 +565,7 @@ final class ProcessTapController {
 
     /// Destroys the primary tap + aggregate.
     private func destroyPrimaryTap() {
-        if aggregateDeviceID.isValid {
-            AudioDeviceStop(aggregateDeviceID, deviceProcID)
-            if let procID = deviceProcID {
-                AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
-            }
-            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-        }
-        if processTapID.isValid {
-            AudioHardwareDestroyProcessTap(processTapID)
-        }
-
-        deviceProcID = nil
-        aggregateDeviceID = .unknown
-        processTapID = .unknown
-        tapDescription = nil
+        primaryResources.destroy()
         primaryFormat = nil
         destroyConverter(&primaryConverter)
     }
@@ -759,66 +573,39 @@ final class ProcessTapController {
     /// Cleans up secondary tap resources if crossfade fails.
     /// Must be called before falling back to destructive switch to prevent resource leaks.
     private func cleanupSecondaryTap() {
-        // Reset crossfade state first
-        _isCrossfading = false
-        _crossfadeProgress = 0
-        _secondarySampleCount = 0
-        _secondarySamplesProcessed = 0
-        OSMemoryBarrier()  // Ensure audio callback sees reset state
+        // Reset crossfade state (includes memory barrier for audio callback visibility)
+        crossfadeState.complete()
 
-        // Clean up secondary tap resources if they exist
-        if secondaryAggregateID.isValid {
-            AudioDeviceStop(secondaryAggregateID, secondaryDeviceProcID)
-            if let procID = secondaryDeviceProcID {
-                AudioDeviceDestroyIOProcID(secondaryAggregateID, procID)
-            }
-            AudioHardwareDestroyAggregateDevice(secondaryAggregateID)
-        }
-        if secondaryTapID.isValid {
-            AudioHardwareDestroyProcessTap(secondaryTapID)
-        }
-
-        // Clear secondary references
-        secondaryDeviceProcID = nil
-        secondaryAggregateID = .unknown
-        secondaryTapID = .unknown
-        secondaryTapDescription = nil
+        // Clean up secondary CoreAudio resources
+        secondaryResources.destroy()
         secondaryFormat = nil
         destroyConverter(&secondaryConverter)
     }
 
     /// Promotes secondary tap to primary after crossfade.
     private func promoteSecondaryToPrimary() {
-        processTapID = secondaryTapID
-        aggregateDeviceID = secondaryAggregateID
-        deviceProcID = secondaryDeviceProcID
-        tapDescription = secondaryTapDescription
+        // Transfer resources from secondary to primary
+        primaryResources = secondaryResources
+        secondaryResources = TapResources()  // Clear secondary (no destruction - resources are now primary's)
+
         primaryFormat = secondaryFormat
         primaryConverter = secondaryConverter
         secondaryFormat = nil
         secondaryConverter = nil
 
         // Update ramp coefficient and EQ processor sample rate for new device
-        // Read sample rate once to avoid redundant CoreAudio calls and potential inconsistency
-        let deviceSampleRate = (try? aggregateDeviceID.readNominalSampleRate()) ?? 48000
-        let rampTimeSeconds: Float = 0.030
-        rampCoefficient = 1 - exp(-1 / (Float(deviceSampleRate) * rampTimeSeconds))
+        let deviceSampleRate = (try? primaryResources.aggregateDeviceID.readNominalSampleRate()) ?? 48000
+        rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: deviceSampleRate, rampTime: VolumeRamper.defaultRampTime)
         eqProcessor?.updateSampleRate(deviceSampleRate)
 
         // Transfer volume state from secondary to primary (prevents volume jump)
         _primaryCurrentVolume = _secondaryCurrentVolume
         _secondaryCurrentVolume = 0
 
-        // Reset crossfade state for next switch
-        _crossfadeProgress = 0  // CRITICAL: Reset so new primary doesn't stay silent
-        _secondarySampleCount = 0
-        _crossfadeTotalSamples = 0
-
-        // Clear secondary references
-        secondaryTapID = .unknown
-        secondaryAggregateID = .unknown
-        secondaryDeviceProcID = nil
-        secondaryTapDescription = nil
+        // Reset crossfade state for next switch (includes isActive=false + OSMemoryBarrier)
+        // CRITICAL: This must happen AFTER all state is transferred so audio callback
+        // sees the promoted resources before it checks isActive for EQ processing
+        crossfadeState.complete()
     }
 
     /// Fallback: Switches using destroy/recreate approach.
@@ -976,40 +763,40 @@ final class ProcessTapController {
         }
 
         // STEP 4: NOW destroy old tap + aggregate (process still muted by new tap)
-        if aggregateDeviceID.isValid {
-            AudioDeviceStop(aggregateDeviceID, deviceProcID)
-            if let procID = deviceProcID {
-                AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
+        if primaryResources.aggregateDeviceID.isValid {
+            AudioDeviceStop(primaryResources.aggregateDeviceID, primaryResources.deviceProcID)
+            if let procID = primaryResources.deviceProcID {
+                AudioDeviceDestroyIOProcID(primaryResources.aggregateDeviceID, procID)
             }
-            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+            AudioHardwareDestroyAggregateDevice(primaryResources.aggregateDeviceID)
         }
-        if processTapID.isValid {
-            AudioHardwareDestroyProcessTap(processTapID)
+        if primaryResources.tapID.isValid {
+            AudioHardwareDestroyProcessTap(primaryResources.tapID)
         }
 
         // STEP 5: Promote new to primary
-        processTapID = newTapID
-        tapDescription = newTapDesc
-        aggregateDeviceID = newAggregateID
-        deviceProcID = newDeviceProcID
+        primaryResources.tapID = newTapID
+        primaryResources.tapDescription = newTapDesc
+        primaryResources.aggregateDeviceID = newAggregateID
+        primaryResources.deviceProcID = newDeviceProcID
         targetDeviceUID = newDeviceUID
         currentDeviceUID = outputUID
 
         updatePrimaryFormat(from: newTapID, fallbackSampleRate: fallbackSampleRate)
         destroyConverter(&primaryConverter)
         if let format = primaryFormat {
-            logger.debug("[SWITCH-DESTROY] Primary tap format summary: \(describeASBD(format.asbd))")
-            primaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(aggregateDeviceID))
+            logger.debug("[SWITCH-DESTROY] Primary tap format summary: \(self.describeASBD(format.asbd))")
+            primaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(primaryResources.aggregateDeviceID))
             if primaryConverter != nil {
-                logger.debug("[SWITCH-DESTROY] Primary converter enabled (input: \(describeASBD(format.asbd)) -> proc: 2ch float -> output: \(describeASBD(format.asbd)))")
+                logger.debug("[SWITCH-DESTROY] Primary converter enabled (input: \(self.describeASBD(format.asbd)) -> proc: 2ch float -> output: \(self.describeASBD(format.asbd)))")
             } else {
                 logger.debug("[SWITCH-DESTROY] Primary converter not required (format already safe)")
             }
         }
 
         // Update ramp coefficient and EQ coefficients for new device sample rate
-        if let deviceSampleRate = try? aggregateDeviceID.readNominalSampleRate() {
-            rampCoefficient = 1 - exp(-1 / (Float(deviceSampleRate) * 0.030))
+        if let deviceSampleRate = try? primaryResources.aggregateDeviceID.readNominalSampleRate() {
+            rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: deviceSampleRate, rampTime: VolumeRamper.defaultRampTime)
             eqProcessor?.updateSampleRate(deviceSampleRate)
         }
     }
@@ -1066,19 +853,8 @@ final class ProcessTapController {
         let targetVol = _volume
         var currentVol = _primaryCurrentVolume
 
-        // During crossfade, primary tap fades OUT using equal-power curve
-        // cos(0) = 1.0, cos(π/2) = 0.0
-        // CRITICAL: Also stay silent when progress >= 1.0 even if _isCrossfading is false,
-        // to prevent race condition pop between setting flag and destroying tap
-        let crossfadeMultiplier: Float
-        if _isCrossfading {
-            crossfadeMultiplier = cos(_crossfadeProgress * .pi / 2.0)
-        } else if _crossfadeProgress >= 1.0 {
-            // Crossfade completed but tap not yet destroyed - stay silent
-            crossfadeMultiplier = 0.0
-        } else {
-            crossfadeMultiplier = 1.0
-        }
+        // During crossfade, primary tap fades OUT using equal-power curve (delegated to CrossfadeState)
+        let crossfadeMultiplier = crossfadeState.primaryMultiplier
 
         if let converter = primaryConverter {
             let processed = processWithConverter(
@@ -1090,9 +866,9 @@ final class ProcessTapController {
                 currentVol: &currentVol,
                 rampCoefficient: rampCoefficient,
                 crossfadeMultiplier: crossfadeMultiplier,
-                compensation: _isCrossfading ? 1.0 : _deviceVolumeCompensation,
+                compensation: crossfadeState.isActive ? 1.0 : _deviceVolumeCompensation,
                 eqProcessor: eqProcessor,
-                allowEQ: !_isCrossfading
+                allowEQ: !crossfadeState.isActive
             )
             if processed {
                 _primaryCurrentVolume = currentVol
@@ -1107,7 +883,7 @@ final class ProcessTapController {
         }
 
         // Copy input to output with ramped gain and soft limiting
-        let effectiveCompensation: Float = _isCrossfading ? 1.0 : _deviceVolumeCompensation
+        let effectiveCompensation: Float = crossfadeState.isActive ? 1.0 : _deviceVolumeCompensation
         processFloatBuffers(
             format: format,
             inputBuffers: inputBuffers,
@@ -1122,7 +898,7 @@ final class ProcessTapController {
         // Apply EQ processing (after volume, before output)
         // Only safe for interleaved stereo Float32
         if let eqProcessor = eqProcessor,
-           !_isCrossfading,
+           !crossfadeState.isActive,
            format.isInterleaved,
            format.channelCount == 2,
            outputBuffers.count == 1,
@@ -1169,18 +945,21 @@ final class ProcessTapController {
 
         if inputBuffers.count > 0 {
             let firstBuffer = inputBuffers[0]
-            totalSamplesThisBuffer = Int(firstBuffer.mDataByteSize) / MemoryLayout<Float>.size
+            // Use mBytesPerFrame for correct frame counting (handles padded formats like 24-bit in 32-bit containers)
+            let bytesPerFrame = max(1, Int(format.asbd.mBytesPerFrame))
             if format.isInterleaved {
-                let channels = max(1, format.channelCount)
-                totalSamplesThisBuffer = totalSamplesThisBuffer / channels
+                // For interleaved: bytes / bytesPerFrame = frames
+                totalSamplesThisBuffer = Int(firstBuffer.mDataByteSize) / bytesPerFrame
+            } else {
+                // For non-interleaved: mBytesPerFrame is per-channel, so it's bytes per sample
+                // (e.g., 24-bit in 32-bit container: mBytesPerFrame=4, not mBitsPerChannel/8=3)
+                totalSamplesThisBuffer = Int(firstBuffer.mDataByteSize) / bytesPerFrame
             }
         }
 
-        // Always update counters (needed for crossfade timing even when muted)
-        _secondarySamplesProcessed += totalSamplesThisBuffer
-        if _isCrossfading {
-            _secondarySampleCount += Int64(totalSamplesThisBuffer)
-        }
+        // Update crossfade counters and progress (needed for timing even when muted)
+        // updateProgress handles: secondarySamplesProcessed, secondarySampleCount, and progress calculation
+        _ = crossfadeState.updateProgress(samples: totalSamplesThisBuffer)
 
         // Check user mute flag (atomic Bool read)
         // When muted, output zeros but VU meter still shows source activity (measured above)
@@ -1193,21 +972,14 @@ final class ProcessTapController {
         let targetVol = _volume
         var currentVol = _secondaryCurrentVolume
 
-        // Compute crossfade multiplier and update progress (sample-accurate)
-        var crossfadeMultiplier: Float = 1.0
-        if _isCrossfading {
-            // Update progress based on samples processed
-            let progress = min(1.0, Float(_secondarySampleCount) / Float(max(1, _crossfadeTotalSamples)))
-            _crossfadeProgress = progress
-            // Equal-power fade IN: sin(0) = 0.0, sin(π/2) = 1.0
-            crossfadeMultiplier = sin(progress * .pi / 2.0)
-        }
+        // Get crossfade multiplier (equal-power fade IN: sin(0) = 0, sin(π/2) = 1)
+        let crossfadeMultiplier = crossfadeState.secondaryMultiplier
 
         // Copy input to output with ramped gain and crossfade
         // Use secondaryRampCoefficient during crossfade (we ARE the secondary),
         // but switch to rampCoefficient after promotion to primary.
         // This prevents coefficient corruption when a new secondary is created during the next switch.
-        let activeRampCoef = _isCrossfading ? secondaryRampCoefficient : rampCoefficient
+        let activeRampCoef = crossfadeState.isActive ? secondaryRampCoefficient : rampCoefficient
 
         if let converter = secondaryConverter {
             let processed = processWithConverter(
@@ -1221,7 +993,7 @@ final class ProcessTapController {
                 crossfadeMultiplier: crossfadeMultiplier,
                 compensation: _deviceVolumeCompensation,
                 eqProcessor: eqProcessor,
-                allowEQ: !_isCrossfading
+                allowEQ: !crossfadeState.isActive
             )
             if processed {
                 _secondaryCurrentVolume = currentVol
@@ -1249,7 +1021,7 @@ final class ProcessTapController {
         // Apply EQ after crossfade completes (when this tap becomes the primary)
         // Skip during crossfade to prevent glitches from mixing EQ states
         if let eqProcessor = eqProcessor,
-           !_isCrossfading,
+           !crossfadeState.isActive,
            format.isInterleaved,
            format.channelCount == 2,
            outputBuffers.count == 1,
@@ -1270,12 +1042,11 @@ final class ProcessTapController {
 
     // MARK: - RT-Safe Buffer Helpers
 
+    // MARK: - RT-Safe Buffer Helpers (delegated to extracted types)
+
     @inline(__always)
     private func zeroOutputBuffers(_ outputBuffers: UnsafeMutableAudioBufferListPointer) {
-        for outputBuffer in outputBuffers {
-            guard let outputData = outputBuffer.mData else { continue }
-            memset(outputData, 0, Int(outputBuffer.mDataByteSize))
-        }
+        AudioBufferProcessor.zeroOutputBuffers(outputBuffers)
     }
 
     @inline(__always)
@@ -1283,33 +1054,12 @@ final class ProcessTapController {
         inputBuffers: UnsafeMutableAudioBufferListPointer,
         outputBuffers: UnsafeMutableAudioBufferListPointer
     ) {
-        let bufferCount = min(inputBuffers.count, outputBuffers.count)
-        guard bufferCount > 0 else { return }
-        for index in 0..<bufferCount {
-            let inputBuffer = inputBuffers[index]
-            let outputBuffer = outputBuffers[index]
-            guard let inputData = inputBuffer.mData,
-                  let outputData = outputBuffer.mData else { continue }
-            let byteCount = min(Int(inputBuffer.mDataByteSize), Int(outputBuffer.mDataByteSize))
-            memcpy(outputData, inputData, byteCount)
-        }
+        AudioBufferProcessor.copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
     }
 
     @inline(__always)
     private func computePeak(inputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
-        var maxPeak: Float = 0.0
-        for inputBuffer in inputBuffers {
-            guard let inputData = inputBuffer.mData else { continue }
-            let inputSamples = inputData.assumingMemoryBound(to: Float.self)
-            let sampleCount = Int(inputBuffer.mDataByteSize) / MemoryLayout<Float>.size
-            for i in 0..<sampleCount {
-                let absSample = abs(inputSamples[i])
-                if absSample > maxPeak {
-                    maxPeak = absSample
-                }
-            }
-        }
-        return maxPeak
+        AudioBufferProcessor.computePeak(inputBuffers: inputBuffers)
     }
 
     @inline(__always)
@@ -1323,74 +1073,17 @@ final class ProcessTapController {
         crossfadeMultiplier: Float,
         compensation: Float
     ) {
-        let bufferCount = min(inputBuffers.count, outputBuffers.count)
-        guard bufferCount > 0 else { return }
-
-        let channels = max(1, format.channelCount)
-        let shouldLimit = targetVol > 1.0
-
-        if format.isInterleaved {
-            for index in 0..<bufferCount {
-                let inputBuffer = inputBuffers[index]
-                let outputBuffer = outputBuffers[index]
-                guard let inputData = inputBuffer.mData,
-                      let outputData = outputBuffer.mData else { continue }
-
-                let inputSamples = inputData.assumingMemoryBound(to: Float.self)
-                let outputSamples = outputData.assumingMemoryBound(to: Float.self)
-                let sampleCount = Int(inputBuffer.mDataByteSize) / MemoryLayout<Float>.size
-
-                var channelIndex = 0
-                var frameGain: Float = currentVol * crossfadeMultiplier * compensation
-                for i in 0..<sampleCount {
-                    if channelIndex == 0 {
-                        currentVol += (targetVol - currentVol) * rampCoefficient
-                        frameGain = currentVol * crossfadeMultiplier * compensation
-                    }
-
-                    var sample = inputSamples[i] * frameGain
-                    if shouldLimit {
-                        sample = softLimit(sample)
-                    }
-                    outputSamples[i] = sample
-
-                    channelIndex += 1
-                    if channelIndex >= channels {
-                        channelIndex = 0
-                    }
-                }
-            }
-        } else {
-            let channelCount = min(channels, bufferCount)
-            var frameCount = Int.max
-            for channel in 0..<channelCount {
-                let inputBuffer = inputBuffers[channel]
-                let sampleCount = Int(inputBuffer.mDataByteSize) / MemoryLayout<Float>.size
-                frameCount = min(frameCount, sampleCount)
-            }
-            guard frameCount != Int.max else { return }
-
-            for frame in 0..<frameCount {
-                currentVol += (targetVol - currentVol) * rampCoefficient
-                let frameGain = currentVol * crossfadeMultiplier * compensation
-
-                for channel in 0..<channelCount {
-                    let inputBuffer = inputBuffers[channel]
-                    let outputBuffer = outputBuffers[channel]
-                    guard let inputData = inputBuffer.mData,
-                          let outputData = outputBuffer.mData else { continue }
-
-                    let inputSamples = inputData.assumingMemoryBound(to: Float.self)
-                    let outputSamples = outputData.assumingMemoryBound(to: Float.self)
-
-                    var sample = inputSamples[frame] * frameGain
-                    if shouldLimit {
-                        sample = softLimit(sample)
-                    }
-                    outputSamples[frame] = sample
-                }
-            }
-        }
+        GainProcessor.processFloatBuffers(
+            channelCount: format.channelCount,
+            isInterleaved: format.isInterleaved,
+            inputBuffers: inputBuffers,
+            outputBuffers: outputBuffers,
+            targetVolume: targetVol,
+            currentVolume: &currentVol,
+            rampCoefficient: rampCoefficient,
+            crossfadeMultiplier: crossfadeMultiplier,
+            compensation: compensation
+        )
     }
 
     @inline(__always)
@@ -1398,11 +1091,10 @@ final class ProcessTapController {
         bufferList: UnsafeMutableAudioBufferListPointer,
         bytesPerFrame: Int
     ) -> Int {
-        guard bufferList.count > 0, bytesPerFrame > 0 else { return 0 }
-        let buffer = bufferList[0]
-        return Int(buffer.mDataByteSize) / bytesPerFrame
+        AudioBufferProcessor.frameCount(bufferList: bufferList, bytesPerFrame: bytesPerFrame)
     }
 
+    /// Processes audio through format converter (delegated to AudioFormatConverter)
     private func processWithConverter(
         converter: ConverterState,
         format: TapFormat,
@@ -1416,146 +1108,30 @@ final class ProcessTapController {
         eqProcessor: EQProcessor?,
         allowEQ: Bool
     ) -> Bool {
-        guard let inputConverter = converter.inputConverter,
-              let outputConverter = converter.outputConverter else {
-            return false
-        }
-
-        let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputBufferList))
-        let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
-
-        let inputBytesPerFrame = max(1, Int(converter.inputASBD.mBytesPerFrame))
-        let outputBytesPerFrame = max(1, Int(converter.outputASBD.mBytesPerFrame))
-
-        let inputFrames = frameCount(bufferList: inputBuffers, bytesPerFrame: inputBytesPerFrame)
-        let outputFrames = frameCount(bufferList: outputBuffers, bytesPerFrame: outputBytesPerFrame)
-        let maxFrames = min(converter.procBufferFrames, min(inputFrames, outputFrames))
-        guard maxFrames > 0 else { return false }
-
-        var procABL = AudioBufferList(
-            mNumberBuffers: 1,
-            mBuffers: AudioBuffer(
-                mNumberChannels: 2,
-                mDataByteSize: UInt32(maxFrames * 2 * MemoryLayout<Float>.size),
-                mData: converter.procBuffer
-            )
+        AudioFormatConverter.process(
+            converter: converter,
+            inputBufferList: inputBufferList,
+            outputBufferList: outputBufferList,
+            targetVolume: targetVol,
+            currentVolume: &currentVol,
+            rampCoefficient: rampCoefficient,
+            crossfadeMultiplier: crossfadeMultiplier,
+            compensation: compensation,
+            eqProcessor: eqProcessor,
+            allowEQ: allowEQ
         )
-
-        var inputContext = ConverterInputContext(
-            bufferList: inputBufferList,
-            frames: UInt32(inputFrames)
-        )
-
-        var procFrames: UInt32 = UInt32(maxFrames)
-        let inputStatus = AudioConverterFillComplexBuffer(
-            inputConverter,
-            Self.converterInputProc,
-            &inputContext,
-            &procFrames,
-            &procABL,
-            nil
-        )
-
-        guard inputStatus == noErr, procFrames > 0 else {
-            return false
-        }
-
-        let actualFrames = Int(procFrames)
-        procABL.mBuffers.mDataByteSize = UInt32(actualFrames * 2 * MemoryLayout<Float>.size)
-
-        // Process on normalized interleaved stereo Float32 buffer
-        let procFormat = TapFormat(
-            asbd: converter.procASBD,
-            channelCount: 2,
-            isInterleaved: true,
-            isFloat32: true,
-            sampleRate: converter.procASBD.mSampleRate
-        )
-
-        var outputSuccess = false
-        withUnsafeMutablePointer(to: &procABL) { procPtr in
-            let procBuffers = UnsafeMutableAudioBufferListPointer(procPtr)
-            processFloatBuffers(
-                format: procFormat,
-                inputBuffers: procBuffers,
-                outputBuffers: procBuffers,
-                targetVol: targetVol,
-                currentVol: &currentVol,
-                rampCoefficient: rampCoefficient,
-                crossfadeMultiplier: crossfadeMultiplier,
-                compensation: compensation
-            )
-
-            if let eqProcessor = eqProcessor, allowEQ {
-                let outputSamples = converter.procBuffer
-                let frameCount = actualFrames
-                eqProcessor.process(
-                    input: outputSamples,
-                    output: outputSamples,
-                    frameCount: frameCount
-                )
-            }
-
-            var outputContext = ConverterInputContext(
-                bufferList: UnsafePointer(procPtr),
-                frames: UInt32(actualFrames)
-            )
-
-            var outFrames: UInt32 = UInt32(min(actualFrames, outputFrames))
-            let outputStatus = AudioConverterFillComplexBuffer(
-                outputConverter,
-                Self.converterInputProc,
-                &outputContext,
-                &outFrames,
-                outputBufferList,
-                nil
-            )
-
-            outputSuccess = (outputStatus == noErr)
-        }
-
-        return outputSuccess
     }
 
-    /// Soft-knee limiter using asymptotic compression.
-    /// Threshold at 0.8, smooth transition to ±1.0 ceiling.
-    /// Output is guaranteed <= 1.0 for any finite input. Transparent for musical material.
-    /// - Parameter sample: Input sample (may exceed ±1.0 when boosted)
-    /// - Returns: Limited sample in range approximately ±1.0
+    /// Soft-knee limiter using asymptotic compression (delegated to SoftLimiter).
     @inline(__always)
     private func softLimit(_ sample: Float) -> Float {
-        let threshold: Float = 0.8
-        let ceiling: Float = 1.0
-
-        let absSample = abs(sample)
-        if absSample <= threshold {
-            return sample  // Below threshold: pass through
-        }
-
-        // Soft knee: smoothly compress above threshold
-        let overshoot = absSample - threshold
-        let headroom = ceiling - threshold  // 0.2
-        // Asymptotic approach to ceiling
-        let compressed = threshold + headroom * (overshoot / (overshoot + headroom))
-
-        return sample >= 0 ? compressed : -compressed
+        SoftLimiter.apply(sample)
     }
 
     /// Cleans up partially created CoreAudio resources on activation failure.
     /// Called when any step in activate() fails after resources were created.
     private func cleanupPartialActivation() {
-        if let procID = deviceProcID {
-            AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
-            deviceProcID = nil
-        }
-        if aggregateDeviceID.isValid {
-            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            aggregateDeviceID = .unknown
-        }
-        if processTapID.isValid {
-            AudioHardwareDestroyProcessTap(processTapID)
-            processTapID = .unknown
-        }
+        primaryResources.destroy()
         primaryFormat = nil
         destroyConverter(&primaryConverter)
     }
@@ -1566,62 +1142,18 @@ final class ProcessTapController {
 
         logger.debug("Invalidating tap for \(self.app.name)")
 
-        // Stop crossfade immediately if in progress
-        _isCrossfading = false
-        OSMemoryBarrier()  // Ensure audio callback sees this before teardown begins
+        // Stop crossfade immediately if in progress (includes OSMemoryBarrier)
+        crossfadeState.complete()
 
-        // Capture all IDs before clearing - teardown happens on background queue
-        // to avoid blocking main thread (AudioDeviceDestroyIOProcID blocks until callback finishes)
-        let primaryAggregate = aggregateDeviceID
-        let primaryProcID = deviceProcID
-        let primaryTap = processTapID
-        let secAggregate = secondaryAggregateID
-        let secProcID = secondaryDeviceProcID
-        let secTap = secondaryTapID
+        // Async teardown: captures values, clears state immediately, dispatches destruction to background
+        // This avoids blocking main thread (AudioDeviceDestroyIOProcID blocks until callback finishes)
+        primaryResources.destroyAsync()
+        secondaryResources.destroyAsync()
 
-        // Clear instance state immediately
-        aggregateDeviceID = .unknown
-        deviceProcID = nil
-        processTapID = .unknown
-        secondaryAggregateID = .unknown
-        secondaryDeviceProcID = nil
-        secondaryTapID = .unknown
-        secondaryTapDescription = nil
         primaryFormat = nil
         secondaryFormat = nil
         destroyConverter(&primaryConverter)
         destroyConverter(&secondaryConverter)
-
-        // Dispatch blocking teardown to background queue
-        DispatchQueue.global(qos: .utility).async {
-            // Clean up secondary resources if they exist
-            // Check both aggregate ID and procID are valid before calling stop/destroy
-            if secAggregate.isValid, let procID = secProcID {
-                AudioDeviceStop(secAggregate, procID)
-                AudioDeviceDestroyIOProcID(secAggregate, procID)
-                AudioHardwareDestroyAggregateDevice(secAggregate)
-            } else if secAggregate.isValid {
-                // Aggregate exists but no procID - just destroy the aggregate
-                AudioHardwareDestroyAggregateDevice(secAggregate)
-            }
-            if secTap.isValid {
-                AudioHardwareDestroyProcessTap(secTap)
-            }
-
-            // Clean up primary resources
-            // Check both aggregate ID and procID are valid before calling stop/destroy
-            if primaryAggregate.isValid, let procID = primaryProcID {
-                AudioDeviceStop(primaryAggregate, procID)
-                AudioDeviceDestroyIOProcID(primaryAggregate, procID)
-                AudioHardwareDestroyAggregateDevice(primaryAggregate)
-            } else if primaryAggregate.isValid {
-                // Aggregate exists but no procID - just destroy the aggregate
-                AudioHardwareDestroyAggregateDevice(primaryAggregate)
-            }
-            if primaryTap.isValid {
-                AudioHardwareDestroyProcessTap(primaryTap)
-            }
-        }
 
         logger.info("Tap invalidated for \(self.app.name)")
     }

@@ -3,6 +3,9 @@ import AppKit
 import AudioToolbox
 import os
 
+// Use shared CoreAudio listener queue
+private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
+
 @Observable
 @MainActor
 final class AudioDeviceMonitor {

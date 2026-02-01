@@ -3,11 +3,8 @@ import AppKit
 import AudioToolbox
 import os
 
-/// Shared background queue for all CoreAudio property listener callbacks.
-/// Using a dedicated queue avoids blocking the main thread during HAL operations,
-/// which can cause deadlocks with other apps (like System Settings) that also
-/// interact with CoreAudio on the main thread.
-let coreAudioListenerQueue = DispatchQueue(label: "com.finetune.coreaudio-listeners", qos: .userInitiated)
+// coreAudioListenerQueue is now CoreAudioQueues.listenerQueue in Types/CoreAudioQueues.swift
+private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
 
 @Observable
 @MainActor
