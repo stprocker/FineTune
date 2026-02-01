@@ -44,14 +44,7 @@ Customize your sound with a powerful 10-band EQ and 20+ tailored presets across 
 
 ## Installation
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/FineTune.git
-   ```
-2. **Open in Xcode**:
-   Double-click `FineTune.xcodeproj`.
-3. **Build and Run**:
-   Select the "FineTune" scheme and press Cmd+R.
+1. **currently a private repo**
 
 ## Credits
 

@@ -91,12 +91,10 @@
   A. Technical Documentation (Apple)
 
     1. Core Audio:
-       [Core Audio Documentation](https://developer.apple.com/documentation/coreaudio)
-       - Primary resource for low-level audio graph and HAL (Hardware Abstraction Layer) manipulation.
+       /Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/docs/Apple Core Audio Docs/
 
     2. AVFoundation:
-       [AVFoundation Documentation](https://developer.apple.com/documentation/avfoundation)
-       - For higher-level audio session management if applicable.
+       /Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/docs/Apple Core Audio Docs/
 
     3. AudioToolbox:
        [AudioToolbox Documentation](https://developer.apple.com/documentation/audiotoolbox)
