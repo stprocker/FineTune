@@ -17,6 +17,7 @@ final class AudioEngine {
     private var appliedPIDs: Set<pid_t> = []
     private(set) var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
+    private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
 
     var outputDevices: [AudioDevice] {
@@ -140,6 +141,8 @@ final class AudioEngine {
         processMonitor.stop()
         deviceMonitor.stop()
         deviceVolumeMonitor.stop()
+        for task in switchTasks.values { task.cancel() }
+        switchTasks.removeAll()
         for tap in taps.values {
             tap.invalidate()
         }
@@ -201,12 +204,18 @@ final class AudioEngine {
 
     func setDevice(for app: AudioApp, deviceUID: String) {
         guard appDeviceRouting[app.id] != deviceUID else { return }
+
+        // Cancel any in-flight switch for this app to prevent concurrent switches.
+        // Concurrent switchDevice calls on the same ProcessTapController corrupt
+        // crossfade state and can cause crackling, audio drops, or stuck taps.
+        switchTasks[app.id]?.cancel()
+
         let previousDeviceUID = appDeviceRouting[app.id]
         appDeviceRouting[app.id] = deviceUID
         settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
 
         if let tap = taps[app.id] {
-            Task {
+            switchTasks[app.id] = Task {
                 do {
                     try await tap.switchDevice(to: deviceUID)
                     // Restore saved volume/mute state after device switch
@@ -219,6 +228,12 @@ final class AudioEngine {
                     }
                     self.logger.debug("Switched \(app.name) to device: \(deviceUID)")
                 } catch {
+                    // Don't revert routing if cancelled — a newer switch has already
+                    // updated appDeviceRouting and will handle the transition.
+                    guard !Task.isCancelled else {
+                        self.logger.debug("Switch cancelled for \(app.name) (superseded by newer switch)")
+                        return
+                    }
                     self.logger.error("Failed to switch device for \(app.name): \(error.localizedDescription)")
                     // Revert routing state so UI reflects where audio is actually playing
                     if let previousDeviceUID {
@@ -227,6 +242,7 @@ final class AudioEngine {
                         self.logger.info("Reverted \(app.name) routing to: \(previousDeviceUID)")
                     }
                 }
+                self.switchTasks.removeValue(forKey: app.id)
             }
         } else {
             ensureTapExists(for: app, deviceUID: deviceUID)
@@ -361,7 +377,7 @@ final class AudioEngine {
         }
     }
 
-    /// Called when device disappears - updates routing and switches taps immediately
+    /// Called when device disappears - routes affected apps through setDevice for serialized switching
     private func handleDeviceDisconnected(_ deviceUID: String, name deviceName: String) {
         // Get fallback device: macOS default output, or first available device
         let fallbackDevice: (uid: String, name: String)
@@ -378,32 +394,13 @@ final class AudioEngine {
         }
 
         var affectedApps: [AudioApp] = []
-        var tapsToSwitch: [ProcessTapController] = []
 
         for app in apps {
             if appDeviceRouting[app.id] == deviceUID {
                 affectedApps.append(app)
-                appDeviceRouting[app.id] = fallbackDevice.uid
-                settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: fallbackDevice.uid)
-
-                if let tap = taps[app.id] {
-                    tapsToSwitch.append(tap)
-                }
-            }
-        }
-
-        if !tapsToSwitch.isEmpty {
-            Task {
-                for tap in tapsToSwitch {
-                    do {
-                        try await tap.switchDevice(to: fallbackDevice.uid)
-                        // Restore saved volume/mute state after device switch
-                        tap.volume = self.volumeState.getVolume(for: tap.app.id)
-                        tap.isMuted = self.volumeState.getMute(for: tap.app.id)
-                    } catch {
-                        logger.error("Failed to switch device for \(tap.app.name): \(error.localizedDescription)")
-                    }
-                }
+                // Route through setDevice for serialized switch handling.
+                // This cancels any in-flight switch to the now-disconnected device.
+                setDevice(for: app, deviceUID: fallbackDevice.uid)
             }
         }
 
@@ -435,6 +432,12 @@ final class AudioEngine {
     func cleanupStaleTaps() {
         let activePIDs = Set(apps.map { $0.id })
         let stalePIDs = Set(taps.keys).subtracting(activePIDs)
+
+        // Cancel in-flight switch tasks for stale PIDs
+        for pid in stalePIDs {
+            switchTasks[pid]?.cancel()
+            switchTasks.removeValue(forKey: pid)
+        }
 
         // Cancel cleanup for PIDs that reappeared
         for pid in activePIDs {

@@ -35,6 +35,13 @@
        - SwiftUI: User Interface.
        - Combine: Reactive programming for audio state updates.
 
+  D. Testing
+
+    1. All tests are located at: /Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software
+  Dev/2_works_in_progress/finetune_fork/testing/tests.
+
+    2. All new tests should be developed to FAIL FIRST, before writing new code. 
+
 ──────────────────────────────────────────────────────────────────────────────
 2.  AGENT BEHAVIOR
 ──────────────────────────────────────────────────────────────────────────────
@@ -51,6 +58,7 @@
     1. Fully understand the Swift/SwiftUI context and existing View hierarchy.
     2. Check `FineTune/Utilities` for existing helpers (e.g., audio wrappers).
     3. Confirm whether a native SwiftUI view modifier exists before writing custom layouts.
+    4. Develop failing tests based on required function/behavior.
 
   C.  **After generating new code**
 

@@ -383,6 +383,16 @@ final class ProcessTapController {
             return
         }
 
+        // Skip if already on the target device (can happen when a cancelled switch
+        // leaves us on the original device and the new switch targets the same device)
+        guard currentDeviceUID != newDeviceUID else {
+            logger.debug("[SWITCH] Already on target device \(newDeviceUID), skipping")
+            targetDeviceUID = newDeviceUID
+            return
+        }
+
+        try Task.checkCancellation()
+
         let startTime = CFAbsoluteTimeGetCurrent()
         logger.info("[SWITCH] === START === \(self.app.name) -> \(newDeviceUID)")
 
@@ -393,12 +403,23 @@ final class ProcessTapController {
             // Try crossfade approach
             try await performCrossfadeSwitch(to: newOutputUID)
         } catch {
+            // Always clean up secondary tap resources on crossfade failure
+            cleanupSecondaryTap()
+
+            // If cancelled by a newer switch, don't attempt destructive fallback —
+            // the newer switch will handle routing to the correct device.
+            if Task.isCancelled {
+                logger.info("[SWITCH] Cancelled during crossfade for \(self.app.name), aborting")
+                throw CancellationError()
+            }
+
             // Fall back to destroy/recreate if crossfade fails
             logger.warning("[SWITCH] Crossfade failed: \(error.localizedDescription), using fallback")
-            // Clean up any partially-created secondary tap resources before fallback
-            cleanupSecondaryTap()
             try await performDestructiveDeviceSwitch(to: newDeviceUID)
         }
+
+        // Final cancellation check before committing state
+        try Task.checkCancellation()
 
         targetDeviceUID = newDeviceUID
         currentDeviceUID = newOutputUID

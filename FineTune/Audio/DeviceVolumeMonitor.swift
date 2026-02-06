@@ -320,6 +320,14 @@ final class DeviceVolumeMonitor {
             let newDeviceUID = try? newDeviceID?.readDeviceUID()
             let isVirtual = newDeviceID?.isVirtualDevice() ?? false
 
+            // Bluetooth devices need extra time for stream initialization after connection.
+            // Without this, process tap creation may fail because output streams aren't ready yet,
+            // causing audio to not play until the device is "poked" (e.g., by System Settings).
+            let transport = newDeviceID?.readTransportType() ?? .unknown
+            if transport == .bluetooth || transport == .bluetoothLE {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 if let id = newDeviceID, id.isValid {
