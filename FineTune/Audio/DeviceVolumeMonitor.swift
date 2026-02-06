@@ -318,12 +318,22 @@ final class DeviceVolumeMonitor {
             // Read CoreAudio properties on background thread to avoid blocking MainActor
             let newDeviceID = try? AudioDeviceID.readDefaultOutputDevice()
             let newDeviceUID = try? newDeviceID?.readDeviceUID()
+            let isVirtual = newDeviceID?.isVirtualDevice() ?? false
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 if let id = newDeviceID, id.isValid {
                     self.defaultDeviceID = id
                     self.defaultDeviceUID = newDeviceUID
+
+                    // Skip routing to virtual devices (e.g., SRAudioDriver, BlackHole)
+                    // These are typically audio capture/loopback drivers that don't produce audible output.
+                    // FineTune would mute the app's audio via process tap but deliver it to a silent virtual device.
+                    if isVirtual {
+                        self.logger.info("Default device changed to virtual device \(newDeviceUID ?? "nil") — ignoring to prevent silent routing")
+                        return
+                    }
+
                     self.logger.debug("Default device updated: \(id), UID: \(newDeviceUID ?? "nil")")
 
                     // Notify AudioEngine to route all apps to the new device

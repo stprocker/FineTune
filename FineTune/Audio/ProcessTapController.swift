@@ -93,6 +93,9 @@ final class ProcessTapController {
         let formatIsFloat: Bool
         let formatIsInterleaved: Bool
         let formatSampleRate: Float
+        let volume: Float
+        let crossfadeActive: Bool
+        let primaryCurrentVolume: Float
     }
 
     var diagnostics: TapDiagnostics {
@@ -111,7 +114,10 @@ final class ProcessTapController {
             formatChannels: _diagFormatChannels,
             formatIsFloat: _diagFormatIsFloat,
             formatIsInterleaved: _diagFormatIsInterleaved,
-            formatSampleRate: _diagFormatSampleRate
+            formatSampleRate: _diagFormatSampleRate,
+            volume: _volume,
+            crossfadeActive: crossfadeState.isActive,
+            primaryCurrentVolume: _primaryCurrentVolume
         )
     }
 

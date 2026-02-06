@@ -100,8 +100,11 @@ final class AudioEngine {
             direct=\(d.directFloat) passthru=\(d.nonFloatPassthrough) \
             inPeak=\(String(format: "%.3f", d.lastInputPeak)) \
             outPeak=\(String(format: "%.3f", d.lastOutputPeak)) \
+            vol=\(String(format: "%.2f", d.volume)) curVol=\(String(format: "%.2f", d.primaryCurrentVolume)) \
+            xfade=\(d.crossfadeActive) \
             fmt=\(d.formatChannels)ch/\(d.formatIsFloat ? "f32" : "int")/\
-            \(d.formatIsInterleaved ? "ilv" : "planar")/\(Int(d.formatSampleRate))Hz
+            \(d.formatIsInterleaved ? "ilv" : "planar")/\(Int(d.formatSampleRate))Hz \
+            dev=\(self.appDeviceRouting[pid] ?? "none")
             """)
         }
     }
