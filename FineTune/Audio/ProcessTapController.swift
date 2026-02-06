@@ -300,12 +300,19 @@ final class ProcessTapController {
 
         logger.debug("Created aggregate device #\(self.primaryResources.aggregateDeviceID)")
 
-        // Ensure aggregate device matches the tap/device sample rate.
+        // Use OUTPUT DEVICE sample rate for the aggregate, not the tap's rate.
+        // Process taps may report the app's internal rate (e.g., Chromium uses 24000 Hz)
+        // which the output device may not support (e.g., AirPods require 48000 Hz).
+        // CoreAudio's drift compensation on the tap sub-device handles resampling.
+        let deviceSampleRate = fallbackSampleRate
         let tapSampleRate = primaryFormat?.sampleRate ?? fallbackSampleRate
-        if AudioDeviceID(primaryResources.aggregateDeviceID).setNominalSampleRate(tapSampleRate) {
-            logger.debug("Aggregate sample rate set to \(tapSampleRate) Hz (tap: \(self.describeASBD(self.primaryFormat?.asbd ?? AudioStreamBasicDescription())))")
+        if tapSampleRate != deviceSampleRate {
+            logger.info("Tap sample rate (\(tapSampleRate) Hz) differs from device (\(deviceSampleRate) Hz) — using device rate for aggregate")
+        }
+        if AudioDeviceID(primaryResources.aggregateDeviceID).setNominalSampleRate(deviceSampleRate) {
+            logger.debug("Aggregate sample rate set to \(deviceSampleRate) Hz (tap: \(self.describeASBD(self.primaryFormat?.asbd ?? AudioStreamBasicDescription())))")
         } else {
-            logger.warning("Failed to set aggregate sample rate to \(tapSampleRate) Hz")
+            logger.warning("Failed to set aggregate sample rate to \(deviceSampleRate) Hz")
         }
 
         destroyConverter(&primaryConverter)
@@ -323,12 +330,12 @@ final class ProcessTapController {
             logger.warning("Non-float tap format detected, conversion required: \(self.describeASBD(format.asbd))")
         }
 
-        // Compute ramp coefficient from confirmed sample rate
-        rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: tapSampleRate, rampTime: VolumeRamper.defaultRampTime)
-        logger.debug("Configured for sample rate: \(tapSampleRate) Hz, Ramp: \(self.rampCoefficient)")
+        // Compute ramp coefficient from device sample rate (aggregate callback rate)
+        rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: deviceSampleRate, rampTime: VolumeRamper.defaultRampTime)
+        logger.debug("Configured for sample rate: \(deviceSampleRate) Hz, Ramp: \(self.rampCoefficient)")
 
         // Initialize EQ processor with device sample rate
-        eqProcessor = EQProcessor(sampleRate: tapSampleRate)
+        eqProcessor = EQProcessor(sampleRate: deviceSampleRate)
 
         // Create IO proc with gain processing
         err = AudioDeviceCreateIOProcIDWithBlock(&primaryResources.deviceProcID, primaryResources.aggregateDeviceID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
@@ -578,10 +585,10 @@ final class ProcessTapController {
         }
         logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryResources.aggregateDeviceID)")
 
-        // Initialize sample-accurate crossfade timing from secondary tap format
-        let sampleRate = secondaryFormat?.sampleRate ?? fallbackSampleRate
-        if AudioDeviceID(secondaryResources.aggregateDeviceID).setNominalSampleRate(sampleRate) {
-            logger.debug("[CROSSFADE] Secondary aggregate sample rate set to \(sampleRate) Hz (tap: \(self.describeASBD(self.secondaryFormat?.asbd ?? AudioStreamBasicDescription())))")
+        // Use OUTPUT DEVICE sample rate for the aggregate (same fix as activate())
+        let deviceSampleRate = fallbackSampleRate
+        if AudioDeviceID(secondaryResources.aggregateDeviceID).setNominalSampleRate(deviceSampleRate) {
+            logger.debug("[CROSSFADE] Secondary aggregate sample rate set to \(deviceSampleRate) Hz (tap: \(self.describeASBD(self.secondaryFormat?.asbd ?? AudioStreamBasicDescription())))")
         }
 
         destroyConverter(&secondaryConverter)
@@ -595,10 +602,10 @@ final class ProcessTapController {
             }
         }
 
-        crossfadeState.totalSamples = CrossfadeConfig.totalSamples(at: sampleRate)
+        crossfadeState.totalSamples = CrossfadeConfig.totalSamples(at: deviceSampleRate)
 
         // Compute ramp coefficient for secondary device's sample rate
-        secondaryRampCoefficient = VolumeRamper.computeCoefficient(sampleRate: sampleRate, rampTime: VolumeRamper.defaultRampTime)
+        secondaryRampCoefficient = VolumeRamper.computeCoefficient(sampleRate: deviceSampleRate, rampTime: VolumeRamper.defaultRampTime)
 
         // Initialize secondary volume to match primary for smooth handoff
         _secondaryCurrentVolume = _primaryCurrentVolume
