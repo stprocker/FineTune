@@ -1053,8 +1053,17 @@ final class ProcessTapController {
     /// OWNS crossfade timing via sample counting for sample-accurate transitions.
     private func processAudioSecondary(_ inputBufferList: UnsafePointer<AudioBufferList>, to outputBufferList: UnsafeMutablePointer<AudioBufferList>) {
         let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
-        let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputBufferList))
         _diagCallbackCount += 1
+
+        // Check silence flag (atomic Bool read) — matches primary callback behavior.
+        // Without this, secondary tap keeps outputting audio during destructive switch fallback.
+        if _forceSilence {
+            _diagSilencedForce += 1
+            zeroOutputBuffers(outputBuffers)
+            return
+        }
+
+        let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputBufferList))
         let format = secondaryFormat ?? TapFormat(
             asbd: AudioStreamBasicDescription(),
             channelCount: 2,
@@ -1215,20 +1224,10 @@ final class ProcessTapController {
         AudioBufferProcessor.computePeak(inputBuffers: inputBuffers)
     }
 
-    /// Compute peak of output buffers for diagnostics (RT-safe: simple float max)
+    /// Compute peak of output buffers for diagnostics (RT-safe: vDSP SIMD-accelerated)
     @inline(__always)
     private func computeOutputPeak(_ outputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
-        var peak: Float = 0
-        for i in 0..<outputBuffers.count {
-            guard let data = outputBuffers[i].mData else { continue }
-            let samples = data.assumingMemoryBound(to: Float.self)
-            let count = Int(outputBuffers[i].mDataByteSize) / MemoryLayout<Float>.size
-            for j in 0..<count {
-                let abs = samples[j] < 0 ? -samples[j] : samples[j]
-                if abs > peak { peak = abs }
-            }
-        }
-        return min(peak, 1.0)
+        min(AudioBufferProcessor.computePeak(inputBuffers: outputBuffers), 1.0)
     }
 
     @inline(__always)
@@ -1323,6 +1322,9 @@ final class ProcessTapController {
         secondaryFormat = nil
         destroyConverter(&primaryConverter)
         destroyConverter(&secondaryConverter)
+
+        // Reset VU meter level to prevent stale display after tap is gone
+        _peakLevel = 0
 
         logger.info("Tap invalidated for \(self.app.name)")
     }

@@ -1,5 +1,6 @@
 // FineTune/Audio/Processing/GainProcessor.swift
 import AudioToolbox
+import Accelerate
 
 /// RT-safe gain processing with volume ramping and soft limiting.
 /// Handles both interleaved and non-interleaved audio formats.
@@ -40,6 +41,27 @@ enum GainProcessor {
 
         let channels = max(1, channelCount)
         let shouldLimit = targetVolume > 1.0
+
+        // Fast path: volume has converged and no limiting needed.
+        // Use vDSP_vsmul for SIMD-accelerated scalar multiply instead of per-sample ramping.
+        // This is the common steady-state path (volume only ramps for ~30ms after a change).
+        let volumeConverged = abs(currentVolume - targetVolume) < 1e-6
+        if volumeConverged && !shouldLimit {
+            var gain = targetVolume * crossfadeMultiplier * compensation
+            currentVolume = targetVolume
+            for index in 0..<bufferCount {
+                let inputBuffer = inputBuffers[index]
+                let outputBuffer = outputBuffers[index]
+                guard let inputData = inputBuffer.mData,
+                      let outputData = outputBuffer.mData else { continue }
+                let inputSamples = inputData.assumingMemoryBound(to: Float.self)
+                let outputSamples = outputData.assumingMemoryBound(to: Float.self)
+                let sampleCount = Int(inputBuffer.mDataByteSize) / MemoryLayout<Float>.size
+                guard sampleCount > 0 else { continue }
+                vDSP_vsmul(inputSamples, 1, &gain, outputSamples, 1, vDSP_Length(sampleCount))
+            }
+            return
+        }
 
         if isInterleaved {
             processInterleaved(
