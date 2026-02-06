@@ -76,6 +76,33 @@ final class AudioEngine {
             }
 
             applyPersistedSettings()
+
+            // Diagnostic timer - logs tap state every 5 seconds
+            Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard let self else { return }
+                    self.logDiagnostics()
+                }
+            }
+        }
+    }
+
+    private func logDiagnostics() {
+        for (pid, tap) in taps {
+            let d = tap.diagnostics
+            let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+            logger.info("""
+            [DIAG] \(appName): callbacks=\(d.callbackCount) \
+            input=\(d.inputHasData) output=\(d.outputWritten) \
+            silForce=\(d.silencedForce) silMute=\(d.silencedMute) \
+            conv=\(d.converterUsed) convFail=\(d.converterFailed) \
+            direct=\(d.directFloat) passthru=\(d.nonFloatPassthrough) \
+            inPeak=\(String(format: "%.3f", d.lastInputPeak)) \
+            outPeak=\(String(format: "%.3f", d.lastOutputPeak)) \
+            fmt=\(d.formatChannels)ch/\(d.formatIsFloat ? "f32" : "int")/\
+            \(d.formatIsInterleaved ? "ilv" : "planar")/\(Int(d.formatSampleRate))Hz
+            """)
         }
     }
 

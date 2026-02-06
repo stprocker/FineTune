@@ -29,6 +29,13 @@ final class AudioDeviceMonitor {
         mElement: kAudioObjectPropertyElementMain
     )
 
+    private var serviceRestartListenerBlock: AudioObjectPropertyListenerBlock?
+    private var serviceRestartAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyServiceRestarted,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
     private var knownDeviceUIDs: Set<String> = []
 
     func start() {
@@ -55,6 +62,23 @@ final class AudioDeviceMonitor {
         if status != noErr {
             logger.error("Failed to add device list listener: \(status)")
         }
+
+        serviceRestartListenerBlock = { [weak self] _, _ in
+            Task.detached { [weak self] in
+                await self?.handleServiceRestartedAsync()
+            }
+        }
+
+        let restartStatus = AudioObjectAddPropertyListenerBlock(
+            .system,
+            &serviceRestartAddress,
+            coreAudioListenerQueue,
+            serviceRestartListenerBlock!
+        )
+
+        if restartStatus != noErr {
+            logger.error("Failed to add service restart listener: \(restartStatus)")
+        }
     }
 
     func stop() {
@@ -63,6 +87,11 @@ final class AudioDeviceMonitor {
         if let block = deviceListListenerBlock {
             AudioObjectRemovePropertyListenerBlock(.system, &deviceListAddress, coreAudioListenerQueue, block)
             deviceListListenerBlock = nil
+        }
+
+        if let block = serviceRestartListenerBlock {
+            AudioObjectRemovePropertyListenerBlock(.system, &serviceRestartAddress, coreAudioListenerQueue, block)
+            serviceRestartListenerBlock = nil
         }
     }
 
@@ -143,6 +172,33 @@ final class AudioDeviceMonitor {
             let name = deviceNames[uid] ?? uid
             logger.info("Device disconnected: \(name) (\(uid))")
             onDeviceDisconnected?(uid, name)
+        }
+    }
+
+    private func handleServiceRestartedAsync() async {
+        logger.warning("coreaudiod service restarted - refreshing device list")
+
+        let previousUIDs = await MainActor.run { knownDeviceUIDs }
+        let deviceNames = await MainActor.run {
+            Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
+        }
+
+        let deviceData = Self.readDeviceDataFromCoreAudio()
+
+        await MainActor.run { [weak self] in
+            guard let self else { return }
+            let devices = self.createAudioDevices(from: deviceData)
+            self.outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            self.knownDeviceUIDs = Set(devices.map(\.uid))
+            self.devicesByUID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.uid, $0) })
+            self.devicesByID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.id, $0) })
+
+            let disconnectedUIDs = previousUIDs.subtracting(self.knownDeviceUIDs)
+            for uid in disconnectedUIDs {
+                let name = deviceNames[uid] ?? uid
+                self.logger.info("Device disconnected after restart: \(name) (\(uid))")
+                self.onDeviceDisconnected?(uid, name)
+            }
         }
     }
 

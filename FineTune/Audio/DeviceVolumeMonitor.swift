@@ -208,10 +208,11 @@ final class DeviceVolumeMonitor {
     }
 
     /// Sets a device as the macOS system default output device
-    func setDefaultDevice(_ deviceID: AudioDeviceID) {
+    @discardableResult
+    func setDefaultDevice(_ deviceID: AudioDeviceID) -> Bool {
         guard deviceID.isValid else {
             logger.warning("Cannot set default device: invalid device ID")
-            return
+            return false
         }
 
         // Set flag to prevent our own change from triggering onDefaultDeviceChangedExternally
@@ -221,10 +222,10 @@ final class DeviceVolumeMonitor {
         do {
             try AudioDeviceID.setDefaultOutputDevice(deviceID)
             logger.debug("Set default output device to \(deviceID)")
-            
+
             // Record timestamp to ignore the subsequent listener callback (feedback loop prevention)
             lastSelfChangeTimestamp = Date().timeIntervalSince1970
-            
+
             // Manually trigger the notification so apps route immediately.
             // We ignore the listener callback, so this is required for apps to follow the selection.
             if let uid = try? deviceID.readDeviceUID() {
@@ -233,8 +234,29 @@ final class DeviceVolumeMonitor {
                 self.defaultDeviceUID = uid
                 self.onDefaultDeviceChangedExternally?(uid)
             }
+
+            Task.detached { [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                let confirmedID = try? AudioDeviceID.readDefaultOutputDevice()
+                let confirmedUID = try? confirmedID?.readDeviceUID()
+
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    guard let confirmedID, confirmedID.isValid else { return }
+                    if confirmedID != deviceID {
+                        self.defaultDeviceID = confirmedID
+                        self.defaultDeviceUID = confirmedUID
+                        if let uid = confirmedUID {
+                            self.onDefaultDeviceChangedExternally?(uid)
+                        }
+                    }
+                }
+            }
+
+            return true
         } catch {
             logger.error("Failed to set default device: \(error.localizedDescription)")
+            return false
         }
     }
 

@@ -5,9 +5,6 @@ struct MenuBarPopupView: View {
     @Bindable var audioEngine: AudioEngine
     @Bindable var deviceVolumeMonitor: DeviceVolumeMonitor
 
-    /// Memoized sorted devices - only recomputed when device list or default changes
-    @State private var sortedDevices: [AudioDevice] = []
-
     /// Track which app has its EQ panel expanded (only one at a time)
     @State private var expandedEQAppID: pid_t?
 
@@ -62,20 +59,10 @@ struct MenuBarPopupView: View {
         .frame(width: DesignTokens.Dimensions.popupWidth)
         .darkGlassBackground()
         .environment(\.colorScheme, .dark)
-        .onAppear {
-            updateSortedDevices()
-        }
-        .onChange(of: audioEngine.outputDevices) { _, _ in
-            updateSortedDevices()
-        }
-        .onChange(of: deviceVolumeMonitor.defaultDeviceID) { _, _ in
-            updateSortedDevices()
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             isPopupVisible = true
             // Re-sync default device in case of missed listener updates
             deviceVolumeMonitor.refreshDefaultDevice()
-            updateSortedDevices()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             isPopupVisible = false
@@ -109,10 +96,7 @@ struct MenuBarPopupView: View {
                     volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
                     isMuted: deviceVolumeMonitor.muteStates[device.id] ?? false,
                     onSetDefault: {
-                        // 1. Set macOS system default (for apps that follow system default)
                         deviceVolumeMonitor.setDefaultDevice(device.id)
-                        // 2. Route all currently-playing apps to this device
-                        audioEngine.routeAllApps(to: device.uid)
                     },
                     onVolumeChange: { volume in
                         deviceVolumeMonitor.setVolume(for: device.id, to: volume)
@@ -227,11 +211,10 @@ struct MenuBarPopupView: View {
 
     // MARK: - Helpers
 
-    /// Recomputes sorted devices - called only when dependencies change
-    private func updateSortedDevices() {
+    private var sortedDevices: [AudioDevice] {
         let devices = audioEngine.outputDevices
         let defaultID = deviceVolumeMonitor.defaultDeviceID
-        sortedDevices = devices.sorted { lhs, rhs in
+        return devices.sorted { lhs, rhs in
             if lhs.id == defaultID { return true }
             if rhs.id == defaultID { return false }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending

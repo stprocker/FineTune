@@ -47,6 +47,23 @@ final class ProcessTapController {
     // 0.3 gives ~30ms effective integration at 30fps UI update rate
     private let levelSmoothingFactor: Float = 0.3
 
+    // --- Diagnostic counters (RT-safe: atomic increments on 64-bit ARM) ---
+    private nonisolated(unsafe) var _diagCallbackCount: UInt64 = 0
+    private nonisolated(unsafe) var _diagInputHasData: UInt64 = 0
+    private nonisolated(unsafe) var _diagOutputWritten: UInt64 = 0
+    private nonisolated(unsafe) var _diagSilencedForce: UInt64 = 0
+    private nonisolated(unsafe) var _diagSilencedMute: UInt64 = 0
+    private nonisolated(unsafe) var _diagConverterUsed: UInt64 = 0
+    private nonisolated(unsafe) var _diagConverterFailed: UInt64 = 0
+    private nonisolated(unsafe) var _diagDirectFloat: UInt64 = 0
+    private nonisolated(unsafe) var _diagNonFloatPassthrough: UInt64 = 0
+    private nonisolated(unsafe) var _diagLastInputPeak: Float = 0
+    private nonisolated(unsafe) var _diagLastOutputPeak: Float = 0
+    private nonisolated(unsafe) var _diagFormatChannels: UInt32 = 0
+    private nonisolated(unsafe) var _diagFormatIsFloat: Bool = false
+    private nonisolated(unsafe) var _diagFormatIsInterleaved: Bool = false
+    private nonisolated(unsafe) var _diagFormatSampleRate: Float = 0
+
     // Current device volume scalar (0-1) for VU meter calculation
     // Updated from main thread when device volume changes
     private nonisolated(unsafe) var _currentDeviceVolume: Float = 1.0
@@ -57,6 +74,46 @@ final class ProcessTapController {
     /// Current peak audio level (0-1) for VU meter visualization
     /// Read from main thread, written from audio callback (atomic Float)
     var audioLevel: Float { _peakLevel }
+
+    // MARK: - Diagnostics
+
+    struct TapDiagnostics {
+        let callbackCount: UInt64
+        let inputHasData: UInt64
+        let outputWritten: UInt64
+        let silencedForce: UInt64
+        let silencedMute: UInt64
+        let converterUsed: UInt64
+        let converterFailed: UInt64
+        let directFloat: UInt64
+        let nonFloatPassthrough: UInt64
+        let lastInputPeak: Float
+        let lastOutputPeak: Float
+        let formatChannels: UInt32
+        let formatIsFloat: Bool
+        let formatIsInterleaved: Bool
+        let formatSampleRate: Float
+    }
+
+    var diagnostics: TapDiagnostics {
+        TapDiagnostics(
+            callbackCount: _diagCallbackCount,
+            inputHasData: _diagInputHasData,
+            outputWritten: _diagOutputWritten,
+            silencedForce: _diagSilencedForce,
+            silencedMute: _diagSilencedMute,
+            converterUsed: _diagConverterUsed,
+            converterFailed: _diagConverterFailed,
+            directFloat: _diagDirectFloat,
+            nonFloatPassthrough: _diagNonFloatPassthrough,
+            lastInputPeak: _diagLastInputPeak,
+            lastOutputPeak: _diagLastOutputPeak,
+            formatChannels: _diagFormatChannels,
+            formatIsFloat: _diagFormatIsFloat,
+            formatIsInterleaved: _diagFormatIsInterleaved,
+            formatSampleRate: _diagFormatSampleRate
+        )
+    }
 
     /// Current device volume for VU meter scaling (atomic write from main thread)
     var currentDeviceVolume: Float {
@@ -297,6 +354,11 @@ final class ProcessTapController {
         // Only set activated after complete success
         activated = true
         logger.info("Tap activated for \(self.app.name)")
+
+        // Diagnostic: log full activation details for pipeline troubleshooting
+        if let format = primaryFormat {
+            logger.info("[DIAG] Activation complete: format=\(format.description), converter=\(self.primaryConverter != nil), aggDeviceID=\(self.primaryResources.aggregateDeviceID), rampCoeff=\(self.rampCoefficient)")
+        }
     }
 
     /// Switches the output device using dual-tap crossfade for seamless transition.
@@ -824,10 +886,12 @@ final class ProcessTapController {
     /// See: https://developer.apple.com/library/archive/qa/qa1467/_index.html
     private func processAudio(_ inputBufferList: UnsafePointer<AudioBufferList>, to outputBufferList: UnsafeMutablePointer<AudioBufferList>) {
         let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
+        _diagCallbackCount += 1
 
         // Check silence flag first (atomic Bool read)
         // When silencing for device switch, output zeros to prevent clicks
         if _forceSilence {
+            _diagSilencedForce += 1
             zeroOutputBuffers(outputBuffers)
             return
         }
@@ -841,6 +905,12 @@ final class ProcessTapController {
             sampleRate: 48000
         )
 
+        // Record format info (RT-safe atomic writes)
+        _diagFormatChannels = UInt32(format.channelCount)
+        _diagFormatIsFloat = format.isFloat32
+        _diagFormatIsInterleaved = format.isInterleaved
+        _diagFormatSampleRate = Float(format.sampleRate)
+
         // Track peak level for VU meter (RT-safe: simple max tracking + smoothing)
         // Always measure INPUT signal so VU shows source activity even when muted
         // This helps users see "app is playing" and supports future EQ visualization
@@ -848,6 +918,10 @@ final class ProcessTapController {
             let maxPeak = computePeak(inputBuffers: inputBuffers)
             let rawPeak = min(maxPeak, 1.0)
             _peakLevel = _peakLevel + levelSmoothingFactor * (rawPeak - _peakLevel)
+            if rawPeak > 0 {
+                _diagInputHasData += 1
+                _diagLastInputPeak = rawPeak
+            }
         } else {
             _peakLevel = 0.0
         }
@@ -855,6 +929,7 @@ final class ProcessTapController {
         // Check user mute flag (atomic Bool read)
         // When muted, output zeros but VU meter still shows source activity (measured above)
         if _isMuted {
+            _diagSilencedMute += 1
             zeroOutputBuffers(outputBuffers)
             return
         }
@@ -867,6 +942,7 @@ final class ProcessTapController {
         let crossfadeMultiplier = crossfadeState.primaryMultiplier
 
         if let converter = primaryConverter {
+            _diagConverterUsed += 1
             let processed = processWithConverter(
                 converter: converter,
                 format: format,
@@ -881,16 +957,23 @@ final class ProcessTapController {
                 allowEQ: !crossfadeState.isActive
             )
             if processed {
+                _diagOutputWritten += 1
+                _diagLastOutputPeak = computeOutputPeak(outputBuffers)
                 _primaryCurrentVolume = currentVol
                 return
             }
+            _diagConverterFailed += 1
         }
 
         // If format isn't Float32 PCM, pass through untouched (avoid corrupting non-float buffers)
         guard format.isFloat32 else {
+            _diagNonFloatPassthrough += 1
             copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
+            _diagOutputWritten += 1
             return
         }
+
+        _diagDirectFloat += 1
 
         // Copy input to output with ramped gain and soft limiting
         let effectiveCompensation: Float = crossfadeState.isActive ? 1.0 : _deviceVolumeCompensation
@@ -923,6 +1006,9 @@ final class ProcessTapController {
             )
         }
 
+        _diagOutputWritten += 1
+        _diagLastOutputPeak = computeOutputPeak(outputBuffers)
+
         // Store for next callback
         _primaryCurrentVolume = currentVol
     }
@@ -934,6 +1020,7 @@ final class ProcessTapController {
     private func processAudioSecondary(_ inputBufferList: UnsafePointer<AudioBufferList>, to outputBufferList: UnsafeMutablePointer<AudioBufferList>) {
         let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
         let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputBufferList))
+        _diagCallbackCount += 1
         let format = secondaryFormat ?? TapFormat(
             asbd: AudioStreamBasicDescription(),
             channelCount: 2,
@@ -942,6 +1029,12 @@ final class ProcessTapController {
             sampleRate: 48000
         )
 
+        // Record format info (RT-safe atomic writes)
+        _diagFormatChannels = UInt32(format.channelCount)
+        _diagFormatIsFloat = format.isFloat32
+        _diagFormatIsInterleaved = format.isInterleaved
+        _diagFormatSampleRate = Float(format.sampleRate)
+
         // Track peak level for VU meter (RT-safe: simple max tracking + smoothing)
         // Always measure INPUT signal so VU shows source activity even when muted
         var totalSamplesThisBuffer: Int = 0
@@ -949,6 +1042,10 @@ final class ProcessTapController {
             let maxPeak = computePeak(inputBuffers: inputBuffers)
             let rawPeak = min(maxPeak, 1.0)
             _peakLevel = _peakLevel + levelSmoothingFactor * (rawPeak - _peakLevel)
+            if rawPeak > 0 {
+                _diagInputHasData += 1
+                _diagLastInputPeak = rawPeak
+            }
         } else {
             _peakLevel = 0.0
         }
@@ -974,6 +1071,7 @@ final class ProcessTapController {
         // Check user mute flag (atomic Bool read)
         // When muted, output zeros but VU meter still shows source activity (measured above)
         if _isMuted {
+            _diagSilencedMute += 1
             zeroOutputBuffers(outputBuffers)
             return
         }
@@ -992,6 +1090,7 @@ final class ProcessTapController {
         let activeRampCoef = crossfadeState.isActive ? secondaryRampCoefficient : rampCoefficient
 
         if let converter = secondaryConverter {
+            _diagConverterUsed += 1
             let processed = processWithConverter(
                 converter: converter,
                 format: format,
@@ -1006,16 +1105,23 @@ final class ProcessTapController {
                 allowEQ: !crossfadeState.isActive
             )
             if processed {
+                _diagOutputWritten += 1
+                _diagLastOutputPeak = computeOutputPeak(outputBuffers)
                 _secondaryCurrentVolume = currentVol
                 return
             }
+            _diagConverterFailed += 1
         }
 
         // If format isn't Float32 PCM, pass through untouched (avoid corrupting non-float buffers)
         guard format.isFloat32 else {
+            _diagNonFloatPassthrough += 1
             copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
+            _diagOutputWritten += 1
             return
         }
+
+        _diagDirectFloat += 1
 
         processFloatBuffers(
             format: format,
@@ -1046,6 +1152,9 @@ final class ProcessTapController {
             )
         }
 
+        _diagOutputWritten += 1
+        _diagLastOutputPeak = computeOutputPeak(outputBuffers)
+
         // Store for next callback
         _secondaryCurrentVolume = currentVol
     }
@@ -1070,6 +1179,22 @@ final class ProcessTapController {
     @inline(__always)
     private func computePeak(inputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
         AudioBufferProcessor.computePeak(inputBuffers: inputBuffers)
+    }
+
+    /// Compute peak of output buffers for diagnostics (RT-safe: simple float max)
+    @inline(__always)
+    private func computeOutputPeak(_ outputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
+        var peak: Float = 0
+        for i in 0..<outputBuffers.count {
+            guard let data = outputBuffers[i].mData else { continue }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            let count = Int(outputBuffers[i].mDataByteSize) / MemoryLayout<Float>.size
+            for j in 0..<count {
+                let abs = samples[j] < 0 ? -samples[j] : samples[j]
+                if abs > peak { peak = abs }
+            }
+        }
+        return min(peak, 1.0)
     }
 
     @inline(__always)

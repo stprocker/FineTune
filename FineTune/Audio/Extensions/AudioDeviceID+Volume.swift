@@ -74,6 +74,12 @@ extension AudioDeviceID {
             return false
         }
 
+        var isSettable: DarwinBoolean = false
+        let settableStatus = AudioObjectIsPropertySettable(self, &address, &isSettable)
+        guard settableStatus == noErr, isSettable.boolValue else {
+            return false
+        }
+
         var volumeValue: Float32 = clampedVolume
         let size = UInt32(MemoryLayout<Float32>.size)
         let err = AudioObjectSetPropertyData(self, &address, 0, nil, size, &volumeValue)
@@ -113,6 +119,12 @@ extension AudioDeviceID {
         )
 
         guard AudioObjectHasProperty(self, &address) else {
+            return false
+        }
+
+        var isSettable: DarwinBoolean = false
+        let settableStatus = AudioObjectIsPropertySettable(self, &address, &isSettable)
+        guard settableStatus == noErr, isSettable.boolValue else {
             return false
         }
 
