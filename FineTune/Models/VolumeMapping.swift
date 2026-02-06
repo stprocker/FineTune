@@ -3,7 +3,7 @@ import Foundation
 
 /// Utility for converting between slider position and audio gain.
 /// Uses dB-based curve: 50% slider = 0dB = unity gain (passthrough).
-enum VolumeMapping {
+public enum VolumeMapping {
     /// Minimum dB for slider at 0% (effectively -infinity, but use finite value)
     private static let minDB: Float = -60
 
@@ -14,7 +14,7 @@ enum VolumeMapping {
     /// Uses dB-based curve: 50% slider = 0dB = unity gain
     /// - Parameter slider: Normalized slider position 0.0 to 1.0
     /// - Returns: Linear gain multiplier (0 to ~2.0)
-    static func sliderToGain(_ slider: Double) -> Float {
+    public static func sliderToGain(_ slider: Double) -> Float {
         guard slider > 0 else { return 0 }
 
         // Map slider 0-1 to dB range, with 0.5 = 0dB (unity)
@@ -35,7 +35,7 @@ enum VolumeMapping {
     /// Convert linear gain to slider position (0-1)
     /// - Parameter gain: Linear gain multiplier
     /// - Returns: Normalized slider position 0.0 to 1.0
-    static func gainToSlider(_ gain: Float) -> Double {
+    public static func gainToSlider(_ gain: Float) -> Double {
         guard gain > 0 else { return 0 }
 
         let dB = 20 * log10(gain)

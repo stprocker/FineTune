@@ -3,6 +3,7 @@ import AudioToolbox
 import Foundation
 import os
 import UserNotifications
+import FineTuneCore
 
 @Observable
 @MainActor
@@ -16,7 +17,7 @@ final class AudioEngine {
 
     private var taps: [pid_t: ProcessTapController] = [:]
     private var appliedPIDs: Set<pid_t> = []
-    private(set) var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
+    var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
@@ -399,6 +400,7 @@ final class AudioEngine {
 
         let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor)
         tap.volume = volumeState.getVolume(for: app.id)
+        tap.isMuted = volumeState.getMute(for: app.id)
 
         // Set initial device volume/mute for VU meter accuracy
         if let device = deviceMonitor.device(for: deviceUID) {

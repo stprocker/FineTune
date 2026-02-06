@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "FineTuneCore",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("14.2")],
     products: [
         .library(name: "FineTuneCore", targets: ["FineTuneCore"]),
     ],
@@ -24,6 +24,30 @@ let package = Package(
                 "Models/VolumeMapping.swift",
             ]
         ),
+        .target(
+            name: "FineTuneIntegration",
+            dependencies: ["FineTuneCore"],
+            path: "FineTune",
+            exclude: [
+                "FineTuneApp.swift",
+                "Views",
+                "Audio/BiquadMath.swift",
+                "Audio/Crossfade/CrossfadeState.swift",
+                "Audio/Processing/AudioBufferProcessor.swift",
+                "Audio/Processing/GainProcessor.swift",
+                "Audio/Processing/SoftLimiter.swift",
+                "Audio/Processing/VolumeRamper.swift",
+                "Models/EQPreset.swift",
+                "Models/EQSettings.swift",
+                "Models/VolumeMapping.swift",
+                "Info.plist",
+                "Info-Debug.plist",
+                "FineTune.entitlements",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
         .testTarget(
             name: "FineTuneCoreTests",
             dependencies: ["FineTuneCore"],
@@ -38,6 +62,18 @@ let package = Package(
                 "SoftLimiterTests.swift",
                 "VolumeMappingTests.swift",
                 "VolumeRamperTests.swift",
+            ]
+        ),
+        .testTarget(
+            name: "FineTuneIntegrationTests",
+            dependencies: ["FineTuneIntegration", "FineTuneCore"],
+            path: "testing/tests",
+            sources: [
+                "AudioEngineRoutingTests.swift",
+                "AudioSwitchingTests.swift",
+                "DefaultDeviceBehaviorTests.swift",
+                "StartupAudioInterruptionTests.swift",
+                "SingleInstanceGuardTests.swift",
             ]
         ),
     ]

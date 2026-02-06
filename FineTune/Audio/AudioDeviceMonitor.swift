@@ -11,11 +11,11 @@ private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
 final class AudioDeviceMonitor {
     private(set) var outputDevices: [AudioDevice] = []
 
-    /// O(1) device lookup by UID
-    private(set) var devicesByUID: [String: AudioDevice] = [:]
+    /// O(1) device lookup by UID (nonisolated for cross-actor reads from ProcessTapController)
+    nonisolated(unsafe) private(set) var devicesByUID: [String: AudioDevice] = [:]
 
-    /// O(1) device lookup by AudioDeviceID
-    private(set) var devicesByID: [AudioDeviceID: AudioDevice] = [:]
+    /// O(1) device lookup by AudioDeviceID (nonisolated for cross-actor reads from ProcessTapController)
+    nonisolated(unsafe) private(set) var devicesByID: [AudioDeviceID: AudioDevice] = [:]
 
     /// Called immediately when device disappears (passes UID and name)
     var onDeviceDisconnected: ((_ uid: String, _ name: String) -> Void)?
@@ -96,12 +96,12 @@ final class AudioDeviceMonitor {
     }
 
     /// O(1) lookup by device UID
-    func device(for uid: String) -> AudioDevice? {
+    nonisolated func device(for uid: String) -> AudioDevice? {
         devicesByUID[uid]
     }
 
     /// O(1) lookup by AudioDeviceID
-    func device(for id: AudioDeviceID) -> AudioDevice? {
+    nonisolated func device(for id: AudioDeviceID) -> AudioDevice? {
         devicesByID[id]
     }
 

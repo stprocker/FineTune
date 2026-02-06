@@ -4,12 +4,12 @@ import Accelerate
 
 /// RT-safe audio buffer operations.
 /// All methods are allocation-free and lock-free for real-time audio safety.
-enum AudioBufferProcessor {
+public enum AudioBufferProcessor {
 
     /// Zeroes all output buffers (for silence during mute or device switching).
     /// - Parameter outputBuffers: The output buffer list to zero
     @inline(__always)
-    static func zeroOutputBuffers(_ outputBuffers: UnsafeMutableAudioBufferListPointer) {
+    public static func zeroOutputBuffers(_ outputBuffers: UnsafeMutableAudioBufferListPointer) {
         for outputBuffer in outputBuffers {
             guard let outputData = outputBuffer.mData else { continue }
             memset(outputData, 0, Int(outputBuffer.mDataByteSize))
@@ -21,7 +21,7 @@ enum AudioBufferProcessor {
     ///   - inputBuffers: Source buffer list
     ///   - outputBuffers: Destination buffer list
     @inline(__always)
-    static func copyInputToOutput(
+    public static func copyInputToOutput(
         inputBuffers: UnsafeMutableAudioBufferListPointer,
         outputBuffers: UnsafeMutableAudioBufferListPointer
     ) {
@@ -42,7 +42,7 @@ enum AudioBufferProcessor {
     /// - Parameter inputBuffers: Float32 buffer list to scan
     /// - Returns: Maximum absolute sample value (0.0 to potentially >1.0)
     @inline(__always)
-    static func computePeak(inputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
+    public static func computePeak(inputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
         var maxPeak: Float = 0.0
         for inputBuffer in inputBuffers {
             guard let inputData = inputBuffer.mData else { continue }
@@ -66,7 +66,7 @@ enum AudioBufferProcessor {
     ///   - bytesPerFrame: Bytes per audio frame
     /// - Returns: Number of frames in the first buffer, or 0 if invalid
     @inline(__always)
-    static func frameCount(
+    public static func frameCount(
         bufferList: UnsafeMutableAudioBufferListPointer,
         bytesPerFrame: Int
     ) -> Int {

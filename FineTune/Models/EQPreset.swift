@@ -1,6 +1,6 @@
 import Foundation
 
-enum EQPreset: String, CaseIterable, Identifiable {
+public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
     // Utility
     case flat
     case bassBoost
@@ -27,21 +27,21 @@ enum EQPreset: String, CaseIterable, Identifiable {
     // Media
     case movie
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     // MARK: - Categories
 
-    enum Category: String, CaseIterable, Identifiable {
+    public enum Category: String, CaseIterable, Identifiable, Sendable {
         case utility = "Utility"
         case speech = "Speech"
         case listening = "Listening"
         case music = "Music"
         case media = "Media"
 
-        var id: String { rawValue }
+        public var id: String { rawValue }
     }
 
-    var category: Category {
+    public var category: Category {
         switch self {
         case .flat, .bassBoost, .bassCut, .trebleBoost:
             return .utility
@@ -56,11 +56,11 @@ enum EQPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    static func presets(for category: Category) -> [EQPreset] {
+    public static func presets(for category: Category) -> [EQPreset] {
         allCases.filter { $0.category == category }
     }
 
-    var name: String {
+    public var name: String {
         switch self {
         case .flat: return "Flat"
         case .bassBoost: return "Bass Boost"
@@ -86,7 +86,7 @@ enum EQPreset: String, CaseIterable, Identifiable {
     }
 
     // Bands: 31, 62, 125, 250, 500, 1k, 2k, 4k, 8k, 16k
-    var settings: EQSettings {
+    public var settings: EQSettings {
         switch self {
         // MARK: - Utility
         case .flat:

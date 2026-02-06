@@ -2,6 +2,7 @@
 import Foundation
 import Accelerate
 import os
+import FineTuneCore
 
 /// RT-safe 10-band graphic EQ processor using vDSP_biquad
 final class EQProcessor: @unchecked Sendable {

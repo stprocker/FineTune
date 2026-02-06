@@ -2,13 +2,13 @@ import Foundation
 
 /// Audio EQ Cookbook biquad coefficient calculations
 /// Reference: Robert Bristow-Johnson's Audio EQ Cookbook
-enum BiquadMath {
+public enum BiquadMath {
     /// Standard Q for graphic EQ (overlapping bands)
-    static let graphicEQQ: Double = 1.4
+    public static let graphicEQQ: Double = 1.4
 
     /// Compute peaking EQ biquad coefficients
     /// Returns [b0, b1, b2, a1, a2] normalized by a0 for vDSP_biquad
-    static func peakingEQCoefficients(
+    public static func peakingEQCoefficients(
         frequency: Double,
         gainDB: Float,
         q: Double,
@@ -40,7 +40,7 @@ enum BiquadMath {
 
     /// Compute coefficients for all 10 bands
     /// Returns 50 Doubles: [band0: b0,b1,b2,a1,a2, band1: ..., ...]
-    static func coefficientsForAllBands(
+    public static func coefficientsForAllBands(
         gains: [Float],
         sampleRate: Double
     ) -> [Double] {

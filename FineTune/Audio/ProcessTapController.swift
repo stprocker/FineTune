@@ -1,6 +1,7 @@
 // FineTune/Audio/ProcessTapController.swift
 import AudioToolbox
 import os
+import FineTuneCore
 
 final class ProcessTapController {
     // CrossfadeConfig is now defined in Crossfade/CrossfadeState.swift
@@ -779,19 +780,18 @@ final class ProcessTapController {
 
         try performDeviceSwitchWithHook(to: newDeviceUID)
 
+        // Start from silence; the per-sample volume ramper (~30ms exponential ramp)
+        // will smoothly bring volume back to target without racing with user changes.
         _primaryCurrentVolume = 0
-        _volume = 0
+        _volume = originalVolume
 
         try await sleepForSwitch(milliseconds: 150)
 
         _forceSilence = false
-        OSMemoryBarrier()  // Ensure audio thread sees this write before fade-in starts
+        OSMemoryBarrier()  // Ensure audio thread sees this write before processing resumes
 
-        // Gradual fade-in
-        for i in 1...10 {
-            _volume = originalVolume * Float(i) / 10.0
-            try await sleepForSwitch(milliseconds: 20)
-        }
+        // Allow the built-in volume ramper to complete the fade-in (~90ms to 95%)
+        try await sleepForSwitch(milliseconds: 100)
 
         logger.info("[SWITCH-DESTROY] Complete")
     }
@@ -1031,9 +1031,14 @@ final class ProcessTapController {
         }
 
         // If format isn't Float32 PCM, pass through untouched (avoid corrupting non-float buffers)
+        // During crossfade, silence non-float output to prevent doubled audio from both taps
         guard format.isFloat32 else {
             _diagNonFloatPassthrough += 1
-            copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
+            if crossfadeMultiplier < 1.0 {
+                zeroOutputBuffers(outputBuffers)
+            } else {
+                copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
+            }
             _diagOutputWritten += 1
             return
         }
@@ -1086,6 +1091,14 @@ final class ProcessTapController {
         let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
         let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputBufferList))
         _diagCallbackCount += 1
+
+        // Check silence flag first (atomic Bool read)
+        if _forceSilence {
+            _diagSilencedForce += 1
+            zeroOutputBuffers(outputBuffers)
+            return
+        }
+
         let format = secondaryFormat ?? TapFormat(
             asbd: AudioStreamBasicDescription(),
             channelCount: 2,
@@ -1179,9 +1192,14 @@ final class ProcessTapController {
         }
 
         // If format isn't Float32 PCM, pass through untouched (avoid corrupting non-float buffers)
+        // During crossfade, silence non-float output to prevent doubled audio from both taps
         guard format.isFloat32 else {
             _diagNonFloatPassthrough += 1
-            copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
+            if crossfadeMultiplier < 1.0 {
+                zeroOutputBuffers(outputBuffers)
+            } else {
+                copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
+            }
             _diagOutputWritten += 1
             return
         }

@@ -2,6 +2,19 @@
 
 ## [Unreleased] - 2026-02-06
 
+### Added
+- **SPM integration test infrastructure:** All 59 integration tests now run via `swift test` alongside 161 pure-logic tests (220 total, ~1.1s wall time, zero app instances)
+  - `FineTuneIntegration` library target — compiles all non-UI, non-@main source files with FineTuneCore dependency
+  - `FineTuneIntegrationTests` test target — AudioEngineRouting, AudioSwitching, DefaultDeviceBehavior, StartupAudioInterruption, SingleInstanceGuard tests
+  - Integration tests restored from `_local/archive/` to `testing/tests/` with updated module imports
+- **Public API for FineTuneCore types:** EQSettings, CrossfadeState, CrossfadeConfig, CrossfadePhase, VolumeRamper, VolumeMapping, BiquadMath, AudioBufferProcessor, GainProcessor, SoftLimiter, EQPreset — all made `public` for cross-module use
+
+### Changed
+- Platform minimum bumped from macOS 14.0 to macOS 14.2 (required for AudioHardwareCreateProcessTap/DestroyProcessTap APIs)
+- `AudioDeviceMonitor.devicesByUID`/`devicesByID` marked `nonisolated(unsafe)` with `nonisolated` lookup methods for safe cross-actor reads from ProcessTapController
+- `AudioEngine.appDeviceRouting` access changed from `private(set)` to internal setter for `@testable import` compatibility
+- FineTuneIntegration target uses `.swiftLanguageMode(.v5)` to accommodate existing concurrency patterns
+
 ### Fixed
 - **AirPods/Bluetooth silence:** Aggregate device sample rate now uses output device rate instead of tap rate. Process taps may report the app's internal rate (e.g., Chromium 24kHz) which Bluetooth devices don't support (e.g., AirPods require 48kHz). CoreAudio's drift compensation handles resampling. Fixed in `activate()` and `createSecondaryTap()`.
 - **Virtual device silent routing:** FineTune no longer follows macOS default device changes to virtual audio drivers (e.g., SRAudioDriver, BlackHole). Three entry points patched:

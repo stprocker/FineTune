@@ -2,21 +2,21 @@
 import Foundation
 
 /// Configuration for crossfade behavior.
-enum CrossfadeConfig {
-    static let defaultDuration: TimeInterval = 0.050  // 50ms
+public enum CrossfadeConfig {
+    public static let defaultDuration: TimeInterval = 0.050  // 50ms
 
-    static var duration: TimeInterval {
+    public static var duration: TimeInterval {
         let custom = UserDefaults.standard.double(forKey: "FineTuneCrossfadeDuration")
         return custom > 0 ? custom : defaultDuration
     }
 
-    static func totalSamples(at sampleRate: Double) -> Int64 {
+    public static func totalSamples(at sampleRate: Double) -> Int64 {
         Int64(sampleRate * duration)
     }
 }
 
 /// State machine phases for device switching crossfade.
-enum CrossfadePhase: Equatable {
+public enum CrossfadePhase: Equatable {
     /// No crossfade in progress
     case idle
     /// Secondary tap created, waiting for warmup
@@ -32,27 +32,29 @@ enum CrossfadePhase: Equatable {
 ///
 /// **Memory ordering:** Uses aligned Float/Int reads which are atomic on Apple platforms.
 /// The main thread writes, audio thread reads. Slight staleness is acceptable.
-struct CrossfadeState: @unchecked Sendable {
+public struct CrossfadeState: @unchecked Sendable {
     /// Current crossfade progress (0 = full primary, 1 = full secondary)
-    nonisolated(unsafe) var progress: Float = 0
+    nonisolated(unsafe) public var progress: Float = 0
 
     /// Whether a crossfade is currently active
-    nonisolated(unsafe) var isActive: Bool = false
+    nonisolated(unsafe) public var isActive: Bool = false
 
     /// Sample count from secondary callback (drives timing)
-    nonisolated(unsafe) var secondarySampleCount: Int64 = 0
+    nonisolated(unsafe) public var secondarySampleCount: Int64 = 0
 
     /// Total samples for the crossfade duration
-    nonisolated(unsafe) var totalSamples: Int64 = 0
+    nonisolated(unsafe) public var totalSamples: Int64 = 0
 
     /// Samples processed by secondary (for warmup tracking)
-    nonisolated(unsafe) var secondarySamplesProcessed: Int = 0
+    nonisolated(unsafe) public var secondarySamplesProcessed: Int = 0
 
     /// Minimum samples secondary must process before destroying primary
-    static let minimumWarmupSamples: Int = 2048  // ~43ms at 48kHz
+    public static let minimumWarmupSamples: Int = 2048  // ~43ms at 48kHz
+
+    public init() {}
 
     /// Resets all state for a new crossfade
-    mutating func beginCrossfade(at sampleRate: Double) {
+    public mutating func beginCrossfade(at sampleRate: Double) {
         progress = 0
         secondarySampleCount = 0
         secondarySamplesProcessed = 0
@@ -65,7 +67,7 @@ struct CrossfadeState: @unchecked Sendable {
     /// - Parameter samples: Number of samples just processed
     /// - Returns: New progress value (0.0 to 1.0)
     @inline(__always)
-    mutating func updateProgress(samples: Int) -> Float {
+    public mutating func updateProgress(samples: Int) -> Float {
         secondarySamplesProcessed += samples
         if isActive {
             secondarySampleCount += Int64(samples)
@@ -75,7 +77,7 @@ struct CrossfadeState: @unchecked Sendable {
     }
 
     /// Completes the crossfade and resets all state
-    mutating func complete() {
+    public mutating func complete() {
         isActive = false
         progress = 0
         secondarySampleCount = 0
@@ -85,19 +87,19 @@ struct CrossfadeState: @unchecked Sendable {
     }
 
     /// Checks if warmup is complete (enough samples processed)
-    var isWarmupComplete: Bool {
+    public var isWarmupComplete: Bool {
         secondarySamplesProcessed >= Self.minimumWarmupSamples
     }
 
     /// Checks if the crossfade animation is complete
-    var isCrossfadeComplete: Bool {
+    public var isCrossfadeComplete: Bool {
         progress >= 1.0
     }
 
     /// Computes equal-power fade-out multiplier for primary tap.
     /// cos(0) = 1.0, cos(π/2) = 0.0
     @inline(__always)
-    var primaryMultiplier: Float {
+    public var primaryMultiplier: Float {
         if isActive {
             return cos(progress * .pi / 2.0)
         } else if progress >= 1.0 {
@@ -110,7 +112,7 @@ struct CrossfadeState: @unchecked Sendable {
     /// Computes equal-power fade-in multiplier for secondary tap.
     /// sin(0) = 0.0, sin(π/2) = 1.0
     @inline(__always)
-    var secondaryMultiplier: Float {
+    public var secondaryMultiplier: Float {
         if isActive {
             return sin(progress * .pi / 2.0)
         }

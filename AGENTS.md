@@ -42,8 +42,10 @@
 
     2. All new tests should be developed to FAIL FIRST, before writing new code. 
 
-    3. Do NOT build any tests that require running the program in Xcode. Run tests
-       via swift test from the command line — no Xcode needed.
+    3. Do NOT build any pure logic tests that require running the program in Xcode. Run those  
+       tests via swift test from the command line — no Xcode needed. For non-pure logic tests
+       use mocks - do NOT build a test that requires a running instance in Xcode. If there 
+       is no other option, consult with me first. 
 
 ──────────────────────────────────────────────────────────────────────────────
 2.  AGENT BEHAVIOR

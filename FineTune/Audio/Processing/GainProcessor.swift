@@ -3,7 +3,7 @@ import AudioToolbox
 
 /// RT-safe gain processing with volume ramping and soft limiting.
 /// Handles both interleaved and non-interleaved audio formats.
-enum GainProcessor {
+public enum GainProcessor {
 
     /// Processes Float32 audio buffers with ramped gain and optional soft limiting.
     ///
@@ -24,7 +24,7 @@ enum GainProcessor {
     ///   - crossfadeMultiplier: Additional multiplier for crossfade transitions (0.0-1.0)
     ///   - compensation: Device volume compensation scalar
     @inline(__always)
-    static func processFloatBuffers(
+    public static func processFloatBuffers(
         channelCount: Int,
         isInterleaved: Bool,
         inputBuffers: UnsafeMutableAudioBufferListPointer,
