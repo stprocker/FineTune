@@ -282,11 +282,22 @@ final class AudioEngine {
                 logger.debug("Applying saved device routing to \(app.name): \(deviceUID)")
             } else {
                 // New app or saved device no longer exists: assign to current macOS default output device
-                // Note: Uses DefaultOutputDevice (where apps play), NOT DefaultSystemOutputDevice (for system sounds)
+                // Validate the default isn't a virtual device (e.g., SRAudioDriver) — fall back to first real device
                 do {
-                    deviceUID = try AudioDeviceID.readDefaultOutputDeviceUID()
+                    let defaultUID = try AudioDeviceID.readDefaultOutputDeviceUID()
+                    if deviceMonitor.device(for: defaultUID) != nil {
+                        // Default device is in our filtered (non-virtual) list
+                        deviceUID = defaultUID
+                    } else if let firstReal = deviceMonitor.outputDevices.first?.uid {
+                        // Default is virtual/aggregate — use first real device
+                        logger.info("Default device \(defaultUID) is virtual/filtered, using \(firstReal) for \(app.name)")
+                        deviceUID = firstReal
+                    } else {
+                        // No real devices available at all
+                        deviceUID = defaultUID
+                    }
                     settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
-                    logger.debug("App \(app.name) assigned to default device: \(deviceUID)")
+                    logger.debug("App \(app.name) assigned to device: \(deviceUID)")
                 } catch {
                     logger.error("Failed to get default device for \(app.name): \(error.localizedDescription)")
                     continue

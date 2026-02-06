@@ -149,9 +149,9 @@ struct MenuBarPopupView: View {
     private func appsContent(scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             ForEach(audioEngine.apps) { app in
-                // Use explicit device routing if available, otherwise fall back to default output device
+                // Use explicit device routing if available, otherwise fall back to first real (non-virtual) device
+                // Don't use defaultDeviceUID as fallback — it may be a virtual device (e.g., SRAudioDriver)
                 let deviceUID = audioEngine.appDeviceRouting[app.id]
-                    ?? audioEngine.deviceVolumeMonitor.defaultDeviceUID
                     ?? audioEngine.outputDevices.first?.uid
                     ?? ""
                 AppRowWithLevelPolling(
