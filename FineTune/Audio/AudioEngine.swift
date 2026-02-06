@@ -171,6 +171,7 @@ final class AudioEngine {
 
     func setDevice(for app: AudioApp, deviceUID: String) {
         guard appDeviceRouting[app.id] != deviceUID else { return }
+        let previousDeviceUID = appDeviceRouting[app.id]
         appDeviceRouting[app.id] = deviceUID
         settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
 
@@ -189,10 +190,27 @@ final class AudioEngine {
                     self.logger.debug("Switched \(app.name) to device: \(deviceUID)")
                 } catch {
                     self.logger.error("Failed to switch device for \(app.name): \(error.localizedDescription)")
+                    // Revert routing state so UI reflects where audio is actually playing
+                    if let previousDeviceUID {
+                        self.appDeviceRouting[app.id] = previousDeviceUID
+                        self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: previousDeviceUID)
+                        self.logger.info("Reverted \(app.name) routing to: \(previousDeviceUID)")
+                    }
                 }
             }
         } else {
             ensureTapExists(for: app, deviceUID: deviceUID)
+            // If tap creation failed, revert routing so UI matches reality
+            // (no tap = audio goes through system default, not the selected device)
+            if taps[app.id] == nil {
+                if let previousDeviceUID {
+                    appDeviceRouting[app.id] = previousDeviceUID
+                    settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: previousDeviceUID)
+                } else {
+                    appDeviceRouting.removeValue(forKey: app.id)
+                }
+                logger.warning("Tap creation failed for \(app.name), reverted routing")
+            }
         }
     }
 
@@ -255,7 +273,12 @@ final class AudioEngine {
 
             // Only mark as applied if tap was successfully created
             // This allows retry on next applyPersistedSettings() call if tap failed
-            guard taps[app.id] != nil else { continue }
+            guard taps[app.id] != nil else {
+                // Remove stale routing so UI falls back to showing default device
+                // (no tap = audio goes through system default, not the saved device)
+                appDeviceRouting.removeValue(forKey: app.id)
+                continue
+            }
             appliedPIDs.insert(app.id)
 
             if let volume = savedVolume {

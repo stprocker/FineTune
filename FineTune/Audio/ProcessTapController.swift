@@ -436,11 +436,21 @@ final class ProcessTapController {
             elapsedMs += Int(pollIntervalMs)
         }
 
+        // Verify secondary tap is actually producing audio before destroying primary.
+        // If warmup never completed, the secondary tap isn't working — fall back to
+        // destructive switch rather than promoting a non-functioning tap.
+        if !crossfadeState.isWarmupComplete {
+            let samplesProcessed = crossfadeState.secondarySamplesProcessed
+            logger.error("[CROSSFADE] Secondary tap warmup incomplete after \(elapsedMs)ms (processed: \(samplesProcessed)/\(CrossfadeState.minimumWarmupSamples) samples)")
+            throw NSError(domain: "ProcessTapController", code: -2,
+                          userInfo: [NSLocalizedDescriptionKey: "Secondary tap warmup incomplete after \(elapsedMs)ms"])
+        }
+
         // Small buffer to ensure final samples processed
         try await Task.sleep(for: .milliseconds(10))
 
         // Crossfade complete - destroy primary, promote secondary
-        logger.info("[CROSSFADE] Crossfade complete, promoting secondary")
+        logger.info("[CROSSFADE] Crossfade complete (progress: \(self.crossfadeState.progress), elapsed: \(elapsedMs)ms), promoting secondary")
 
         destroyPrimaryTap()
         promoteSecondaryToPrimary()  // Also resets crossfade state after promotion
