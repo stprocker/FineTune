@@ -43,6 +43,19 @@ final class SettingsManager {
         scheduleSave()
     }
 
+    func clearDeviceRouting(for identifier: String) {
+        if settings.appDeviceRouting.removeValue(forKey: identifier) != nil {
+            scheduleSave()
+        }
+    }
+
+    func hasCustomSettings(for identifier: String) -> Bool {
+        settings.appDeviceRouting[identifier] != nil
+            || settings.appVolumes[identifier] != nil
+            || settings.appMutes[identifier] != nil
+            || settings.appEQSettings[identifier] != nil
+    }
+
     func getMute(for identifier: String) -> Bool? {
         settings.appMutes[identifier]
     }

@@ -285,6 +285,17 @@ final class AudioDeviceMonitor {
         }
     }
 
+    // MARK: - Test Helpers
+
+    /// Test-only hook to inject output devices without CoreAudio.
+    @MainActor
+    func setOutputDevicesForTests(_ devices: [AudioDevice]) {
+        outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        knownDeviceUIDs = Set(outputDevices.map(\.uid))
+        devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
+        devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
+    }
+
     deinit {
         // WARNING: Can't call stop() here due to MainActor isolation.
         // Callers MUST call stop() before releasing this object to remove CoreAudio listeners.

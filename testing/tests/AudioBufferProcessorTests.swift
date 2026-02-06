@@ -1,7 +1,7 @@
 import XCTest
 import AudioToolbox
 import Accelerate
-@testable import FineTune
+@testable import FineTuneCore
 
 final class AudioBufferProcessorTests: XCTestCase {
 

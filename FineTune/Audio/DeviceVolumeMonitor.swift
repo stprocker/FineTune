@@ -331,26 +331,47 @@ final class DeviceVolumeMonitor {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 if let id = newDeviceID, id.isValid {
-                    self.defaultDeviceID = id
-                    self.defaultDeviceUID = newDeviceUID
-
-                    // Skip routing to virtual devices (e.g., SRAudioDriver, BlackHole)
-                    // These are typically audio capture/loopback drivers that don't produce audible output.
-                    // FineTune would mute the app's audio via process tap but deliver it to a silent virtual device.
-                    if isVirtual {
-                        self.logger.info("Default device changed to virtual device \(newDeviceUID ?? "nil") — ignoring to prevent silent routing")
-                        return
-                    }
-
-                    self.logger.debug("Default device updated: \(id), UID: \(newDeviceUID ?? "nil")")
-
-                    // Notify AudioEngine to route all apps to the new device
-                    if let uid = newDeviceUID {
-                        self.onDefaultDeviceChangedExternally?(uid)
-                    }
+                    self.applyDefaultDeviceChange(deviceID: id, deviceUID: newDeviceUID, isVirtual: isVirtual)
                 }
             }
         }
+    }
+
+    @MainActor
+    private func applyDefaultDeviceChange(
+        deviceID: AudioDeviceID,
+        deviceUID: String?,
+        isVirtual: Bool
+    ) {
+        // Skip routing to virtual devices (e.g., SRAudioDriver, BlackHole)
+        // These are typically audio capture/loopback drivers that don't produce audible output.
+        // FineTune would mute the app's audio via process tap but deliver it to a silent virtual device.
+        if isVirtual {
+            logger.info("Default device changed to virtual device \(deviceUID ?? "nil") — ignoring to prevent silent routing")
+            return
+        }
+
+        defaultDeviceID = deviceID
+        defaultDeviceUID = deviceUID
+
+        logger.debug("Default device updated: \(deviceID), UID: \(deviceUID ?? "nil")")
+
+        // Notify AudioEngine to route all apps to the new device
+        if let uid = deviceUID {
+            onDefaultDeviceChangedExternally?(uid)
+        }
+    }
+
+    // MARK: - Test Helpers
+
+    /// Test-only hook to simulate default output device changes without CoreAudio.
+    @MainActor
+    func applyDefaultDeviceChangeForTests(
+        deviceID: AudioDeviceID,
+        deviceUID: String?,
+        isVirtual: Bool
+    ) {
+        applyDefaultDeviceChange(deviceID: deviceID, deviceUID: deviceUID, isVirtual: isVirtual)
     }
 
     /// Synchronizes volume and mute listeners with the current device list from deviceMonitor

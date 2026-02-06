@@ -301,6 +301,17 @@ final class AudioProcessMonitor {
         processListenerBlocks.removeAll()
     }
 
+    // MARK: - Test Helpers
+
+    /// Test-only hook to seed active apps without CoreAudio.
+    @MainActor
+    func setActiveAppsForTests(_ apps: [AudioApp], notify: Bool = true) {
+        activeApps = apps
+        if notify {
+            onAppsChanged?(activeApps)
+        }
+    }
+
     deinit {
         // WARNING: Can't call stop() here due to MainActor isolation.
         // Callers MUST call stop() before releasing this object to remove CoreAudio listeners.

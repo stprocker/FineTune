@@ -4,8 +4,6 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
-	<key>LSMultipleInstancesProhibited</key>
-	<true/>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>FineTune needs access to control volume levels for individual applications.</string>
 </dict>

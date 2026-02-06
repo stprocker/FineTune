@@ -40,6 +40,7 @@
 		0FBE3DEB2F2171F300A5666C /* Exceptions for "FineTune" folder in "FineTune" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"Info-Debug.plist",
 				Info.plist,
 			);
 			target = 79A607AE2F05C9E00008D52A /* FineTune */;
@@ -442,7 +443,7 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = FineTune/Info.plist;
+				INFOPLIST_FILE = "FineTune/Info-Debug.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

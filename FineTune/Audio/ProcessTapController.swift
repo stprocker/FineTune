@@ -14,6 +14,13 @@ final class ProcessTapController {
     /// Weak reference to device monitor for O(1) device lookups during crossfade
     private weak var deviceMonitor: AudioDeviceMonitor?
 
+#if DEBUG
+    /// Test-only hook for forcing performDeviceSwitch outcomes.
+    var testPerformDeviceSwitchHook: ((String) throws -> Void)?
+    /// Test-only hook for controlling async sleeps in switch paths.
+    var testSleepHook: ((UInt64) async throws -> Void)?
+#endif
+
     // Lock-free volume access for real-time audio safety
     // Aligned Float32 reads/writes are atomic on Apple platforms.
     // Audio thread may read slightly stale volume values, which is acceptable
@@ -763,15 +770,19 @@ final class ProcessTapController {
         _forceSilence = true
         OSMemoryBarrier()  // Ensure audio thread sees this write immediately
         logger.info("[SWITCH-DESTROY] Enabled _forceSilence=true")
+        defer {
+            _forceSilence = false
+            OSMemoryBarrier()
+        }
 
-        try await Task.sleep(for: .milliseconds(100))
+        try await sleepForSwitch(milliseconds: 100)
 
-        try performDeviceSwitch(to: newDeviceUID)
+        try performDeviceSwitchWithHook(to: newDeviceUID)
 
         _primaryCurrentVolume = 0
         _volume = 0
 
-        try await Task.sleep(for: .milliseconds(150))
+        try await sleepForSwitch(milliseconds: 150)
 
         _forceSilence = false
         OSMemoryBarrier()  // Ensure audio thread sees this write before fade-in starts
@@ -779,10 +790,30 @@ final class ProcessTapController {
         // Gradual fade-in
         for i in 1...10 {
             _volume = originalVolume * Float(i) / 10.0
-            try await Task.sleep(for: .milliseconds(20))
+            try await sleepForSwitch(milliseconds: 20)
         }
 
         logger.info("[SWITCH-DESTROY] Complete")
+    }
+
+    private func performDeviceSwitchWithHook(to newDeviceUID: String) throws {
+#if DEBUG
+        if let testPerformDeviceSwitchHook {
+            try testPerformDeviceSwitchHook(newDeviceUID)
+            return
+        }
+#endif
+        try performDeviceSwitch(to: newDeviceUID)
+    }
+
+    private func sleepForSwitch(milliseconds: UInt64) async throws {
+#if DEBUG
+        if let testSleepHook {
+            try await testSleepHook(milliseconds)
+            return
+        }
+#endif
+        try await Task.sleep(for: .milliseconds(Int64(milliseconds)))
     }
 
     /// Internal destroy/recreate switch (used as fallback).
@@ -1326,6 +1357,18 @@ final class ProcessTapController {
 
         logger.info("Tap invalidated for \(self.app.name)")
     }
+
+#if DEBUG
+    /// Test-only read of destructive-switch force-silence flag.
+    var isForceSilenceEnabledForTests: Bool {
+        _forceSilence
+    }
+
+    /// Test-only entry point for destructive switch path.
+    func performDestructiveDeviceSwitchForTests(to newDeviceUID: String) async throws {
+        try await performDestructiveDeviceSwitch(to: newDeviceUID)
+    }
+#endif
 
     deinit {
         invalidate()

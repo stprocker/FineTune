@@ -1,6 +1,6 @@
 import XCTest
 import AudioToolbox
-@testable import FineTune
+@testable import FineTuneCore
 
 final class GainProcessorTests: XCTestCase {
 

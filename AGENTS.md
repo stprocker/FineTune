@@ -42,6 +42,9 @@
 
     2. All new tests should be developed to FAIL FIRST, before writing new code. 
 
+    3. Do NOT build any tests that require running the program in Xcode. Run tests
+       via swift test from the command line — no Xcode needed.
+
 ──────────────────────────────────────────────────────────────────────────────
 2.  AGENT BEHAVIOR
 ──────────────────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import XCTest
-@testable import FineTune
+@testable import FineTuneCore
 
 final class SoftLimiterTests: XCTestCase {
 

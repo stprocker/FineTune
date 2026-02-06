@@ -12,6 +12,7 @@ final class AudioEngine {
     let deviceVolumeMonitor: DeviceVolumeMonitor
     let volumeState: VolumeState
     let settingsManager: SettingsManager
+    private let defaultOutputDeviceUIDProvider: () throws -> String
 
     private var taps: [pid_t: ProcessTapController] = [:]
     private var appliedPIDs: Set<pid_t> = []
@@ -19,16 +20,27 @@ final class AudioEngine {
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
+    /// Test-only hook for observing tap-creation attempts.
+    var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
 
     var outputDevices: [AudioDevice] {
         deviceMonitor.outputDevices
     }
 
-    init(settingsManager: SettingsManager? = nil) {
+    init(
+        settingsManager: SettingsManager? = nil,
+        defaultOutputDeviceUIDProvider: @escaping () throws -> String = { try AudioDeviceID.readDefaultOutputDeviceUID() }
+    ) {
         let manager = settingsManager ?? SettingsManager()
         self.settingsManager = manager
+        self.defaultOutputDeviceUIDProvider = defaultOutputDeviceUIDProvider
         self.volumeState = VolumeState(settingsManager: manager)
         self.deviceVolumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor)
+
+        // Skip CoreAudio listener registration when launched as an Xcode test host.
+        // Each test host instance registers listeners on coreaudiod; concurrent test runs
+        // spawn multiple instances whose listeners corrupt coreaudiod state and freeze System Settings.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
 
         Task { @MainActor in
             processMonitor.start()
@@ -240,6 +252,9 @@ final class AudioEngine {
                         self.appDeviceRouting[app.id] = previousDeviceUID
                         self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: previousDeviceUID)
                         self.logger.info("Reverted \(app.name) routing to: \(previousDeviceUID)")
+                    } else {
+                        self.appDeviceRouting.removeValue(forKey: app.id)
+                        self.settingsManager.clearDeviceRouting(for: app.persistenceIdentifier)
                     }
                 }
                 self.switchTasks.removeValue(forKey: app.id)
@@ -254,6 +269,7 @@ final class AudioEngine {
                     settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: previousDeviceUID)
                 } else {
                     appDeviceRouting.removeValue(forKey: app.id)
+                    settingsManager.clearDeviceRouting(for: app.persistenceIdentifier)
                 }
                 logger.warning("Tap creation failed for \(app.name), reverted routing")
             }
@@ -273,7 +289,7 @@ final class AudioEngine {
             return
         }
 
-        let appsToSwitch = apps.filter { appDeviceRouting[$0.id] != deviceUID }
+        let appsToSwitch = apps.filter { shouldRouteAllApps(for: $0) && appDeviceRouting[$0.id] != deviceUID }
         if appsToSwitch.isEmpty {
             logger.debug("All \(self.apps.count) app(s) already on device: \(deviceUID)")
             return
@@ -285,9 +301,27 @@ final class AudioEngine {
         }
     }
 
+    private func shouldRouteAllApps(for app: AudioApp) -> Bool {
+        if taps[app.id] != nil {
+            return true
+        }
+        if appDeviceRouting[app.id] != nil {
+            return true
+        }
+        return settingsManager.hasCustomSettings(for: app.persistenceIdentifier)
+    }
+
     func applyPersistedSettings() {
+        applyPersistedSettings(for: apps)
+    }
+
+    private func applyPersistedSettings(for apps: [AudioApp]) {
         for app in apps {
             guard !appliedPIDs.contains(app.id) else { continue }
+            guard settingsManager.hasCustomSettings(for: app.persistenceIdentifier) else {
+                logger.debug("Skipping \(app.name) — no saved settings")
+                continue
+            }
 
             // Load saved device routing, or assign to current macOS default
             let deviceUID: String
@@ -300,7 +334,7 @@ final class AudioEngine {
                 // New app or saved device no longer exists: assign to current macOS default output device
                 // Validate the default isn't a virtual device (e.g., SRAudioDriver) — fall back to first real device
                 do {
-                    let defaultUID = try AudioDeviceID.readDefaultOutputDeviceUID()
+                    let defaultUID = try defaultOutputDeviceUIDProvider()
                     if deviceMonitor.device(for: defaultUID) != nil {
                         // Default device is in our filtered (non-virtual) list
                         deviceUID = defaultUID
@@ -351,8 +385,17 @@ final class AudioEngine {
         }
     }
 
+    // MARK: - Test Helpers
+
+    /// Test-only hook to apply persisted settings to a controlled app list.
+    @MainActor
+    func applyPersistedSettingsForTests(apps: [AudioApp]) {
+        applyPersistedSettings(for: apps)
+    }
+
     private func ensureTapExists(for app: AudioApp, deviceUID: String) {
         guard taps[app.id] == nil else { return }
+        onTapCreationAttemptForTests?(app, deviceUID)
 
         let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor)
         tap.volume = volumeState.getVolume(for: app.id)

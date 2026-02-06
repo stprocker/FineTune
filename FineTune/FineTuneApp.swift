@@ -9,7 +9,7 @@ private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "Ap
 @main
 struct FineTuneApp: App {
     @State private var audioEngine: AudioEngine
-    @State private var showMenuBarExtra = true
+    @State private var showMenuBarExtra = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
 
     var body: some Scene {
         FluidMenuBarExtra("FineTune", image: "MenuBarIcon", isInserted: $showMenuBarExtra, menu: Self.createContextMenu()) {
@@ -33,6 +33,16 @@ struct FineTuneApp: App {
         let settings = SettingsManager()
         let engine = AudioEngine(settingsManager: settings)
         _audioEngine = State(initialValue: engine)
+
+        if SingleInstanceGuard.shouldTerminateCurrentInstance() {
+            logger.warning("Another FineTune instance detected; terminating this process.")
+            DispatchQueue.main.async {
+                engine.stopSync()
+                settings.flushSync()
+                NSApplication.shared.terminate(nil)
+            }
+            return
+        }
 
         // DeviceVolumeMonitor is now created and started inside AudioEngine
         // This ensures proper initialization order: deviceMonitor.start() -> deviceVolumeMonitor.start()
