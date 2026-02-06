@@ -12,7 +12,7 @@ struct FineTuneApp: App {
     @State private var showMenuBarExtra = true
 
     var body: some Scene {
-        FluidMenuBarExtra("FineTune", image: "MenuBarIcon", isInserted: $showMenuBarExtra) {
+        FluidMenuBarExtra("FineTune", image: "MenuBarIcon", isInserted: $showMenuBarExtra, menu: Self.createContextMenu()) {
             MenuBarPopupView(
                 audioEngine: audioEngine,
                 deviceVolumeMonitor: audioEngine.deviceVolumeMonitor
@@ -20,6 +20,13 @@ struct FineTuneApp: App {
         }
 
         Settings { EmptyView() }
+    }
+
+    private static func createContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        let quitItem = NSMenuItem(title: "Quit FineTune", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(quitItem)
+        return menu
     }
 
     init() {
