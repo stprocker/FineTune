@@ -71,6 +71,7 @@ let package = Package(
             dependencies: ["FineTuneIntegration", "FineTuneCore"],
             path: "testing/tests",
             sources: [
+                "AudioEngineCharacterizationTests.swift",
                 "AudioEngineRoutingTests.swift",
                 "AudioSwitchingTests.swift",
                 "DefaultDeviceBehaviorTests.swift",
