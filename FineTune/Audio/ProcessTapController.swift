@@ -134,6 +134,8 @@ final class ProcessTapController {
         )
     }
 
+    // MARK: - Volume, Mute & EQ State
+
     /// Current device volume for VU meter scaling (atomic write from main thread)
     var currentDeviceVolume: Float {
         get { _currentDeviceVolume }
@@ -281,6 +283,8 @@ final class ProcessTapController {
         AudioFormatConverter.destroy(&state)
     }
 
+    // MARK: - Tap Lifecycle
+
     func activate() throws {
         guard !activated else { return }
 
@@ -414,6 +418,8 @@ final class ProcessTapController {
             logger.info("[DIAG] Activation complete: format=\(format.description), converter=\(self.primaryConverter != nil), aggDeviceID=\(self.primaryResources.aggregateDeviceID), rampCoeff=\(self.rampCoefficient)")
         }
     }
+
+    // MARK: - Crossfade
 
     /// Switches the output device using dual-tap crossfade for seamless transition.
     /// Creates a second tap+aggregate for the new device, crossfades, then destroys the old one.
@@ -733,6 +739,8 @@ final class ProcessTapController {
         crossfadeState.complete()
     }
 
+    // MARK: - Destructive Switch (Fallback)
+
     /// Fallback: Switches using destroy/recreate approach.
     private func performDestructiveDeviceSwitch(to newDeviceUID: String) async throws {
         let originalVolume = _volume
@@ -948,6 +956,8 @@ final class ProcessTapController {
             eqProcessor?.updateSampleRate(deviceSampleRate)
         }
     }
+
+    // MARK: - Audio Processing
 
     /// Audio processing callback for PRIMARY tap - runs on CoreAudio's real-time HAL I/O thread.
     ///
@@ -1264,8 +1274,6 @@ final class ProcessTapController {
 
     // MARK: - RT-Safe Buffer Helpers
 
-    // MARK: - RT-Safe Buffer Helpers (delegated to extracted types)
-
     @inline(__always)
     private func zeroOutputBuffers(_ outputBuffers: UnsafeMutableAudioBufferListPointer) {
         AudioBufferProcessor.zeroOutputBuffers(outputBuffers)
@@ -1365,6 +1373,8 @@ final class ProcessTapController {
     private func softLimit(_ sample: Float) -> Float {
         SoftLimiter.apply(sample)
     }
+
+    // MARK: - Cleanup & Teardown
 
     /// Cleans up partially created CoreAudio resources on activation failure.
     /// Called when any step in activate() fails after resources were created.
