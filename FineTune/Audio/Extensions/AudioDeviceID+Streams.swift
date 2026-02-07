@@ -5,7 +5,7 @@ import Foundation
 // MARK: - Stream Queries
 
 extension AudioDeviceID {
-    func hasOutputStreams() -> Bool {
+    nonisolated func hasOutputStreams() -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreams,
             mScope: kAudioObjectPropertyScopeOutput,

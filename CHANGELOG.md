@@ -2,6 +2,15 @@
 
 ## [Unreleased] - 2026-02-06
 
+### Changed
+- **Replaced FluidMenuBarExtra with native AppKit status item:** FluidMenuBarExtra v1.5.1 relied on `NSEvent.addLocalMonitorForEvents` to detect clicks on the status bar button, which is broken on macOS 26. Replaced with direct `NSStatusItem` + `button.action`/`target` pattern using `NSApplicationDelegateAdaptor` for reliable AppKit lifecycle initialization.
+  - New `MenuBarStatusController` class (`FineTune/Views/MenuBar/MenuBarStatusController.swift`) — owns `NSStatusItem`, `KeyablePanel`, and popup lifecycle
+  - New `AppDelegate` in `FineTuneApp.swift` — uses `@NSApplicationDelegateAdaptor` to set up AudioEngine and menu bar in `applicationDidFinishLaunching`
+  - `KeyablePanel` subclass overrides `canBecomeKey` (required for `.nonactivatingPanel` style to properly receive key/resign events)
+  - Left-click shows/hides popup panel; right-click (or Ctrl+click) shows context menu with "Quit FineTune"
+  - Panel auto-dismisses on outside click (via global event monitor) and on `windowDidResignKey`
+  - Removed FluidMenuBarExtra package dependency from `project.pbxproj` and `Package.resolved`
+
 ### Added
 - **SPM integration test infrastructure:** All 59 integration tests now run via `swift test` alongside 161 pure-logic tests (220 total, ~1.1s wall time, zero app instances)
   - `FineTuneIntegration` library target — compiles all non-UI, non-@main source files with FineTuneCore dependency

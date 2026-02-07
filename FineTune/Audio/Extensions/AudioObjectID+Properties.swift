@@ -14,7 +14,7 @@ extension AudioObjectID {
 // MARK: - Property Reading
 
 extension AudioObjectID {
-    func read<T>(
+    nonisolated func read<T>(
         _ selector: AudioObjectPropertySelector,
         scope: AudioScope = .global,
         defaultValue: T
@@ -35,12 +35,12 @@ extension AudioObjectID {
         return value
     }
 
-    func readBool(_ selector: AudioObjectPropertySelector, scope: AudioScope = .global) throws -> Bool {
+    nonisolated func readBool(_ selector: AudioObjectPropertySelector, scope: AudioScope = .global) throws -> Bool {
         let value: UInt32 = try read(selector, scope: scope, defaultValue: 0)
         return value != 0
     }
 
-    func readString(_ selector: AudioObjectPropertySelector, scope: AudioScope = .global) throws -> String {
+    nonisolated func readString(_ selector: AudioObjectPropertySelector, scope: AudioScope = .global) throws -> String {
         var address = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: scope.propertyScope,

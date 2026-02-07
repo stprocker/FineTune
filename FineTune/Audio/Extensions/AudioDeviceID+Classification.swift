@@ -5,7 +5,7 @@ import AudioToolbox
 // MARK: - Device Classification
 
 extension AudioDeviceID {
-    func isAggregateDevice() -> Bool {
+    nonisolated func isAggregateDevice() -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioObjectPropertyClass,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -18,7 +18,7 @@ extension AudioDeviceID {
         return classID == kAudioAggregateDeviceClassID
     }
 
-    func isVirtualDevice() -> Bool {
+    nonisolated func isVirtualDevice() -> Bool {
         readTransportType() == .virtual
     }
 }
@@ -26,7 +26,7 @@ extension AudioDeviceID {
 // MARK: - Device Icon
 
 extension AudioDeviceID {
-    func readDeviceIcon() -> NSImage? {
+    nonisolated func readDeviceIcon() -> NSImage? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyIcon,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -46,7 +46,7 @@ extension AudioDeviceID {
 
     /// Returns an appropriate SF Symbol name based on device name and transport type.
     /// Used as fallback when kAudioDevicePropertyIcon is not available.
-    func suggestedIconSymbol() -> String {
+    nonisolated func suggestedIconSymbol() -> String {
         let name = (try? readDeviceName()) ?? ""
         let transport = readTransportType()
 

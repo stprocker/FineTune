@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: SettingsManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        logger.error("[APPDELEGATE] applicationDidFinishLaunching fired")
+        logger.info("[APPDELEGATE] applicationDidFinishLaunching fired")
 
         let settings = SettingsManager()
         let engine = AudioEngine(settingsManager: settings)
@@ -41,11 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MenuBarStatusController(audioEngine: engine)
         controller.start()
         self.menuBarController = controller
-        logger.error("[APPDELEGATE] menuBarController started")
+        logger.info("[APPDELEGATE] menuBarController started")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        logger.error("[APPDELEGATE] applicationWillTerminate")
+        logger.info("[APPDELEGATE] applicationWillTerminate")
         menuBarController?.stop()
         audioEngine?.stopSync()
         settings?.flushSync()

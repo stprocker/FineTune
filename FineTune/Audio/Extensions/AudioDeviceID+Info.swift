@@ -5,11 +5,11 @@ import Foundation
 // MARK: - Device Information
 
 extension AudioDeviceID {
-    func readDeviceName() throws -> String {
+    nonisolated func readDeviceName() throws -> String {
         try readString(kAudioObjectPropertyName)
     }
 
-    func readDeviceUID() throws -> String {
+    nonisolated func readDeviceUID() throws -> String {
         try readString(kAudioDevicePropertyDeviceUID)
     }
 
@@ -17,7 +17,7 @@ extension AudioDeviceID {
         try read(kAudioDevicePropertyNominalSampleRate, defaultValue: Float64(48000))
     }
 
-    func readTransportType() -> TransportType {
+    nonisolated func readTransportType() -> TransportType {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyTransportType,
             mScope: kAudioObjectPropertyScopeGlobal,
