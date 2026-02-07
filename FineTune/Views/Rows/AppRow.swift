@@ -2,9 +2,14 @@
 import SwiftUI
 import Combine
 
+// MARK: - AppRow
+
 /// A row displaying an app with volume controls and VU meter
 /// Used in the Apps section
 struct AppRow: View {
+
+    // MARK: Properties
+
     let app: AudioApp
     let volume: Float  // Linear gain 0-2
     let audioLevel: Float
@@ -46,6 +51,8 @@ struct AppRow: View {
     /// Default volume to restore when unmuting from 0 (50% = unity gain)
     private var defaultUnmuteVolume: Double { DesignTokens.Volume.defaultUnmuteSliderPosition }
 
+    // MARK: Initialization
+
     init(
         app: AudioApp,
         volume: Float,
@@ -83,6 +90,8 @@ struct AppRow: View {
         // Initialize local EQ state for reactive UI updates
         self._localEQSettings = State(initialValue: eqSettings)
     }
+
+    // MARK: Body
 
     var body: some View {
         ExpandableGlassRow(isExpanded: isEQExpanded) {
