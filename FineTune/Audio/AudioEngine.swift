@@ -22,7 +22,23 @@ final class AudioEngine {
     var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
-    private var lastCallbackCounts: [pid_t: UInt64] = [:]  // For detecting broken taps (no callbacks = bad state)
+
+    /// Whether system audio recording permission has been confirmed THIS SESSION.
+    /// Per-session flag (not persisted) — on each launch, taps start with `.unmuted`
+    /// to prevent audio silence if the app is killed during permission grant.
+    /// Once audio flows successfully, this flips to `true` and taps are recreated
+    /// with `.mutedWhenTapped` for proper per-app volume control.
+    /// Not persisted because permission can be revoked externally (tccutil reset).
+    private var permissionConfirmed = false
+    /// Snapshot of tap diagnostics from the previous health check cycle.
+    /// Used to detect both stalled taps (callbacks stopped) and broken taps
+    /// (callbacks running but reporter disconnected — empty input, no output).
+    private struct TapHealthSnapshot {
+        var callbackCount: UInt64 = 0
+        var outputWritten: UInt64 = 0
+        var emptyInput: UInt64 = 0
+    }
+    private var lastHealthSnapshots: [pid_t: TapHealthSnapshot] = [:]
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
@@ -108,10 +124,10 @@ final class AudioEngine {
                 self?.applyPersistedSettings()
             }
 
-            // Diagnostic + health check timer - every 5 seconds
+            // Diagnostic + health check timer - every 3 seconds
             Task { @MainActor [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(5))
+                    try? await Task.sleep(for: .seconds(3))
                     guard let self else { return }
                     self.logDiagnostics()
                     self.checkTapHealth()
@@ -138,7 +154,7 @@ final class AudioEngine {
         }
         taps.removeAll()
         appliedPIDs.removeAll()
-        lastCallbackCounts.removeAll()
+        lastHealthSnapshots.removeAll()
 
         // Wait for coreaudiod to stabilize, then recreate all taps
         Task { @MainActor [weak self] in
@@ -150,43 +166,65 @@ final class AudioEngine {
         }
     }
 
-    /// Detects broken taps (callbacks stopped) and recreates them.
-    /// A tap is considered broken if its callback count hasn't changed since the last check.
+    /// Detects broken taps and recreates them. Two failure modes are detected:
+    /// 1. **Stalled**: callback count not changing (IO proc stopped running)
+    /// 2. **Broken**: callbacks running but empty input / no output (reporter disconnected)
     /// This handles "Reporter disconnected" / IO overload scenarios where CoreAudio's
-    /// process tap loses its connection and the aggregate device enters a bad state.
+    /// process tap loses its connection after permission changes or coreaudiod issues.
     private func checkTapHealth() {
+        var pidsToRecreate: [(pid_t, String)] = []  // (pid, reason)
+
         for (pid, tap) in taps {
             let d = tap.diagnostics
-            let lastCount = lastCallbackCounts[pid] ?? 0
-            lastCallbackCounts[pid] = d.callbackCount
+            let prev = lastHealthSnapshots[pid] ?? TapHealthSnapshot()
+            lastHealthSnapshots[pid] = TapHealthSnapshot(
+                callbackCount: d.callbackCount,
+                outputWritten: d.outputWritten,
+                emptyInput: d.emptyInput
+            )
 
             // Skip first check (need a baseline)
-            guard lastCount > 0 else { continue }
-
-            // If callback count hasn't changed, the tap's IO proc isn't running
-            guard d.callbackCount == lastCount else { continue }
+            guard prev.callbackCount > 0 else { continue }
 
             // Skip if we're in the middle of switching devices
             guard switchTasks[pid] == nil else { continue }
 
+            let callbackDelta = d.callbackCount - prev.callbackCount
+            let outputDelta = d.outputWritten - prev.outputWritten
+            let emptyDelta = d.emptyInput - prev.emptyInput
+
+            // Case 1: Stalled — callback count not changing
+            if callbackDelta == 0 {
+                pidsToRecreate.append((pid, "stalled (callbacks stuck at \(d.callbackCount))"))
+                continue
+            }
+
+            // Case 2: Broken — callbacks running but mostly empty input and no output
+            // This detects "Reporter disconnected" where the tap's data source is gone
+            // but the IO proc keeps firing with zero-length buffers
+            if callbackDelta > 50 && outputDelta == 0 && emptyDelta > callbackDelta / 2 {
+                pidsToRecreate.append((pid, "broken (callbacks=+\(callbackDelta) output=+0 empty=+\(emptyDelta))"))
+                continue
+            }
+        }
+
+        for (pid, reason) in pidsToRecreate {
             guard let app = apps.first(where: { $0.id == pid }),
                   let deviceUID = appDeviceRouting[pid] else { continue }
 
-            logger.warning("[HEALTH] \(app.name) tap stalled (callbacks stuck at \(d.callbackCount)), recreating")
+            logger.warning("[HEALTH] \(app.name) tap \(reason), recreating")
 
-            // Destroy the broken tap
-            tap.invalidate()
+            taps[pid]?.invalidate()
             taps.removeValue(forKey: pid)
             appliedPIDs.remove(pid)
-            lastCallbackCounts.removeValue(forKey: pid)
+            lastHealthSnapshots.removeValue(forKey: pid)
 
-            // Recreate
             ensureTapExists(for: app, deviceUID: deviceUID)
         }
 
         // Clean up tracking for removed taps
         let activePIDs = Set(taps.keys)
-        lastCallbackCounts = lastCallbackCounts.filter { activePIDs.contains($0.key) }
+        lastHealthSnapshots = lastHealthSnapshots.filter { activePIDs.contains($0.key) }
     }
 
     private func logDiagnostics() {
@@ -488,7 +526,15 @@ final class AudioEngine {
         guard taps[app.id] == nil else { return }
         onTapCreationAttemptForTests?(app, deviceUID)
 
-        let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor)
+        // On first launch (before permission is confirmed), use .unmuted so the app being
+        // killed during the system permission dialog doesn't leave audio permanently muted.
+        // After permission is confirmed, use .mutedWhenTapped for proper per-app control.
+        let shouldMute = permissionConfirmed
+        if !shouldMute {
+            logger.info("[PERMISSION] Creating tap for \(app.name) with .unmuted (permission not yet confirmed)")
+        }
+
+        let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor, muteOriginal: shouldMute)
         tap.volume = volumeState.getVolume(for: app.id)
         tap.isMuted = volumeState.getMute(for: app.id)
 
@@ -502,31 +548,40 @@ final class AudioEngine {
             try tap.activate()
             taps[app.id] = tap
 
-            // Schedule fast health checks to detect reporter disconnection.
-            // When system audio permission is first granted, the tap's reporter
-            // may disconnect immediately, leaving audio muted with no replacement.
+            // Schedule fast health checks after tap creation.
+            // Intervals: 0.3s (quick permission check), 0.8s, 1.5s (broken tap detection)
             let pid = app.id
             let appName = app.name
+            let needsPermissionConfirmation = !permissionConfirmed
+            let checkIntervals: [Duration] = [.milliseconds(300), .milliseconds(500), .milliseconds(700)]
             Task { @MainActor [weak self] in
-                // Check at 1s, 2s, 3s after creation
-                for checkNum in 1...3 {
-                    try? await Task.sleep(for: .seconds(1))
+                for (checkNum, interval) in checkIntervals.enumerated() {
+                    try? await Task.sleep(for: interval)
                     guard let self, let tap = self.taps[pid] else {
-                        self?.logger.debug("[HEALTH-FAST] \(appName) check #\(checkNum): tap gone, stopping checks")
+                        self?.logger.debug("[HEALTH-FAST] \(appName) check #\(checkNum + 1): tap gone, stopping checks")
                         return
                     }
                     let d = tap.diagnostics
-                    self.logger.info("[HEALTH-FAST] \(appName) check #\(checkNum): callbacks=\(d.callbackCount) input=\(d.inputHasData) output=\(d.outputWritten) silForce=\(d.silencedForce) silMute=\(d.silencedMute)")
+                    self.logger.info("[HEALTH-FAST] \(appName) check #\(checkNum + 1): callbacks=\(d.callbackCount) input=\(d.inputHasData) output=\(d.outputWritten) empty=\(d.emptyInput) silForce=\(d.silencedForce) silMute=\(d.silencedMute)")
 
-                    // Broken = callbacks running but no output written
-                    if d.callbackCount > 10 && d.outputWritten == 0 {
+                    // Confirm permission once we see audio flowing successfully.
+                    // Recreates all taps with .mutedWhenTapped for proper per-app control.
+                    if needsPermissionConfirmation && d.callbackCount > 10 && d.outputWritten > 0 {
+                        self.permissionConfirmed = true
+                        self.logger.info("[PERMISSION] System audio permission confirmed — recreating taps with .mutedWhenTapped")
+                        self.recreateAllTaps()
+                        return
+                    }
+
+                    // Broken = callbacks running but no output written (after enough time)
+                    if checkNum >= 1 && d.callbackCount > 10 && d.outputWritten == 0 {
                         guard let app = self.apps.first(where: { $0.id == pid }),
                               let deviceUID = self.appDeviceRouting[pid] else { return }
-                        self.logger.warning("[HEALTH-FAST] \(appName) tap broken after \(checkNum)s (callbacks=\(d.callbackCount) output=0), recreating")
+                        self.logger.warning("[HEALTH-FAST] \(appName) tap broken (callbacks=\(d.callbackCount) output=0), recreating")
                         tap.invalidate()
                         self.taps.removeValue(forKey: pid)
                         self.appliedPIDs.remove(pid)
-                        self.lastCallbackCounts.removeValue(forKey: pid)
+                        self.lastHealthSnapshots.removeValue(forKey: pid)
                         self.ensureTapExists(for: app, deviceUID: deviceUID)
                         return
                     }
@@ -541,6 +596,19 @@ final class AudioEngine {
         } catch {
             logger.error("Failed to create tap for \(app.name): \(error.localizedDescription)")
         }
+    }
+
+    /// Destroys all taps and recreates them (e.g., to upgrade from .unmuted to .mutedWhenTapped).
+    private func recreateAllTaps() {
+        for (pid, tap) in taps {
+            let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+            logger.info("[RECREATE] Destroying tap for \(appName)")
+            tap.invalidate()
+        }
+        taps.removeAll()
+        appliedPIDs.removeAll()
+        lastHealthSnapshots.removeAll()
+        applyPersistedSettings()
     }
 
     /// Called when device disappears - routes affected apps through setDevice for serialized switching

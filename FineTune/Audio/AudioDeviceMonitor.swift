@@ -182,60 +182,56 @@ final class AudioDeviceMonitor {
     private func handleServiceRestartedAsync() async {
         logger.warning("coreaudiod service restarted - refreshing device list")
 
-        let previousUIDs = await MainActor.run { knownDeviceUIDs }
-        let deviceNames = await MainActor.run {
-            Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
+        // Capture MainActor state before going to background
+        let previousUIDs = knownDeviceUIDs
+        let deviceNames = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
+
+        // CRITICAL: Run CoreAudio reads OFF the main thread.
+        // During coreaudiod restart, these calls can block for seconds.
+        // Running them on MainActor would freeze the UI.
+        let deviceData = await Task.detached { Self.readDeviceDataFromCoreAudio() }.value
+
+        // Back on MainActor — update state
+        let devices = createAudioDevices(from: deviceData)
+        outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        knownDeviceUIDs = Set(devices.map(\.uid))
+        devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
+        devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
+
+        let disconnectedUIDs = previousUIDs.subtracting(knownDeviceUIDs)
+        for uid in disconnectedUIDs {
+            let name = deviceNames[uid] ?? uid
+            logger.info("Device disconnected after restart: \(name) (\(uid))")
+            onDeviceDisconnected?(uid, name)
         }
 
-        let deviceData = Self.readDeviceDataFromCoreAudio()
-
-        await MainActor.run { [weak self] in
-            guard let self else { return }
-            let devices = self.createAudioDevices(from: deviceData)
-            self.outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            self.knownDeviceUIDs = Set(devices.map(\.uid))
-            self.devicesByUID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.uid, $0) })
-            self.devicesByID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.id, $0) })
-
-            let disconnectedUIDs = previousUIDs.subtracting(self.knownDeviceUIDs)
-            for uid in disconnectedUIDs {
-                let name = deviceNames[uid] ?? uid
-                self.logger.info("Device disconnected after restart: \(name) (\(uid))")
-                self.onDeviceDisconnected?(uid, name)
-            }
-
-            // Notify listeners that coreaudiod restarted (taps/aggregates are now invalid)
-            self.onServiceRestarted?()
-        }
+        // Notify listeners that coreaudiod restarted (taps/aggregates are now invalid)
+        onServiceRestarted?()
     }
 
     /// Async handler that reads CoreAudio on background thread, updates UI on MainActor
     private func handleDeviceListChangedAsync() async {
-        // Capture current state before background work
-        let previousUIDs = await MainActor.run { knownDeviceUIDs }
-        let deviceNames = await MainActor.run {
-            Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
-        }
+        // Capture MainActor state before going to background
+        let previousUIDs = knownDeviceUIDs
+        let deviceNames = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
 
-        // Do CoreAudio reads on current (background) thread
-        let deviceData = Self.readDeviceDataFromCoreAudio()
+        // CRITICAL: Run CoreAudio reads OFF the main thread.
+        // Device list changes can trigger during coreaudiod churn where reads may block.
+        let deviceData = await Task.detached { Self.readDeviceDataFromCoreAudio() }.value
 
-        // Update UI state on MainActor (icon resolution happens here)
-        await MainActor.run { [weak self] in
-            guard let self else { return }
-            let devices = self.createAudioDevices(from: deviceData)
-            self.outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            self.knownDeviceUIDs = Set(devices.map(\.uid))
-            self.devicesByUID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.uid, $0) })
-            self.devicesByID = Dictionary(uniqueKeysWithValues: self.outputDevices.map { ($0.id, $0) })
+        // Back on MainActor — update state
+        let devices = createAudioDevices(from: deviceData)
+        outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        knownDeviceUIDs = Set(devices.map(\.uid))
+        devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
+        devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
 
-            // Notify disconnected devices
-            let disconnectedUIDs = previousUIDs.subtracting(self.knownDeviceUIDs)
-            for uid in disconnectedUIDs {
-                let name = deviceNames[uid] ?? uid
-                self.logger.info("Device disconnected: \(name) (\(uid))")
-                self.onDeviceDisconnected?(uid, name)
-            }
+        // Notify disconnected devices
+        let disconnectedUIDs = previousUIDs.subtracting(knownDeviceUIDs)
+        for uid in disconnectedUIDs {
+            let name = deviceNames[uid] ?? uid
+            logger.info("Device disconnected: \(name) (\(uid))")
+            onDeviceDisconnected?(uid, name)
         }
     }
 

@@ -189,10 +189,16 @@ final class ProcessTapController {
     // Crossfade state machine (RT-safe, lock-free access from audio callbacks)
     private nonisolated(unsafe) var crossfadeState = CrossfadeState()
 
-    init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil) {
+    /// When true, taps use `.mutedWhenTapped` to silence original audio (normal operation).
+    /// When false, taps use `.unmuted` so original audio still plays (safe for first launch
+    /// before system audio permission is confirmed — prevents silence if the app is killed).
+    private let muteOriginal: Bool
+
+    init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true) {
         self.app = app
         self.targetDeviceUID = targetDeviceUID
         self.deviceMonitor = deviceMonitor
+        self.muteOriginal = muteOriginal
         self.logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "ProcessTapController(\(app.name))")
     }
 
@@ -274,7 +280,7 @@ final class ProcessTapController {
         let tapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamInfo.streamIndex)
         tapDesc.uuid = UUID()
         tapDesc.isPrivate = true
-        tapDesc.muteBehavior = .mutedWhenTapped  // Mute original, we provide the audio
+        tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
         self.primaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
@@ -579,7 +585,7 @@ final class ProcessTapController {
         let tapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamInfo.streamIndex)
         tapDesc.uuid = UUID()
         tapDesc.isPrivate = true
-        tapDesc.muteBehavior = .mutedWhenTapped  // Must mute to prevent audio on system default after primary destroyed
+        tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
         secondaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
@@ -837,7 +843,7 @@ final class ProcessTapController {
         let newTapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamInfo.streamIndex)
         newTapDesc.uuid = UUID()
         newTapDesc.isPrivate = true
-        newTapDesc.muteBehavior = .mutedWhenTapped
+        newTapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
 
         var newTapID: AudioObjectID = .unknown
         var err = AudioHardwareCreateProcessTap(newTapDesc, &newTapID)
