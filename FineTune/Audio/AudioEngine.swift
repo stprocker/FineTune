@@ -3,7 +3,9 @@ import AudioToolbox
 import Foundation
 import os
 import UserNotifications
+#if canImport(FineTuneCore)
 import FineTuneCore
+#endif
 
 @Observable
 @MainActor
@@ -20,6 +22,7 @@ final class AudioEngine {
     var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
+    private var lastCallbackCounts: [pid_t: UInt64] = [:]  // For detecting broken taps (no callbacks = bad state)
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
@@ -80,26 +83,110 @@ final class AudioEngine {
                 self.routeAllApps(to: deviceUID)
             }
 
+            deviceMonitor.onDeviceDisconnected = { [weak self] deviceUID, deviceName in
+                self?.handleDeviceDisconnected(deviceUID, name: deviceName)
+            }
+
+            // Handle coreaudiod restarts (e.g., after granting system audio permission).
+            // All AudioObjectIDs (taps, aggregates) become invalid and must be recreated.
+            deviceMonitor.onServiceRestarted = { [weak self] in
+                self?.handleServiceRestarted()
+            }
+
+            // Delay initial tap creation to let apps initialize their audio sessions
+            // and to avoid creating taps before system audio permission is granted.
+            // The onAppsChanged callback is wired AFTER this delay to prevent it
+            // from bypassing the wait by firing during processMonitor.start().
+            logger.info("[STARTUP] Waiting 2s before creating taps...")
+            try? await Task.sleep(for: .seconds(2))
+            logger.info("[STARTUP] Creating initial taps")
+            applyPersistedSettings()
+
+            // Wire up onAppsChanged AFTER initial tap creation to prevent early bypass
             processMonitor.onAppsChanged = { [weak self] _ in
                 self?.cleanupStaleTaps()
                 self?.applyPersistedSettings()
             }
 
-            deviceMonitor.onDeviceDisconnected = { [weak self] deviceUID, deviceName in
-                self?.handleDeviceDisconnected(deviceUID, name: deviceName)
-            }
-
-            applyPersistedSettings()
-
-            // Diagnostic timer - logs tap state every 5 seconds
+            // Diagnostic + health check timer - every 5 seconds
             Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
                     guard let self else { return }
                     self.logDiagnostics()
+                    self.checkTapHealth()
                 }
             }
         }
+    }
+
+    /// Handles coreaudiod restart by destroying all taps and recreating them.
+    /// When coreaudiod restarts (e.g., after system audio permission is granted),
+    /// all AudioObjectIDs become invalid. We must tear down everything and start fresh.
+    private func handleServiceRestarted() {
+        logger.warning("[SERVICE-RESTART] coreaudiod restarted — destroying all taps and recreating")
+
+        // Cancel all in-flight switches
+        for task in switchTasks.values { task.cancel() }
+        switchTasks.removeAll()
+
+        // Destroy all existing taps (their AudioObjectIDs are now invalid)
+        for (pid, tap) in taps {
+            let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+            logger.info("[SERVICE-RESTART] Destroying stale tap for \(appName)")
+            tap.invalidate()
+        }
+        taps.removeAll()
+        appliedPIDs.removeAll()
+        lastCallbackCounts.removeAll()
+
+        // Wait for coreaudiod to stabilize, then recreate all taps
+        Task { @MainActor [weak self] in
+            self?.logger.info("[SERVICE-RESTART] Waiting 1.5s for coreaudiod to stabilize...")
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard let self else { return }
+            self.logger.info("[SERVICE-RESTART] Recreating taps")
+            self.applyPersistedSettings()
+        }
+    }
+
+    /// Detects broken taps (callbacks stopped) and recreates them.
+    /// A tap is considered broken if its callback count hasn't changed since the last check.
+    /// This handles "Reporter disconnected" / IO overload scenarios where CoreAudio's
+    /// process tap loses its connection and the aggregate device enters a bad state.
+    private func checkTapHealth() {
+        for (pid, tap) in taps {
+            let d = tap.diagnostics
+            let lastCount = lastCallbackCounts[pid] ?? 0
+            lastCallbackCounts[pid] = d.callbackCount
+
+            // Skip first check (need a baseline)
+            guard lastCount > 0 else { continue }
+
+            // If callback count hasn't changed, the tap's IO proc isn't running
+            guard d.callbackCount == lastCount else { continue }
+
+            // Skip if we're in the middle of switching devices
+            guard switchTasks[pid] == nil else { continue }
+
+            guard let app = apps.first(where: { $0.id == pid }),
+                  let deviceUID = appDeviceRouting[pid] else { continue }
+
+            logger.warning("[HEALTH] \(app.name) tap stalled (callbacks stuck at \(d.callbackCount)), recreating")
+
+            // Destroy the broken tap
+            tap.invalidate()
+            taps.removeValue(forKey: pid)
+            appliedPIDs.remove(pid)
+            lastCallbackCounts.removeValue(forKey: pid)
+
+            // Recreate
+            ensureTapExists(for: app, deviceUID: deviceUID)
+        }
+
+        // Clean up tracking for removed taps
+        let activePIDs = Set(taps.keys)
+        lastCallbackCounts = lastCallbackCounts.filter { activePIDs.contains($0.key) }
     }
 
     private func logDiagnostics() {
@@ -108,7 +195,7 @@ final class AudioEngine {
             let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
             logger.info("""
             [DIAG] \(appName): callbacks=\(d.callbackCount) \
-            input=\(d.inputHasData) output=\(d.outputWritten) \
+            input=\(d.inputHasData) output=\(d.outputWritten) empty=\(d.emptyInput) \
             silForce=\(d.silencedForce) silMute=\(d.silencedMute) \
             conv=\(d.converterUsed) convFail=\(d.converterFailed) \
             direct=\(d.directFloat) passthru=\(d.nonFloatPassthrough) \
@@ -216,7 +303,10 @@ final class AudioEngine {
     }
 
     func setDevice(for app: AudioApp, deviceUID: String) {
-        guard appDeviceRouting[app.id] != deviceUID else { return }
+        // Allow re-routing when tap is missing (e.g., previous activation failed)
+        // so users can retry device selection instead of getting silently blocked.
+        let tapExists = taps[app.id] != nil
+        guard appDeviceRouting[app.id] != deviceUID || !tapExists else { return }
 
         // Cancel any in-flight switch for this app to prevent concurrent switches.
         // Concurrent switchDevice calls on the same ProcessTapController corrupt
@@ -411,6 +501,37 @@ final class AudioEngine {
         do {
             try tap.activate()
             taps[app.id] = tap
+
+            // Schedule fast health checks to detect reporter disconnection.
+            // When system audio permission is first granted, the tap's reporter
+            // may disconnect immediately, leaving audio muted with no replacement.
+            let pid = app.id
+            let appName = app.name
+            Task { @MainActor [weak self] in
+                // Check at 1s, 2s, 3s after creation
+                for checkNum in 1...3 {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard let self, let tap = self.taps[pid] else {
+                        self?.logger.debug("[HEALTH-FAST] \(appName) check #\(checkNum): tap gone, stopping checks")
+                        return
+                    }
+                    let d = tap.diagnostics
+                    self.logger.info("[HEALTH-FAST] \(appName) check #\(checkNum): callbacks=\(d.callbackCount) input=\(d.inputHasData) output=\(d.outputWritten) silForce=\(d.silencedForce) silMute=\(d.silencedMute)")
+
+                    // Broken = callbacks running but no output written
+                    if d.callbackCount > 10 && d.outputWritten == 0 {
+                        guard let app = self.apps.first(where: { $0.id == pid }),
+                              let deviceUID = self.appDeviceRouting[pid] else { return }
+                        self.logger.warning("[HEALTH-FAST] \(appName) tap broken after \(checkNum)s (callbacks=\(d.callbackCount) output=0), recreating")
+                        tap.invalidate()
+                        self.taps.removeValue(forKey: pid)
+                        self.appliedPIDs.remove(pid)
+                        self.lastCallbackCounts.removeValue(forKey: pid)
+                        self.ensureTapExists(for: app, deviceUID: deviceUID)
+                        return
+                    }
+                }
+            }
 
             // Load and apply persisted EQ settings
             let eqSettings = settingsManager.getEQSettings(for: app.persistenceIdentifier)

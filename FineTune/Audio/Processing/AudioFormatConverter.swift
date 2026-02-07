@@ -1,7 +1,9 @@
 // FineTune/Audio/Processing/AudioFormatConverter.swift
 import AudioToolbox
 import os
+#if canImport(FineTuneCore)
 import FineTuneCore
+#endif
 
 /// State for audio format conversion between tap format and processing format.
 /// Handles non-standard formats (non-Float32, non-interleaved, mono) by converting

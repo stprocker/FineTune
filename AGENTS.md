@@ -63,7 +63,8 @@
     1. Fully understand the Swift/SwiftUI context and existing View hierarchy.
     2. Check `FineTune/Utilities` for existing helpers (e.g., audio wrappers).
     3. Confirm whether a native SwiftUI view modifier exists before writing custom layouts.
-    4. Develop failing tests based on required function/behavior.
+    4. Check docs/Apple Core Audio Docs if working with Core Audio
+    5. Develop failing tests based on required function/behavior.
 
   C.  **After generating new code**
 

@@ -1,7 +1,9 @@
 // FineTune/Audio/ProcessTapController.swift
 import AudioToolbox
 import os
+#if canImport(FineTuneCore)
 import FineTuneCore
+#endif
 
 final class ProcessTapController {
     // CrossfadeConfig is now defined in Crossfade/CrossfadeState.swift
@@ -65,6 +67,7 @@ final class ProcessTapController {
     private nonisolated(unsafe) var _diagConverterFailed: UInt64 = 0
     private nonisolated(unsafe) var _diagDirectFloat: UInt64 = 0
     private nonisolated(unsafe) var _diagNonFloatPassthrough: UInt64 = 0
+    private nonisolated(unsafe) var _diagEmptyInput: UInt64 = 0  // Callbacks with zero-length or nil input buffers
     private nonisolated(unsafe) var _diagLastInputPeak: Float = 0
     private nonisolated(unsafe) var _diagLastOutputPeak: Float = 0
     private nonisolated(unsafe) var _diagFormatChannels: UInt32 = 0
@@ -95,6 +98,7 @@ final class ProcessTapController {
         let converterFailed: UInt64
         let directFloat: UInt64
         let nonFloatPassthrough: UInt64
+        let emptyInput: UInt64
         let lastInputPeak: Float
         let lastOutputPeak: Float
         let formatChannels: UInt32
@@ -117,6 +121,7 @@ final class ProcessTapController {
             converterFailed: _diagConverterFailed,
             directFloat: _diagDirectFloat,
             nonFloatPassthrough: _diagNonFloatPassthrough,
+            emptyInput: _diagEmptyInput,
             lastInputPeak: _diagLastInputPeak,
             lastOutputPeak: _diagLastOutputPeak,
             formatChannels: _diagFormatChannels,
@@ -979,6 +984,15 @@ final class ProcessTapController {
         // Track peak level for VU meter (RT-safe: simple max tracking + smoothing)
         // Always measure INPUT signal so VU shows source activity even when muted
         // This helps users see "app is playing" and supports future EQ visualization
+        // Check if input buffers have any data at all
+        var hasAnyInputData = false
+        if inputBuffers.count > 0 && inputBuffers[0].mDataByteSize > 0 && inputBuffers[0].mData != nil {
+            hasAnyInputData = true
+        }
+        if !hasAnyInputData {
+            _diagEmptyInput += 1
+        }
+
         if format.isFloat32 {
             let maxPeak = computePeak(inputBuffers: inputBuffers)
             let rawPeak = min(maxPeak, 1.0)

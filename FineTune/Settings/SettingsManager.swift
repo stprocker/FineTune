@@ -1,7 +1,9 @@
 // FineTune/Settings/SettingsManager.swift
 import Foundation
 import os
+#if canImport(FineTuneCore)
 import FineTuneCore
+#endif
 
 @Observable
 @MainActor

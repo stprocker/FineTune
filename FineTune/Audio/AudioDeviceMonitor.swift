@@ -20,6 +20,10 @@ final class AudioDeviceMonitor {
     /// Called immediately when device disappears (passes UID and name)
     var onDeviceDisconnected: ((_ uid: String, _ name: String) -> Void)?
 
+    /// Called when coreaudiod restarts (e.g., after system audio permission is granted).
+    /// All AudioObjectIDs (taps, aggregates) become invalid and must be recreated.
+    var onServiceRestarted: (() -> Void)?
+
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioDeviceMonitor")
 
     private var deviceListListenerBlock: AudioObjectPropertyListenerBlock?
@@ -199,6 +203,9 @@ final class AudioDeviceMonitor {
                 self.logger.info("Device disconnected after restart: \(name) (\(uid))")
                 self.onDeviceDisconnected?(uid, name)
             }
+
+            // Notify listeners that coreaudiod restarted (taps/aggregates are now invalid)
+            self.onServiceRestarted?()
         }
     }
 
