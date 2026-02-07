@@ -11,46 +11,28 @@ extension AudioDeviceID {
     /// 3. Left channel volume (element 1)
     /// Returns 1.0 for devices without volume control.
     nonisolated func readOutputVolumeScalar() -> Float {
-        // Strategy 1: Try virtual main volume (preferred - matches system slider)
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
-        )
+        // Try multiple strategies in priority order:
+        // 1. Virtual main volume (matches system slider)
+        // 2. Master volume scalar (element 0)
+        // 3. Left channel volume (element 1, common for stereo devices)
+        let strategies: [(selector: AudioObjectPropertySelector, element: AudioObjectPropertyElement)] = [
+            (kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyElementMain),
+            (kAudioDevicePropertyVolumeScalar, kAudioObjectPropertyElementMain),
+            (kAudioDevicePropertyVolumeScalar, 1),
+        ]
 
-        if AudioObjectHasProperty(self, &address) {
-            var volume: Float32 = 1.0
-            var size = UInt32(MemoryLayout<Float32>.size)
-            let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume)
-            if err == noErr {
-                return volume
-            }
-        }
-
-        // Strategy 2: Try master volume scalar (element 0)
-        address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        if AudioObjectHasProperty(self, &address) {
-            var volume: Float32 = 1.0
-            var size = UInt32(MemoryLayout<Float32>.size)
-            let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume)
-            if err == noErr {
-                return volume
-            }
-        }
-
-        // Strategy 3: Try left channel (element 1) - common for stereo devices
-        address.mElement = 1
-        if AudioObjectHasProperty(self, &address) {
-            var volume: Float32 = 1.0
-            var size = UInt32(MemoryLayout<Float32>.size)
-            let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume)
-            if err == noErr {
-                return volume
+        for strategy in strategies {
+            var address = AudioObjectPropertyAddress(
+                mSelector: strategy.selector,
+                mScope: kAudioDevicePropertyScopeOutput,
+                mElement: strategy.element
+            )
+            if AudioObjectHasProperty(self, &address) {
+                var volume: Float32 = 1.0
+                var size = UInt32(MemoryLayout<Float32>.size)
+                if AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume) == noErr {
+                    return volume
+                }
             }
         }
 
