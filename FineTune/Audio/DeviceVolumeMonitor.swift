@@ -182,12 +182,12 @@ final class DeviceVolumeMonitor {
 
         // Remove all volume listeners
         for deviceID in Array(volumeListeners.keys) {
-            removeVolumeListener(for: deviceID)
+            removeDeviceListener(.volume, for: deviceID)
         }
 
         // Remove all mute listeners
         for deviceID in Array(muteListeners.keys) {
-            removeMuteListener(for: deviceID)
+            removeDeviceListener(.mute, for: deviceID)
         }
 
         volumes.removeAll()
@@ -386,20 +386,20 @@ final class DeviceVolumeMonitor {
         // Add listeners for new devices
         let newDeviceIDs = currentDeviceIDs.subtracting(trackedVolumeIDs)
         for deviceID in newDeviceIDs {
-            addVolumeListener(for: deviceID)
-            addMuteListener(for: deviceID)
+            addDeviceListener(.volume, for: deviceID)
+            addDeviceListener(.mute, for: deviceID)
         }
 
         // Remove listeners for stale devices
         let staleVolumeIDs = trackedVolumeIDs.subtracting(currentDeviceIDs)
         for deviceID in staleVolumeIDs {
-            removeVolumeListener(for: deviceID)
+            removeDeviceListener(.volume, for: deviceID)
             volumes.removeValue(forKey: deviceID)
         }
 
         let staleMuteIDs = trackedMuteIDs.subtracting(currentDeviceIDs)
         for deviceID in staleMuteIDs {
-            removeMuteListener(for: deviceID)
+            removeDeviceListener(.mute, for: deviceID)
             muteStates.removeValue(forKey: deviceID)
         }
 
@@ -407,99 +407,85 @@ final class DeviceVolumeMonitor {
         readAllStates()
     }
 
-    private func addVolumeListener(for deviceID: AudioDeviceID) {
+    /// Identifies which device property listener to manage (volume or mute).
+    private enum DevicePropertyKind {
+        case volume, mute
+    }
+
+    private func addDeviceListener(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
         guard deviceID.isValid else { return }
-        guard volumeListeners[deviceID] == nil else { return }
+        let listeners = kind == .volume ? volumeListeners : muteListeners
+        guard listeners[deviceID] == nil else { return }
 
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                self?.handleVolumeChanged(for: deviceID)
+                self?.handleDevicePropertyChanged(kind, for: deviceID)
             }
         }
 
-        var address = volumeAddress
+        var address = kind == .volume ? volumeAddress : muteAddress
         if deviceID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
-            volumeListeners[deviceID] = block
-        }
-    }
-
-    private func removeVolumeListener(for deviceID: AudioDeviceID) {
-        guard let block = volumeListeners[deviceID] else { return }
-
-        var address = volumeAddress
-        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
-        volumeListeners.removeValue(forKey: deviceID)
-    }
-
-    /// Handles volume change notification with debouncing and background read
-    private func handleVolumeChanged(for deviceID: AudioDeviceID) {
-        guard deviceID.isValid else { return }
-
-        // Cancel any pending debounce for this device
-        volumeDebounceTasks[deviceID]?.cancel()
-        volumeDebounceTasks[deviceID] = Task { @MainActor [weak self, volumeDebounceMs] in
-            try? await Task.sleep(for: .milliseconds(volumeDebounceMs))
-            guard !Task.isCancelled else { return }
-
-            // Read on background thread
-            await Task.detached { [weak self] in
-                let newVolume = deviceID.readOutputVolumeScalar()
-
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.volumes[deviceID] = newVolume
-                    self.onVolumeChanged?(deviceID, newVolume)
-                    self.logger.debug("Volume changed for device \(deviceID): \(newVolume)")
-                }
-            }.value
-        }
-    }
-
-    private func addMuteListener(for deviceID: AudioDeviceID) {
-        guard deviceID.isValid else { return }
-        guard muteListeners[deviceID] == nil else { return }
-
-        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                self?.handleMuteChanged(for: deviceID)
+            switch kind {
+            case .volume: volumeListeners[deviceID] = block
+            case .mute:   muteListeners[deviceID] = block
             }
         }
+    }
 
-        var address = muteAddress
-        if deviceID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
-            muteListeners[deviceID] = block
+    private func removeDeviceListener(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
+        let block: AudioObjectPropertyListenerBlock?
+        switch kind {
+        case .volume: block = volumeListeners[deviceID]
+        case .mute:   block = muteListeners[deviceID]
+        }
+        guard let block else { return }
+
+        var address = kind == .volume ? volumeAddress : muteAddress
+        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
+
+        switch kind {
+        case .volume: volumeListeners.removeValue(forKey: deviceID)
+        case .mute:   muteListeners.removeValue(forKey: deviceID)
         }
     }
 
-    private func removeMuteListener(for deviceID: AudioDeviceID) {
-        guard let block = muteListeners[deviceID] else { return }
-
-        var address = muteAddress
-        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
-        muteListeners.removeValue(forKey: deviceID)
-    }
-
-    /// Handles mute change notification with debouncing and background read
-    private func handleMuteChanged(for deviceID: AudioDeviceID) {
+    /// Handles volume or mute change notification with debouncing and background read
+    private func handleDevicePropertyChanged(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
         guard deviceID.isValid else { return }
 
-        // Cancel any pending debounce for this device
-        muteDebounceTasks[deviceID]?.cancel()
-        muteDebounceTasks[deviceID] = Task { @MainActor [weak self, muteDebounceMs] in
-            try? await Task.sleep(for: .milliseconds(muteDebounceMs))
+        let debounceMs = kind == .volume ? volumeDebounceMs : muteDebounceMs
+        let debounceTasks = kind == .volume ? volumeDebounceTasks : muteDebounceTasks
+        debounceTasks[deviceID]?.cancel()
+
+        let task = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(debounceMs))
             guard !Task.isCancelled else { return }
 
-            // Read on background thread
             await Task.detached { [weak self] in
-                let newMuteState = deviceID.readMuteState()
-
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.muteStates[deviceID] = newMuteState
-                    self.onMuteChanged?(deviceID, newMuteState)
-                    self.logger.debug("Mute changed for device \(deviceID): \(newMuteState)")
+                switch kind {
+                case .volume:
+                    let newVolume = deviceID.readOutputVolumeScalar()
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.volumes[deviceID] = newVolume
+                        self.onVolumeChanged?(deviceID, newVolume)
+                        self.logger.debug("Volume changed for device \(deviceID): \(newVolume)")
+                    }
+                case .mute:
+                    let newMuteState = deviceID.readMuteState()
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.muteStates[deviceID] = newMuteState
+                        self.onMuteChanged?(deviceID, newMuteState)
+                        self.logger.debug("Mute changed for device \(deviceID): \(newMuteState)")
+                    }
                 }
             }.value
+        }
+
+        switch kind {
+        case .volume: volumeDebounceTasks[deviceID] = task
+        case .mute:   muteDebounceTasks[deviceID] = task
         }
     }
 
