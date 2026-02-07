@@ -29,24 +29,12 @@ struct AppRow: View {
     @State private var sliderValue: Double  // 0-1, log-mapped position
     @State private var isEditing = false
     @State private var isIconHovered = false
-    @State private var isEQButtonHovered = false
     @State private var localEQSettings: EQSettings
 
     /// Show muted icon when explicitly muted OR volume is 0
     private var showMutedIcon: Bool { isMutedExternal || sliderValue == 0 }
     private var controlsOpacity: Double { isPaused ? 0.82 : 1.0 }
     private var rowTitleOpacity: Double { isPaused ? 0.92 : 1.0 }
-
-    /// EQ button color following same pattern as MuteButton
-    private var eqButtonColor: Color {
-        if isEQExpanded {
-            return DesignTokens.Colors.interactiveActive
-        } else if isEQButtonHovered {
-            return DesignTokens.Colors.interactiveHover
-        } else {
-            return DesignTokens.Colors.interactiveDefault
-        }
-    }
 
     /// Default volume to restore when unmuting from 0 (50% = unity gain)
     private var defaultUnmuteVolume: Double { DesignTokens.Volume.defaultUnmuteSliderPosition }
@@ -199,32 +187,7 @@ struct AppRow: View {
                     )
 
                     // EQ button at end of row (animates to X when expanded)
-                    Button {
-                        onEQToggle()
-                    } label: {
-                        ZStack {
-                            Image(systemName: "slider.vertical.3")
-                                .opacity(isEQExpanded ? 0 : 1)
-                                .rotationEffect(.degrees(isEQExpanded ? 90 : 0))
-
-                            Image(systemName: "xmark")
-                                .opacity(isEQExpanded ? 1 : 0)
-                                .rotationEffect(.degrees(isEQExpanded ? 0 : -90))
-                        }
-                        .font(.system(size: 12))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(eqButtonColor)
-                        .frame(
-                            minWidth: DesignTokens.Dimensions.minTouchTarget,
-                            minHeight: DesignTokens.Dimensions.minTouchTarget
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { isEQButtonHovered = $0 }
-                    .help(isEQExpanded ? "Close Equalizer" : "Equalizer")
-                    .animation(DesignTokens.Animation.eqButton, value: isEQExpanded)
-                    .animation(DesignTokens.Animation.hover, value: isEQButtonHovered)
+                    AppRowEQToggle(isExpanded: isEQExpanded, onToggle: onEQToggle)
                 }
                 .opacity(controlsOpacity)
                 .frame(width: DesignTokens.Dimensions.controlsWidth)
