@@ -1,15 +1,6 @@
 {
-  "originHash" : "d34439ac6f32beb64bf2ca75161b6e8c041ab4fd8369cb04d1f3c06643141960",
+  "originHash" : "09b08963887ce6eac26952e8acb25256a8ec102f2b5528ae68a97fa296723712",
   "pins" : [
-    {
-      "identity" : "fluidmenubarextra",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/wadetregaskis/FluidMenuBarExtra",
-      "state" : {
-        "revision" : "3ce81bd0e5ab0ae5b027076482f4bd86be30162c",
-        "version" : "1.5.1"
-      }
-    },
     {
       "identity" : "swift-custom-dump",
       "kind" : "remoteSourceControl",

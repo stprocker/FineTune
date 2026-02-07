@@ -1,7 +1,6 @@
 // FineTune/FineTuneApp.swift
 import SwiftUI
 import UserNotifications
-import FluidMenuBarExtra
 import os
 
 private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "App")
@@ -9,34 +8,24 @@ private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "Ap
 @main
 struct FineTuneApp: App {
     @State private var audioEngine: AudioEngine
-    @State private var showMenuBarExtra = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+    @State private var menuBarController: MenuBarStatusController
 
     var body: some Scene {
-        FluidMenuBarExtra("FineTune", image: "MenuBarIcon", isInserted: $showMenuBarExtra, menu: Self.createContextMenu()) {
-            MenuBarPopupView(
-                audioEngine: audioEngine,
-                deviceVolumeMonitor: audioEngine.deviceVolumeMonitor
-            )
-        }
-
         Settings { EmptyView() }
-    }
-
-    private static func createContextMenu() -> NSMenu {
-        let menu = NSMenu()
-        let quitItem = NSMenuItem(title: "Quit FineTune", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.addItem(quitItem)
-        return menu
     }
 
     init() {
         let settings = SettingsManager()
         let engine = AudioEngine(settingsManager: settings)
+        let controller = MenuBarStatusController(audioEngine: engine)
+
         _audioEngine = State(initialValue: engine)
+        _menuBarController = State(initialValue: controller)
 
         if SingleInstanceGuard.shouldTerminateCurrentInstance() {
             logger.warning("Another FineTune instance detected; terminating this process.")
             DispatchQueue.main.async {
+                controller.stop()
                 engine.stopSync()
                 settings.flushSync()
                 NSApplication.shared.terminate(nil)
@@ -55,6 +44,12 @@ struct FineTuneApp: App {
             // If not granted, notifications will silently not appear - acceptable behavior
         }
 
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            DispatchQueue.main.async {
+                controller.start()
+            }
+        }
+
         // Clean up audio engine and flush settings on app termination
         // CRITICAL: Must stop audio engine to remove CoreAudio property listeners
         // Orphaned listeners can corrupt coreaudiod state and break System Settings
@@ -62,7 +57,10 @@ struct FineTuneApp: App {
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { [engine, settings] _ in
+        ) { [engine, settings, controller] _ in
+            MainActor.assumeIsolated {
+                controller.stop()
+            }
             // Stop audio engine first to remove all CoreAudio listeners
             engine.stopSync()
             // Then flush settings to prevent data loss from debounced saves
