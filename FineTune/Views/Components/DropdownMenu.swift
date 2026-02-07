@@ -1,46 +1,25 @@
 // FineTune/Views/Components/DropdownMenu.swift
 import SwiftUI
 
-/// A reusable dropdown menu component with height restriction support
-struct DropdownMenu<Item: Identifiable, Label: View, ItemContent: View>: View where Item.ID: Hashable {
-    let items: [Item]
-    let selectedItem: Item?
-    let maxVisibleItems: Int?
-    let width: CGFloat
-    let popoverWidth: CGFloat?
-    let onSelect: (Item) -> Void
-    @ViewBuilder let label: (Item?) -> Label
-    @ViewBuilder let itemContent: (Item, Bool) -> ItemContent
+// MARK: - Shared Trigger Button
 
-    @State private var isExpanded = false
+/// Shared trigger button used by both DropdownMenu and GroupedDropdownMenu.
+/// Extracts ~40 lines of identical trigger button code into one component.
+private struct DropdownTriggerButton<Label: View>: View {
+    @Binding var isExpanded: Bool
+    let width: CGFloat
+    @ViewBuilder let label: () -> Label
+
     @State private var isButtonHovered = false
 
-    // Configuration
-    private let itemHeight: CGFloat = 20
-    private let cornerRadius: CGFloat = 8
-    private let animationDuration: Double = 0.15
-
-    private var effectivePopoverWidth: CGFloat {
-        popoverWidth ?? width
-    }
-
-    private var menuHeight: CGFloat {
-        let itemCount = CGFloat(items.count)
-        if let max = maxVisibleItems {
-            return min(itemCount, CGFloat(max)) * itemHeight + 10
-        }
-        return itemCount * itemHeight + 10
-    }
-
-    // MARK: - Trigger Button
-    private var triggerButton: some View {
+    var body: some View {
         Button {
             withAnimation(.snappy(duration: 0.2)) {
                 isExpanded.toggle()
             }
         } label: {
             HStack {
-                label(selectedItem)
+                label()
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
 
@@ -72,29 +51,63 @@ struct DropdownMenu<Item: Identifiable, Label: View, ItemContent: View>: View wh
         .onHover { isButtonHovered = $0 }
         .animation(DesignTokens.Animation.hover, value: isButtonHovered)
     }
+}
 
-    // MARK: - Body
+// MARK: - Dropdown Menu
+
+/// A reusable dropdown menu component with height restriction support
+struct DropdownMenu<Item: Identifiable, Label: View, ItemContent: View>: View where Item.ID: Hashable {
+    let items: [Item]
+    let selectedItem: Item?
+    let maxVisibleItems: Int?
+    let width: CGFloat
+    let popoverWidth: CGFloat?
+    let onSelect: (Item) -> Void
+    @ViewBuilder let label: (Item?) -> Label
+    @ViewBuilder let itemContent: (Item, Bool) -> ItemContent
+
+    @State private var isExpanded = false
+
+    // Configuration
+    private let itemHeight: CGFloat = 20
+    private let cornerRadius: CGFloat = 8
+    private let animationDuration: Double = 0.15
+
+    private var effectivePopoverWidth: CGFloat {
+        popoverWidth ?? width
+    }
+
+    private var menuHeight: CGFloat {
+        let itemCount = CGFloat(items.count)
+        if let max = maxVisibleItems {
+            return min(itemCount, CGFloat(max)) * itemHeight + 10
+        }
+        return itemCount * itemHeight + 10
+    }
+
     var body: some View {
-        triggerButton
-            .background(
-                PopoverHost(isPresented: $isExpanded) {
-                    DropdownContentView(
-                        items: items,
-                        selectedItem: selectedItem,
-                        width: effectivePopoverWidth,
-                        menuHeight: menuHeight,
-                        itemHeight: itemHeight,
-                        cornerRadius: cornerRadius,
-                        onSelect: { item in
-                            onSelect(item)
-                            withAnimation(.easeOut(duration: animationDuration)) {
-                                isExpanded = false
-                            }
-                        },
-                        itemContent: itemContent
-                    )
-                }
-            )
+        DropdownTriggerButton(isExpanded: $isExpanded, width: width) {
+            label(selectedItem)
+        }
+        .background(
+            PopoverHost(isPresented: $isExpanded) {
+                DropdownContentView(
+                    items: items,
+                    selectedItem: selectedItem,
+                    width: effectivePopoverWidth,
+                    menuHeight: menuHeight,
+                    itemHeight: itemHeight,
+                    cornerRadius: cornerRadius,
+                    onSelect: { item in
+                        onSelect(item)
+                        withAnimation(.easeOut(duration: animationDuration)) {
+                            isExpanded = false
+                        }
+                    },
+                    itemContent: itemContent
+                )
+            }
+        )
     }
 }
 
@@ -190,7 +203,6 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
     @ViewBuilder let itemContent: (Item, Bool) -> ItemContent
 
     @State private var isExpanded = false
-    @State private var isButtonHovered = false
 
     // Configuration
     private let itemHeight: CGFloat = 22
@@ -202,72 +214,32 @@ struct GroupedDropdownMenu<Section: Identifiable & Hashable, Item: Identifiable,
         popoverWidth ?? width
     }
 
-    // MARK: - Trigger Button
-    private var triggerButton: some View {
-        Button {
-            withAnimation(.snappy(duration: 0.2)) {
-                isExpanded.toggle()
-            }
-        } label: {
-            HStack {
-                label(selectedItem)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-
-                Spacer(minLength: 4)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(isExpanded ? -180 : 0))
-                    .animation(.easeInOut(duration: 0.25), value: isExpanded)
-            }
-            .padding(.horizontal, DesignTokens.Spacing.sm)
-            .padding(.vertical, 4)
-            .frame(width: width)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background {
-            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
-                .fill(.regularMaterial)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
-                .strokeBorder(
-                    isButtonHovered ? Color.white.opacity(0.35) : Color.white.opacity(0.2),
-                    lineWidth: 0.5
-                )
-        }
-        .onHover { isButtonHovered = $0 }
-        .animation(DesignTokens.Animation.hover, value: isButtonHovered)
-    }
-
-    // MARK: - Body
     var body: some View {
-        triggerButton
-            .background(
-                PopoverHost(isPresented: $isExpanded) {
-                    GroupedDropdownContentView(
-                        sections: sections,
-                        itemsForSection: itemsForSection,
-                        sectionTitle: sectionTitle,
-                        selectedItem: selectedItem,
-                        width: effectivePopoverWidth,
-                        maxHeight: maxHeight,
-                        itemHeight: itemHeight,
-                        sectionHeaderHeight: sectionHeaderHeight,
-                        cornerRadius: cornerRadius,
-                        onSelect: { item in
-                            onSelect(item)
-                            withAnimation(.easeOut(duration: animationDuration)) {
-                                isExpanded = false
-                            }
-                        },
-                        itemContent: itemContent
-                    )
-                }
-            )
+        DropdownTriggerButton(isExpanded: $isExpanded, width: width) {
+            label(selectedItem)
+        }
+        .background(
+            PopoverHost(isPresented: $isExpanded) {
+                GroupedDropdownContentView(
+                    sections: sections,
+                    itemsForSection: itemsForSection,
+                    sectionTitle: sectionTitle,
+                    selectedItem: selectedItem,
+                    width: effectivePopoverWidth,
+                    maxHeight: maxHeight,
+                    itemHeight: itemHeight,
+                    sectionHeaderHeight: sectionHeaderHeight,
+                    cornerRadius: cornerRadius,
+                    onSelect: { item in
+                        onSelect(item)
+                        withAnimation(.easeOut(duration: animationDuration)) {
+                            isExpanded = false
+                        }
+                    },
+                    itemContent: itemContent
+                )
+            }
+        )
     }
 }
 
