@@ -41,6 +41,26 @@ final class DeviceVolumeMonitor {
     private let deviceMonitor: AudioDeviceMonitor
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "DeviceVolumeMonitor")
 
+    // MARK: - Injectable Timing (for deterministic tests)
+
+    /// Debounce delay for default device change handling (ms).
+    var defaultDeviceDebounceMs: Int = 300
+
+    /// Debounce delay for volume change handling (ms).
+    var volumeDebounceMs: Int = 30
+
+    /// Debounce delay for mute change handling (ms).
+    var muteDebounceMs: Int = 30
+
+    /// Bluetooth stream initialization delay (ms).
+    var bluetoothInitDelayMs: Int = 500
+
+    /// Post-setDefaultDevice confirmation delay (ms).
+    var setDefaultConfirmationDelayMs: Int = 250
+
+    /// Bluetooth re-read delay after initial state read (ms).
+    var bluetoothReReadDelayMs: Int = 200
+
     /// Volume listeners for each tracked device
     private var volumeListeners: [AudioDeviceID: AudioObjectPropertyListenerBlock] = [:]
     /// Mute listeners for each tracked device
@@ -104,9 +124,9 @@ final class DeviceVolumeMonitor {
             Task { @MainActor [weak self] in
                 self?.defaultDeviceDebounceTask?.cancel()
                 self?.defaultDeviceDebounceTask = Task { @MainActor [weak self] in
-                    // Wait 300ms to let System Settings finish its handshake with coreaudiod
+                    // Wait for System Settings to finish its handshake with coreaudiod
                     // before we potentially hammer the HAL with app re-routing.
-                    try? await Task.sleep(for: .milliseconds(300))
+                    try? await Task.sleep(for: .milliseconds(self?.defaultDeviceDebounceMs ?? 300))
                     guard !Task.isCancelled else { return }
                     self?.handleDefaultDeviceChanged()
                 }
@@ -235,8 +255,8 @@ final class DeviceVolumeMonitor {
                 self.onDefaultDeviceChangedExternally?(uid)
             }
 
-            Task.detached { [weak self] in
-                try? await Task.sleep(for: .milliseconds(250))
+            Task.detached { [weak self, setDefaultConfirmationDelayMs] in
+                try? await Task.sleep(for: .milliseconds(setDefaultConfirmationDelayMs))
                 let confirmedID = try? AudioDeviceID.readDefaultOutputDevice()
                 let confirmedUID = try? confirmedID?.readDeviceUID()
 
@@ -325,7 +345,8 @@ final class DeviceVolumeMonitor {
             // causing audio to not play until the device is "poked" (e.g., by System Settings).
             let transport = newDeviceID?.readTransportType() ?? .unknown
             if transport == .bluetooth || transport == .bluetoothLE {
-                try? await Task.sleep(for: .milliseconds(500))
+                let btDelay = await MainActor.run { self?.bluetoothInitDelayMs ?? 500 }
+                try? await Task.sleep(for: .milliseconds(btDelay))
             }
 
             await MainActor.run { [weak self] in
@@ -444,8 +465,8 @@ final class DeviceVolumeMonitor {
 
         // Cancel any pending debounce for this device
         volumeDebounceTasks[deviceID]?.cancel()
-        volumeDebounceTasks[deviceID] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(30))
+        volumeDebounceTasks[deviceID] = Task { @MainActor [weak self, volumeDebounceMs] in
+            try? await Task.sleep(for: .milliseconds(volumeDebounceMs))
             guard !Task.isCancelled else { return }
 
             // Read on background thread
@@ -502,8 +523,8 @@ final class DeviceVolumeMonitor {
 
         // Cancel any pending debounce for this device
         muteDebounceTasks[deviceID]?.cancel()
-        muteDebounceTasks[deviceID] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(30))
+        muteDebounceTasks[deviceID] = Task { @MainActor [weak self, muteDebounceMs] in
+            try? await Task.sleep(for: .milliseconds(muteDebounceMs))
             guard !Task.isCancelled else { return }
 
             // Read on background thread
@@ -582,8 +603,9 @@ final class DeviceVolumeMonitor {
             }
 
             // Schedule delayed re-read for Bluetooth devices
+            let btReReadDelay = await MainActor.run { [weak self] in self?.bluetoothReReadDelayMs ?? 200 }
             for deviceID in bluetoothDeviceIDs {
-                try? await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .milliseconds(btReReadDelay))
 
                 // Check if device is still tracked before re-reading
                 let stillTracked = await MainActor.run { [weak self] in

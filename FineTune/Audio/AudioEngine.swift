@@ -51,6 +51,23 @@ final class AudioEngine {
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
 
+    // MARK: - Injectable Timing (for deterministic tests)
+
+    /// Diagnostic + health check polling interval (seconds).
+    var diagnosticPollInterval: Duration = .seconds(3)
+
+    /// Startup delay before creating initial taps (seconds).
+    var startupTapDelay: Duration = .seconds(2)
+
+    /// Grace period for stale tap cleanup (seconds).
+    var staleTapGracePeriod: Duration = .seconds(1)
+
+    /// Service restart stabilization delay (ms).
+    var serviceRestartDelay: Duration = .milliseconds(1500)
+
+    /// Fast health check intervals after tap creation.
+    var fastHealthCheckIntervals: [Duration] = [.milliseconds(300), .milliseconds(500), .milliseconds(700)]
+
     /// Permission is only considered confirmed once we see real input audio,
     /// not just callback/output activity (which can still be silent).
     nonisolated static func shouldConfirmPermission(from diagnostics: ProcessTapController.TapDiagnostics) -> Bool {
@@ -136,8 +153,8 @@ final class AudioEngine {
             // and to avoid creating taps before system audio permission is granted.
             // The onAppsChanged callback is wired AFTER this delay to prevent it
             // from bypassing the wait by firing during processMonitor.start().
-            logger.info("[STARTUP] Waiting 2s before creating taps...")
-            try? await Task.sleep(for: .seconds(2))
+            logger.info("[STARTUP] Waiting before creating taps...")
+            try? await Task.sleep(for: startupTapDelay)
             logger.info("[STARTUP] Creating initial taps")
             applyPersistedSettings()
 
@@ -148,10 +165,10 @@ final class AudioEngine {
                 self?.applyPersistedSettings()
             }
 
-            // Diagnostic + health check timer - every 3 seconds
+            // Diagnostic + health check timer
             Task { @MainActor [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(3))
+                    try? await Task.sleep(for: self?.diagnosticPollInterval ?? .seconds(3))
                     guard let self else { return }
                     self.logDiagnostics()
                     self.checkTapHealth()
@@ -182,8 +199,8 @@ final class AudioEngine {
 
         // Wait for coreaudiod to stabilize, then recreate all taps
         Task { @MainActor [weak self] in
-            self?.logger.info("[SERVICE-RESTART] Waiting 1.5s for coreaudiod to stabilize...")
-            try? await Task.sleep(for: .milliseconds(1500))
+            self?.logger.info("[SERVICE-RESTART] Waiting for coreaudiod to stabilize...")
+            try? await Task.sleep(for: self?.serviceRestartDelay ?? .milliseconds(1500))
             guard let self else { return }
             self.logger.info("[SERVICE-RESTART] Recreating taps")
             self.applyPersistedSettings()
@@ -618,7 +635,7 @@ final class AudioEngine {
             let pid = app.id
             let appName = app.name
             let needsPermissionConfirmation = !permissionConfirmed
-            let checkIntervals: [Duration] = [.milliseconds(300), .milliseconds(500), .milliseconds(700)]
+            let checkIntervals: [Duration] = fastHealthCheckIntervals
             Task { @MainActor [weak self] in
                 for (checkNum, interval) in checkIntervals.enumerated() {
                     try? await Task.sleep(for: interval)
@@ -747,13 +764,13 @@ final class AudioEngine {
         }
 
         // Schedule cleanup for newly stale PIDs (with grace period)
-        // Grace period of 1 second allows for brief audio interruptions without destroying taps
+        // Grace period allows for brief audio interruptions without destroying taps
         // This is generous enough to handle most transient cases while still cleaning up promptly
         for pid in stalePIDs {
             guard pendingCleanup[pid] == nil else { continue }  // Already pending
 
-            pendingCleanup[pid] = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(1))
+            pendingCleanup[pid] = Task { @MainActor [staleTapGracePeriod] in
+                try? await Task.sleep(for: staleTapGracePeriod)
                 guard !Task.isCancelled else { return }
 
                 // Double-check still stale - app may have reappeared during grace period

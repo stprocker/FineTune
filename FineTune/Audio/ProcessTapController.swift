@@ -194,6 +194,27 @@ final class ProcessTapController {
     /// before system audio permission is confirmed — prevents silence if the app is killed).
     private let muteOriginal: Bool
 
+    // MARK: - Injectable Timing (for deterministic tests)
+
+    /// Warmup wait before crossfade begins (ms). Bluetooth uses extended warmup.
+    var crossfadeWarmupMs: Int = 50
+    var crossfadeWarmupBTMs: Int = 500
+
+    /// Crossfade completion timeout extension beyond crossfade duration (ms).
+    var crossfadeTimeoutPaddingMs: Int = 100
+    var crossfadeTimeoutPaddingBTMs: Int = 600
+
+    /// Poll interval during crossfade completion check (ms).
+    var crossfadePollIntervalMs: UInt64 = 5
+
+    /// Post-crossfade buffer for final samples (ms).
+    var crossfadePostBufferMs: Int = 10
+
+    /// Destructive switch silence/startup delays (ms).
+    var destructiveSwitchPreSilenceMs: UInt64 = 100
+    var destructiveSwitchPostSilenceMs: UInt64 = 150
+    var destructiveSwitchFadeInMs: UInt64 = 100
+
     init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true) {
         self.app = app
         self.targetDeviceUID = targetDeviceUID
@@ -533,7 +554,7 @@ final class ProcessTapController {
 
         // Wait for secondary tap to warm up and start producing samples
         // Bluetooth devices need much longer warmup due to A2DP connection latency (can take 500ms+)
-        let warmupMs = isBluetoothDestination ? 500 : 50
+        let warmupMs = isBluetoothDestination ? crossfadeWarmupBTMs : crossfadeWarmupMs
         logger.info("[CROSSFADE] Step 4: Waiting for secondary tap warmup (\(warmupMs)ms)...")
         try await Task.sleep(for: .milliseconds(UInt64(warmupMs)))
 
@@ -542,8 +563,8 @@ final class ProcessTapController {
         // Poll for completion (don't control timing - secondary callback does)
         // Wait for BOTH: crossfade animation complete AND secondary tap warmup complete
         // Bluetooth gets extended timeout to account for A2DP connection latency
-        let timeoutMs = Int(CrossfadeConfig.duration * 1000) + (isBluetoothDestination ? 600 : 100)
-        let pollIntervalMs: UInt64 = 5
+        let timeoutMs = Int(CrossfadeConfig.duration * 1000) + (isBluetoothDestination ? crossfadeTimeoutPaddingBTMs : crossfadeTimeoutPaddingMs)
+        let pollIntervalMs: UInt64 = crossfadePollIntervalMs
         var elapsedMs: Int = 0
 
         while (!crossfadeState.isCrossfadeComplete || !crossfadeState.isWarmupComplete) && elapsedMs < timeoutMs {
@@ -562,7 +583,7 @@ final class ProcessTapController {
         }
 
         // Small buffer to ensure final samples processed
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(for: .milliseconds(Int64(crossfadePostBufferMs)))
 
         // Crossfade complete - destroy primary, promote secondary
         logger.info("[CROSSFADE] Crossfade complete (progress: \(self.crossfadeState.progress), elapsed: \(elapsedMs)ms), promoting secondary")
@@ -787,7 +808,7 @@ final class ProcessTapController {
             OSMemoryBarrier()
         }
 
-        try await sleepForSwitch(milliseconds: 100)
+        try await sleepForSwitch(milliseconds: destructiveSwitchPreSilenceMs)
 
         try performDeviceSwitchWithHook(to: newDeviceUID)
 
@@ -796,13 +817,13 @@ final class ProcessTapController {
         _primaryCurrentVolume = 0
         _volume = originalVolume
 
-        try await sleepForSwitch(milliseconds: 150)
+        try await sleepForSwitch(milliseconds: destructiveSwitchPostSilenceMs)
 
         _forceSilence = false
         OSMemoryBarrier()  // Ensure audio thread sees this write before processing resumes
 
         // Allow the built-in volume ramper to complete the fade-in (~90ms to 95%)
-        try await sleepForSwitch(milliseconds: 100)
+        try await sleepForSwitch(milliseconds: destructiveSwitchFadeInMs)
 
         logger.info("[SWITCH-DESTROY] Complete")
     }
