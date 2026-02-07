@@ -51,7 +51,7 @@ final class AudioEngine {
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
 
-    // MARK: - Injectable Timing (for deterministic tests)
+    // MARK: - Injectable Timing
 
     /// Diagnostic + health check polling interval (seconds).
     var diagnosticPollInterval: Duration = .seconds(3)
@@ -68,6 +68,8 @@ final class AudioEngine {
     /// Fast health check intervals after tap creation.
     var fastHealthCheckIntervals: [Duration] = [.milliseconds(300), .milliseconds(500), .milliseconds(700)]
 
+    // MARK: - Permission Confirmation
+
     /// Permission is only considered confirmed once we see real input audio,
     /// not just callback/output activity (which can still be silent).
     nonisolated static func shouldConfirmPermission(from diagnostics: TapDiagnostics) -> Bool {
@@ -79,6 +81,8 @@ final class AudioEngine {
     var outputDevices: [AudioDevice] {
         deviceMonitor.outputDevices
     }
+
+    // MARK: - Initialization
 
     init(
         settingsManager: SettingsManager? = nil,
@@ -176,6 +180,8 @@ final class AudioEngine {
             }
         }
     }
+
+    // MARK: - Health & Diagnostics
 
     /// Handles coreaudiod restart by destroying all taps and recreating them.
     /// When coreaudiod restarts (e.g., after system audio permission is granted),
@@ -289,6 +295,8 @@ final class AudioEngine {
         }
     }
 
+    // MARK: - Display State
+
     var apps: [AudioApp] {
         processMonitor.activeApps
     }
@@ -348,6 +356,8 @@ final class AudioEngine {
         return availableDevices.first?.uid ?? ""
     }
 
+    // MARK: - Lifecycle
+
     func start() {
         // Monitors have internal guards against double-starting
         processMonitor.start()
@@ -389,6 +399,8 @@ final class AudioEngine {
         }
     }
 
+    // MARK: - Volume & EQ
+
     func setVolume(for app: AudioApp, to volume: Float) {
         volumeState.setVolume(for: app.id, to: volume, identifier: app.persistenceIdentifier)
         if let deviceUID = appDeviceRouting[app.id] {
@@ -421,6 +433,8 @@ final class AudioEngine {
     func getEQSettings(for app: AudioApp) -> EQSettings {
         return settingsManager.getEQSettings(for: app.persistenceIdentifier)
     }
+
+    // MARK: - Routing
 
     func setDevice(for app: AudioApp, deviceUID: String) {
         // Allow re-routing when tap is missing (e.g., previous activation failed)
@@ -522,6 +536,8 @@ final class AudioEngine {
         return settingsManager.hasCustomSettings(for: app.persistenceIdentifier)
     }
 
+    // MARK: - Settings
+
     func applyPersistedSettings() {
         applyPersistedSettings(for: apps)
     }
@@ -596,13 +612,7 @@ final class AudioEngine {
         }
     }
 
-    // MARK: - Test Helpers
-
-    /// Test-only hook to apply persisted settings to a controlled app list.
-    @MainActor
-    func applyPersistedSettingsForTests(apps: [AudioApp]) {
-        applyPersistedSettings(for: apps)
-    }
+    // MARK: - Tap Management
 
     private func ensureTapExists(for app: AudioApp, deviceUID: String) {
         guard taps[app.id] == nil else { return }
@@ -693,6 +703,8 @@ final class AudioEngine {
         applyPersistedSettings()
     }
 
+    // MARK: - Device Disconnect
+
     /// Called when device disappears - routes affected apps through setDevice for serialized switching
     private func handleDeviceDisconnected(_ deviceUID: String, name deviceName: String) {
         // Get fallback device: macOS default output, or first available device
@@ -744,6 +756,8 @@ final class AudioEngine {
             }
         }
     }
+
+    // MARK: - Stale Tap Cleanup
 
     func cleanupStaleTaps() {
         let activePIDs = Set(apps.map { $0.id })
@@ -836,6 +850,12 @@ final class AudioEngine {
     }
 
     // MARK: - Test Helpers
+
+    /// Test-only hook to apply persisted settings to a controlled app list.
+    @MainActor
+    func applyPersistedSettingsForTests(apps: [AudioApp]) {
+        applyPersistedSettings(for: apps)
+    }
 
     @MainActor
     func updateDisplayedAppsStateForTests(activeApps: [AudioApp]) {
