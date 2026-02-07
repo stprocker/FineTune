@@ -7,7 +7,7 @@ struct RunningAppInfo: Sendable, Equatable {
 }
 
 enum SingleInstanceGuard {
-    static func shouldTerminate(
+    nonisolated static func shouldTerminate(
         bundleID: String?,
         currentPID: pid_t,
         runningApps: [RunningAppInfo]
@@ -16,7 +16,7 @@ enum SingleInstanceGuard {
         return runningApps.contains { $0.bundleID == bundleID && $0.pid != currentPID }
     }
 
-    static func shouldTerminateCurrentInstance(
+    nonisolated static func shouldTerminateCurrentInstance(
         bundleIDProvider: () -> String? = { Bundle.main.bundleIdentifier },
         runningAppsProvider: () -> [RunningAppInfo] = Self.defaultRunningApps,
         currentPID: pid_t = ProcessInfo.processInfo.processIdentifier,
@@ -30,13 +30,13 @@ enum SingleInstanceGuard {
         )
     }
 
-    private static func defaultRunningApps() -> [RunningAppInfo] {
+    nonisolated private static func defaultRunningApps() -> [RunningAppInfo] {
         NSWorkspace.shared.runningApplications.map {
             RunningAppInfo(bundleID: $0.bundleIdentifier, pid: $0.processIdentifier)
         }
     }
 
-    private static func isRunningTests() -> Bool {
+    nonisolated private static func isRunningTests() -> Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 }

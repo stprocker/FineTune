@@ -5,10 +5,10 @@ import Foundation
 // MARK: - AudioObjectID Core Extensions
 
 extension AudioObjectID {
-    static let unknown = AudioObjectID(kAudioObjectUnknown)
-    static let system = AudioObjectID(kAudioObjectSystemObject)
+    nonisolated static let unknown = AudioObjectID(kAudioObjectUnknown)
+    nonisolated static let system = AudioObjectID(kAudioObjectSystemObject)
 
-    var isValid: Bool { self != Self.unknown }
+    nonisolated var isValid: Bool { self != Self.unknown }
 }
 
 // MARK: - Property Reading

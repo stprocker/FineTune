@@ -43,6 +43,14 @@ final class AudioEngine {
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
 
+    /// Permission is only considered confirmed once we see real input audio,
+    /// not just callback/output activity (which can still be silent).
+    nonisolated static func shouldConfirmPermission(from diagnostics: ProcessTapController.TapDiagnostics) -> Bool {
+        guard diagnostics.callbackCount > 10 else { return false }
+        guard diagnostics.outputWritten > 0 else { return false }
+        return diagnostics.inputHasData > 0 || diagnostics.lastInputPeak > 0.0001
+    }
+
     var outputDevices: [AudioDevice] {
         deviceMonitor.outputDevices
     }
@@ -566,7 +574,7 @@ final class AudioEngine {
 
                     // Confirm permission once we see audio flowing successfully.
                     // Recreates all taps with .mutedWhenTapped for proper per-app control.
-                    if needsPermissionConfirmation && d.callbackCount > 10 && d.outputWritten > 0 {
+                    if needsPermissionConfirmation && Self.shouldConfirmPermission(from: d) {
                         self.permissionConfirmed = true
                         self.logger.info("[PERMISSION] System audio permission confirmed — recreating taps with .mutedWhenTapped")
                         self.recreateAllTaps()

@@ -12,10 +12,10 @@ final class AudioDeviceMonitor {
     private(set) var outputDevices: [AudioDevice] = []
 
     /// O(1) device lookup by UID (nonisolated for cross-actor reads from ProcessTapController)
-    nonisolated(unsafe) private(set) var devicesByUID: [String: AudioDevice] = [:]
+    nonisolated(unsafe) private(set) var devicesByUID: [String: AudioDevice] = [:] // Cross-actor reads only; updated on MainActor
 
     /// O(1) device lookup by AudioDeviceID (nonisolated for cross-actor reads from ProcessTapController)
-    nonisolated(unsafe) private(set) var devicesByID: [AudioDeviceID: AudioDevice] = [:]
+    nonisolated(unsafe) private(set) var devicesByID: [AudioDeviceID: AudioDevice] = [:] // Cross-actor reads only; updated on MainActor
 
     /// Called immediately when device disappears (passes UID and name)
     var onDeviceDisconnected: ((_ uid: String, _ name: String) -> Void)?
@@ -246,6 +246,7 @@ final class AudioDeviceMonitor {
     /// Reads device list from CoreAudio - can be called from any thread.
     /// Returns raw data; icons are resolved on MainActor.
     private nonisolated static func readDeviceDataFromCoreAudio() -> [DeviceData] {
+        // NOTE: Do not call @MainActor helpers from this nonisolated context (e.g., isVirtualDevice()).
         do {
             let deviceIDs = try AudioObjectID.readDeviceList()
             var devices: [DeviceData] = []
@@ -253,7 +254,7 @@ final class AudioDeviceMonitor {
             for deviceID in deviceIDs {
                 guard deviceID.hasOutputStreams() else { continue }
                 guard !deviceID.isAggregateDevice() else { continue }
-                guard !deviceID.isVirtualDevice() else { continue }
+                // Removed guard !deviceID.isVirtualDevice() else { continue }
 
                 guard let uid = try? deviceID.readDeviceUID(),
                       let name = try? deviceID.readDeviceName() else {
@@ -274,18 +275,23 @@ final class AudioDeviceMonitor {
 
     /// Converts DeviceData to AudioDevice on MainActor (for icon cache access)
     private func createAudioDevices(from deviceData: [DeviceData]) -> [AudioDevice] {
-        deviceData.map { data in
-            let icon = DeviceIconCache.shared.icon(for: data.uid) {
-                data.id.readDeviceIcon()
-            } ?? NSImage(systemSymbolName: data.iconSymbol, accessibilityDescription: data.name)
+        deviceData
+            .filter { data in
+                // Safe to call @MainActor helpers here
+                !data.id.isVirtualDevice()
+            }
+            .map { data in
+                let icon = DeviceIconCache.shared.icon(for: data.uid) {
+                    data.id.readDeviceIcon()
+                } ?? NSImage(systemSymbolName: data.iconSymbol, accessibilityDescription: data.name)
 
-            return AudioDevice(
-                id: data.id,
-                uid: data.uid,
-                name: data.name,
-                icon: icon
-            )
-        }
+                return AudioDevice(
+                    id: data.id,
+                    uid: data.uid,
+                    name: data.name,
+                    icon: icon
+                )
+            }
     }
 
     // MARK: - Test Helpers

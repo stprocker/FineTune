@@ -318,7 +318,7 @@ final class DeviceVolumeMonitor {
             // Read CoreAudio properties on background thread to avoid blocking MainActor
             let newDeviceID = try? AudioDeviceID.readDefaultOutputDevice()
             let newDeviceUID = try? newDeviceID?.readDeviceUID()
-            let isVirtual = newDeviceID?.isVirtualDevice() ?? false
+            let isVirtual = await newDeviceID?.isVirtualDevice() ?? false
 
             // Bluetooth devices need extra time for stream initialization after connection.
             // Without this, process tap creation may fail because output streams aren't ready yet,
@@ -450,7 +450,7 @@ final class DeviceVolumeMonitor {
 
             // Read on background thread
             await Task.detached { [weak self] in
-                let newVolume = deviceID.readOutputVolumeScalar()
+                let newVolume = await deviceID.readOutputVolumeScalar()
 
                 await MainActor.run { [weak self] in
                     guard let self else { return }
@@ -508,7 +508,7 @@ final class DeviceVolumeMonitor {
 
             // Read on background thread
             await Task.detached { [weak self] in
-                let newMuteState = deviceID.readMuteState()
+                let newMuteState = await deviceID.readMuteState()
 
                 await MainActor.run { [weak self] in
                     guard let self else { return }
@@ -556,8 +556,8 @@ final class DeviceVolumeMonitor {
             var bluetoothDeviceIDs: [AudioDeviceID] = []
 
             for device in devices {
-                let volume = device.id.readOutputVolumeScalar()
-                let muted = device.id.readMuteState()
+                let volume = await device.id.readOutputVolumeScalar()
+                let muted = await device.id.readMuteState()
                 volumeResults[device.id] = volume
                 muteResults[device.id] = muted
 
@@ -588,8 +588,8 @@ final class DeviceVolumeMonitor {
                 }
                 guard stillTracked else { continue }
 
-                let confirmedVolume = deviceID.readOutputVolumeScalar()
-                let confirmedMute = deviceID.readMuteState()
+                let confirmedVolume = await deviceID.readOutputVolumeScalar()
+                let confirmedMute = await deviceID.readMuteState()
 
                 await MainActor.run { [weak self] in
                     guard let self, self.volumes.keys.contains(deviceID) else { return }

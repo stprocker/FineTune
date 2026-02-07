@@ -13,7 +13,7 @@ extension AudioDeviceID {
         try readString(kAudioDevicePropertyDeviceUID)
     }
 
-    func readNominalSampleRate() throws -> Float64 {
+    nonisolated func readNominalSampleRate() throws -> Float64 {
         try read(kAudioDevicePropertyNominalSampleRate, defaultValue: Float64(48000))
     }
 
@@ -33,15 +33,15 @@ extension AudioDeviceID {
 // MARK: - Process Properties
 
 extension AudioObjectID {
-    func readProcessPID() throws -> pid_t {
+    nonisolated func readProcessPID() throws -> pid_t {
         try read(kAudioProcessPropertyPID, defaultValue: pid_t(0))
     }
 
-    func readProcessIsRunning() -> Bool {
+    nonisolated func readProcessIsRunning() -> Bool {
         (try? readBool(kAudioProcessPropertyIsRunning)) ?? false
     }
 
-    func readProcessBundleID() -> String? {
+    nonisolated func readProcessBundleID() -> String? {
         try? readString(kAudioProcessPropertyBundleID)
     }
 }
@@ -49,7 +49,7 @@ extension AudioObjectID {
 // MARK: - Audio Tap
 
 extension AudioObjectID {
-    func readAudioTapStreamBasicDescription() throws -> AudioStreamBasicDescription {
+    nonisolated func readAudioTapStreamBasicDescription() throws -> AudioStreamBasicDescription {
         try read(kAudioTapPropertyFormat, defaultValue: AudioStreamBasicDescription())
     }
 }

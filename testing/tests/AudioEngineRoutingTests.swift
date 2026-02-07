@@ -127,4 +127,64 @@ final class AudioEngineRoutingTests: XCTestCase {
         XCTAssertNil(settings.getDeviceRouting(for: app.persistenceIdentifier),
                      "Failed switch with no prior routing should not leave persisted orphan routing")
     }
+
+    // MARK: - Permission confirmation safety
+
+    func testPermissionConfirmationRequiresRealInputAudio() {
+        let diagnostics = ProcessTapController.TapDiagnostics(
+            callbackCount: 25,
+            inputHasData: 0,
+            outputWritten: 25,
+            silencedForce: 0,
+            silencedMute: 0,
+            converterUsed: 0,
+            converterFailed: 0,
+            directFloat: 25,
+            nonFloatPassthrough: 0,
+            emptyInput: 0,
+            lastInputPeak: 0,
+            lastOutputPeak: 0,
+            formatChannels: 2,
+            formatIsFloat: true,
+            formatIsInterleaved: true,
+            formatSampleRate: 48000,
+            volume: 1.0,
+            crossfadeActive: false,
+            primaryCurrentVolume: 1.0
+        )
+
+        XCTAssertFalse(
+            AudioEngine.shouldConfirmPermission(from: diagnostics),
+            "Permission should not be marked confirmed when callbacks/output exist but input is silent."
+        )
+    }
+
+    func testPermissionConfirmationSucceedsWithInputAudio() {
+        let diagnostics = ProcessTapController.TapDiagnostics(
+            callbackCount: 25,
+            inputHasData: 10,
+            outputWritten: 25,
+            silencedForce: 0,
+            silencedMute: 0,
+            converterUsed: 0,
+            converterFailed: 0,
+            directFloat: 25,
+            nonFloatPassthrough: 0,
+            emptyInput: 0,
+            lastInputPeak: 0.22,
+            lastOutputPeak: 0.22,
+            formatChannels: 2,
+            formatIsFloat: true,
+            formatIsInterleaved: true,
+            formatSampleRate: 48000,
+            volume: 1.0,
+            crossfadeActive: false,
+            primaryCurrentVolume: 1.0
+        )
+
+        XCTAssertTrue(
+            AudioEngine.shouldConfirmPermission(from: diagnostics),
+            "Permission should be confirmed only once real input audio is observed."
+        )
+    }
 }

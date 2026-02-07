@@ -5,7 +5,7 @@ import Foundation
 // MARK: - Device List
 
 extension AudioObjectID {
-    static func readDeviceList() throws -> [AudioDeviceID] {
+    nonisolated static func readDeviceList() throws -> [AudioDeviceID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -30,7 +30,7 @@ extension AudioObjectID {
         return deviceIDs
     }
 
-    static func readProcessList() throws -> [AudioObjectID] {
+    nonisolated static func readProcessList() throws -> [AudioObjectID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyProcessObjectList,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -59,31 +59,31 @@ extension AudioObjectID {
 // MARK: - Default Device
 
 extension AudioDeviceID {
-    static func readDefaultSystemOutputDevice() throws -> AudioDeviceID {
+    nonisolated static func readDefaultSystemOutputDevice() throws -> AudioDeviceID {
         try AudioObjectID.system.read(
             kAudioHardwarePropertyDefaultSystemOutputDevice,
             defaultValue: AudioDeviceID.unknown
         )
     }
 
-    static func readDefaultSystemOutputDeviceUID() throws -> String {
+    nonisolated static func readDefaultSystemOutputDeviceUID() throws -> String {
         let deviceID = try readDefaultSystemOutputDevice()
         return try deviceID.readDeviceUID()
     }
 
-    static func readDefaultOutputDevice() throws -> AudioDeviceID {
+    nonisolated static func readDefaultOutputDevice() throws -> AudioDeviceID {
         try AudioObjectID.system.read(
             kAudioHardwarePropertyDefaultOutputDevice,
             defaultValue: AudioDeviceID.unknown
         )
     }
 
-    static func readDefaultOutputDeviceUID() throws -> String {
+    nonisolated static func readDefaultOutputDeviceUID() throws -> String {
         let deviceID = try readDefaultOutputDevice()
         return try deviceID.readDeviceUID()
     }
 
-    static func setDefaultOutputDevice(_ deviceID: AudioDeviceID) throws {
+    nonisolated static func setDefaultOutputDevice(_ deviceID: AudioDeviceID) throws {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,

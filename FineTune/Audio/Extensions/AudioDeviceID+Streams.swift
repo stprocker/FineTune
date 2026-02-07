@@ -17,7 +17,7 @@ extension AudioDeviceID {
         return size > 0
     }
 
-    func hasInputStreams() -> Bool {
+    nonisolated func hasInputStreams() -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreams,
             mScope: kAudioObjectPropertyScopeInput,
@@ -29,7 +29,7 @@ extension AudioDeviceID {
         return size > 0
     }
 
-    func readOutputStreamIDs() throws -> [AudioStreamID] {
+    nonisolated func readOutputStreamIDs() throws -> [AudioStreamID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreams,
             mScope: kAudioObjectPropertyScopeOutput,
@@ -46,7 +46,7 @@ extension AudioDeviceID {
         return streamIDs
     }
 
-    func setNominalSampleRate(_ sampleRate: Double) -> Bool {
+    nonisolated func setNominalSampleRate(_ sampleRate: Double) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyNominalSampleRate,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -58,7 +58,7 @@ extension AudioDeviceID {
         return err == noErr
     }
 
-    func readBufferFrameSize() throws -> UInt32 {
+    nonisolated func readBufferFrameSize() throws -> UInt32 {
         try read(kAudioDevicePropertyBufferFrameSize, defaultValue: UInt32(0))
     }
 }
@@ -66,7 +66,7 @@ extension AudioDeviceID {
 // MARK: - Stream Formats
 
 extension AudioObjectID {
-    func readVirtualFormat() throws -> AudioStreamBasicDescription {
+    nonisolated func readVirtualFormat() throws -> AudioStreamBasicDescription {
         try read(kAudioStreamPropertyVirtualFormat, defaultValue: AudioStreamBasicDescription())
     }
 }

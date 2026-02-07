@@ -11,6 +11,7 @@ final class MenuBarStatusController: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: KeyablePanel?
     private var globalClickMonitor: Any?
+    private var buttonHealthTimer: Timer?
 
     init(audioEngine: AudioEngine) {
         self.audioEngine = audioEngine
@@ -41,9 +42,30 @@ final class MenuBarStatusController: NSObject {
 
         statusItem = item
         logger.info("Menu bar status item created")
+
+        // macOS 26: Control Center scene reconnections can reset button action/target.
+        // Periodically verify and re-wire the button to ensure clicks keep working.
+        buttonHealthTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.ensureButtonWired()
+            }
+        }
+    }
+
+    private func ensureButtonWired() {
+        guard let button = statusItem?.button else { return }
+        let sel = #selector(statusBarButtonClicked(_:))
+        if button.target !== self || button.action != sel {
+            logger.error("Button action/target was reset — re-wiring")
+            button.target = self
+            button.action = sel
+            button.sendAction(on: [.leftMouseDown, .rightMouseDown])
+        }
     }
 
     func stop() {
+        buttonHealthTimer?.invalidate()
+        buttonHealthTimer = nil
         dismissPanel()
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
@@ -54,7 +76,11 @@ final class MenuBarStatusController: NSObject {
     // MARK: - Click handling
 
     @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
+        guard let event = NSApp.currentEvent else {
+            logger.error("statusBarButtonClicked: NSApp.currentEvent is nil")
+            return
+        }
+        logger.info("Status bar button clicked (type=\(event.type.rawValue))")
 
         if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
             showContextMenu(from: sender)
@@ -89,10 +115,14 @@ final class MenuBarStatusController: NSObject {
         // Ensure minimum size if SwiftUI hasn't laid out yet
         if panelFrame.width < 10 || panelFrame.height < 10 {
             if let hostingView = panel.contentView {
-                hostingView.needsLayout = true
-                hostingView.layoutSubtreeIfNeeded()
+                let fittedSize = hostingView.fittingSize
+                if fittedSize.width > 10 {
+                    panelFrame.size.width = fittedSize.width
+                }
+                if fittedSize.height > 10 {
+                    panelFrame.size.height = fittedSize.height
+                }
             }
-            panelFrame.size = panel.frame.size
             if panelFrame.width < 10 { panelFrame.size.width = 320 }
             if panelFrame.height < 10 { panelFrame.size.height = 400 }
         }
@@ -176,8 +206,8 @@ final class MenuBarStatusController: NSObject {
 
 extension MenuBarStatusController: NSWindowDelegate {
     nonisolated func windowDidResignKey(_ notification: Notification) {
-        MainActor.assumeIsolated {
-            dismissPanel()
+        DispatchQueue.main.async { [weak self] in
+            self?.dismissPanel()
         }
     }
 }
