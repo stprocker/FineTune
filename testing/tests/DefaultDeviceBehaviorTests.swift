@@ -20,20 +20,6 @@ final class DefaultDeviceBehaviorTests: XCTestCase {
         tempDir = nil
     }
 
-    private func makeFakeApp(
-        pid: pid_t = 99999,
-        name: String = "TestApp",
-        bundleID: String = "com.test.app"
-    ) -> AudioApp {
-        AudioApp(
-            id: pid,
-            objectID: .unknown,
-            name: name,
-            icon: NSImage(),
-            bundleID: bundleID
-        )
-    }
-
     func testVirtualDefaultDoesNotOverrideExplicitRouting() {
         let deviceMonitor = AudioDeviceMonitor()
         let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor)

@@ -309,20 +309,6 @@ final class AudioEngineSwitchingTests: XCTestCase {
         }
     }
 
-    private func makeFakeApp(
-        pid: pid_t = 99999,
-        name: String = "TestApp",
-        bundleID: String = "com.test.app"
-    ) -> AudioApp {
-        AudioApp(
-            id: pid,
-            objectID: .unknown,
-            name: name,
-            icon: NSImage(),
-            bundleID: bundleID
-        )
-    }
-
     // MARK: - Rapid setDevice Calls (1.18 core fix)
 
     /// Rapid A→B→C switching should leave routing at the last-requested device.
@@ -646,20 +632,6 @@ final class ProcessTapControllerSwitchFailureTests: XCTestCase {
 
     private enum TestError: Error {
         case forcedFailure
-    }
-
-    private func makeFakeApp(
-        pid: pid_t = 99999,
-        name: String = "TestApp",
-        bundleID: String = "com.test.app"
-    ) -> AudioApp {
-        AudioApp(
-            id: pid,
-            objectID: .unknown,
-            name: name,
-            icon: NSImage(),
-            bundleID: bundleID
-        )
     }
 
     func testDestructiveSwitchClearsForceSilenceOnFailure() async {

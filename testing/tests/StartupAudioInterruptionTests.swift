@@ -58,20 +58,6 @@ final class StartupAudioInterruptionTests: XCTestCase {
         }
     }
 
-    private func makeFakeApp(
-        pid: pid_t = 99999,
-        name: String = "TestApp",
-        bundleID: String = "com.test.app"
-    ) -> AudioApp {
-        AudioApp(
-            id: pid,
-            objectID: .unknown,
-            name: name,
-            icon: NSImage(),
-            bundleID: bundleID
-        )
-    }
-
     // MARK: - 1. Core Bug: Startup eagerly taps apps with no saved settings
 
     /// On first launch, an app with no saved settings should NOT have its

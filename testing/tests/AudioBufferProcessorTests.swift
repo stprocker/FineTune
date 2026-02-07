@@ -5,52 +5,6 @@ import Accelerate
 
 final class AudioBufferProcessorTests: XCTestCase {
 
-    // MARK: - Test Helpers
-
-    private func makeBufferList(data: [[Float]]) -> UnsafeMutablePointer<AudioBufferList> {
-        let bufferCount = data.count
-        let listSize = MemoryLayout<AudioBufferList>.size + max(0, bufferCount - 1) * MemoryLayout<AudioBuffer>.size
-        let listPtr = UnsafeMutableRawPointer.allocate(byteCount: listSize, alignment: MemoryLayout<AudioBufferList>.alignment)
-        let abl = listPtr.bindMemory(to: AudioBufferList.self, capacity: 1)
-        abl.pointee.mNumberBuffers = UInt32(bufferCount)
-
-        let bufferPtr = UnsafeMutableAudioBufferListPointer(abl)
-
-        for i in 0..<bufferCount {
-            let byteSize = data[i].count * MemoryLayout<Float>.size
-            let dataPtr = UnsafeMutableRawPointer.allocate(byteCount: byteSize, alignment: MemoryLayout<Float>.alignment)
-            data[i].withUnsafeBufferPointer { src in
-                dataPtr.copyMemory(from: UnsafeRawPointer(src.baseAddress!), byteCount: byteSize)
-            }
-            bufferPtr[i] = AudioBuffer(
-                mNumberChannels: 1,
-                mDataByteSize: UInt32(byteSize),
-                mData: dataPtr
-            )
-        }
-
-        return abl
-    }
-
-    private func readBuffer(_ abl: UnsafeMutablePointer<AudioBufferList>, index: Int = 0) -> [Float] {
-        let bufferPtr = UnsafeMutableAudioBufferListPointer(abl)
-        guard index < bufferPtr.count,
-              let data = bufferPtr[index].mData else { return [] }
-        let sampleCount = Int(bufferPtr[index].mDataByteSize) / MemoryLayout<Float>.size
-        let floats = data.assumingMemoryBound(to: Float.self)
-        return Array(UnsafeBufferPointer(start: floats, count: sampleCount))
-    }
-
-    private func freeBufferList(_ abl: UnsafeMutablePointer<AudioBufferList>) {
-        let bufferPtr = UnsafeMutableAudioBufferListPointer(abl)
-        for i in 0..<bufferPtr.count {
-            if let data = bufferPtr[i].mData {
-                data.deallocate()
-            }
-        }
-        UnsafeMutableRawPointer(abl).deallocate()
-    }
-
     // MARK: - zeroOutputBuffers
 
     func testZeroOutputBuffersSingleBuffer() {
@@ -72,8 +26,8 @@ final class AudioBufferProcessorTests: XCTestCase {
 
         AudioBufferProcessor.zeroOutputBuffers(UnsafeMutableAudioBufferListPointer(abl))
 
-        let buf0 = readBuffer(abl, index: 0)
-        let buf1 = readBuffer(abl, index: 1)
+        let buf0 = readBuffer(abl, bufferIndex: 0)
+        let buf1 = readBuffer(abl, bufferIndex: 1)
         XCTAssertTrue(buf0.allSatisfy { $0 == 0 })
         XCTAssertTrue(buf1.allSatisfy { $0 == 0 })
     }
@@ -107,8 +61,8 @@ final class AudioBufferProcessorTests: XCTestCase {
             outputBuffers: UnsafeMutableAudioBufferListPointer(outputABL)
         )
 
-        XCTAssertEqual(readBuffer(outputABL, index: 0), [0.1, 0.2])
-        XCTAssertEqual(readBuffer(outputABL, index: 1), [0.3, 0.4])
+        XCTAssertEqual(readBuffer(outputABL, bufferIndex: 0), [0.1, 0.2])
+        XCTAssertEqual(readBuffer(outputABL, bufferIndex: 1), [0.3, 0.4])
     }
 
     func testCopyInputToOutputMinSizeWhenOutputSmaller() {

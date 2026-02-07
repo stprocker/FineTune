@@ -55,6 +55,7 @@ let package = Package(
             sources: [
                 "AppRowInteractionTests.swift",
                 "AudioBufferProcessorTests.swift",
+                "AudioBufferTestHelpers.swift",
                 "BiquadMathTests.swift",
                 "CrossfadeStateTests.swift",
                 "EQPresetTests.swift",
@@ -73,6 +74,7 @@ let package = Package(
                 "AudioEngineRoutingTests.swift",
                 "AudioSwitchingTests.swift",
                 "DefaultDeviceBehaviorTests.swift",
+                "IntegrationTestHelpers.swift",
                 "StartupAudioInterruptionTests.swift",
                 "SingleInstanceGuardTests.swift",
             ]

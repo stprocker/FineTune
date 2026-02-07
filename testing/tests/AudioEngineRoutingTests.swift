@@ -44,20 +44,6 @@ final class AudioEngineRoutingTests: XCTestCase {
         }
     }
 
-    private func makeFakeApp(
-        pid: pid_t = 99999,
-        name: String = "TestApp",
-        bundleID: String = "com.test.app"
-    ) -> AudioApp {
-        AudioApp(
-            id: pid,
-            objectID: .unknown,
-            name: name,
-            icon: NSImage(),
-            bundleID: bundleID
-        )
-    }
-
     // MARK: - Bug 3: setDevice reverts routing on tap creation failure
 
     /// When setDevice is called with no existing tap and tap creation fails,

@@ -4,59 +4,6 @@ import AudioToolbox
 
 final class GainProcessorTests: XCTestCase {
 
-    // MARK: - Test Helpers
-
-    /// Creates a simple audio buffer list with the given float data.
-    /// Returns the buffer list pointer and a cleanup closure.
-    private func makeBufferList(
-        data: [[Float]],
-        interleaved: Bool = true
-    ) -> (UnsafeMutablePointer<AudioBufferList>, [[Float]]) {
-        let bufferCount = data.count
-        // AudioBufferList has space for 1 buffer by default, need extra for more
-        let listSize = MemoryLayout<AudioBufferList>.size + max(0, bufferCount - 1) * MemoryLayout<AudioBuffer>.size
-        let listPtr = UnsafeMutableRawPointer.allocate(byteCount: listSize, alignment: MemoryLayout<AudioBufferList>.alignment)
-        let abl = listPtr.bindMemory(to: AudioBufferList.self, capacity: 1)
-        abl.pointee.mNumberBuffers = UInt32(bufferCount)
-
-        var mutableData = data
-        let bufferPtr = UnsafeMutableAudioBufferListPointer(abl)
-
-        for i in 0..<bufferCount {
-            let byteSize = mutableData[i].count * MemoryLayout<Float>.size
-            let dataPtr = UnsafeMutableRawPointer.allocate(byteCount: byteSize, alignment: MemoryLayout<Float>.alignment)
-            mutableData[i].withUnsafeBufferPointer { src in
-                dataPtr.copyMemory(from: UnsafeRawPointer(src.baseAddress!), byteCount: byteSize)
-            }
-            bufferPtr[i] = AudioBuffer(
-                mNumberChannels: interleaved ? UInt32(data[i].count > 0 ? 2 : 0) : 1,
-                mDataByteSize: UInt32(byteSize),
-                mData: dataPtr
-            )
-        }
-
-        return (abl, mutableData)
-    }
-
-    private func readBuffer(_ abl: UnsafeMutablePointer<AudioBufferList>, bufferIndex: Int = 0) -> [Float] {
-        let bufferPtr = UnsafeMutableAudioBufferListPointer(abl)
-        guard bufferIndex < bufferPtr.count,
-              let data = bufferPtr[bufferIndex].mData else { return [] }
-        let sampleCount = Int(bufferPtr[bufferIndex].mDataByteSize) / MemoryLayout<Float>.size
-        let floats = data.assumingMemoryBound(to: Float.self)
-        return Array(UnsafeBufferPointer(start: floats, count: sampleCount))
-    }
-
-    private func freeBufferList(_ abl: UnsafeMutablePointer<AudioBufferList>) {
-        let bufferPtr = UnsafeMutableAudioBufferListPointer(abl)
-        for i in 0..<bufferPtr.count {
-            if let data = bufferPtr[i].mData {
-                data.deallocate()
-            }
-        }
-        UnsafeMutableRawPointer(abl).deallocate()
-    }
-
     // MARK: - Interleaved Stereo
 
     func testInterleavedStereoUnityGain() {
@@ -64,8 +11,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [0.5, -0.3, 0.7, -0.1]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 1.0
@@ -91,8 +38,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [1.0, 1.0, 1.0, 1.0]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 0.5
@@ -121,8 +68,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = Array(repeating: 1.0, count: frameCount * 2) // stereo interleaved
         let outputData: [Float] = Array(repeating: 0, count: frameCount * 2)
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 0.0
@@ -155,8 +102,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [1.0, 1.0, 1.0, 1.0]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 1.0
@@ -184,8 +131,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [1.0, 1.0, 1.0, 1.0]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 1.0
@@ -213,8 +160,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [1.0, 1.0, 1.0, 1.0]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 1.5
@@ -243,8 +190,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [0.5, 0.5, 0.5, 0.5]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 0.8
@@ -275,8 +222,8 @@ final class GainProcessorTests: XCTestCase {
         let outLeft: [Float] = [0, 0, 0, 0]
         let outRight: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [leftData, rightData], interleaved: false)
-        let (outputABL, _) = makeBufferList(data: [outLeft, outRight], interleaved: false)
+        let inputABL = makeBufferList(data: [leftData, rightData], interleaved: false)
+        let outputABL = makeBufferList(data: [outLeft, outRight], interleaved: false)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         // Fix channel count on non-interleaved buffers
@@ -315,8 +262,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [1.0, 1.0, 1.0, 1.0]
         let outputData: [Float] = [0, 0, 0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 0.0
@@ -344,8 +291,8 @@ final class GainProcessorTests: XCTestCase {
         let inputData: [Float] = [1.0, 1.0]
         let outputData: [Float] = [0, 0]
 
-        let (inputABL, _) = makeBufferList(data: [inputData], interleaved: true)
-        let (outputABL, _) = makeBufferList(data: [outputData], interleaved: true)
+        let inputABL = makeBufferList(data: [inputData], interleaved: true)
+        let outputABL = makeBufferList(data: [outputData], interleaved: true)
         defer { freeBufferList(inputABL); freeBufferList(outputABL) }
 
         var currentVolume: Float = 1.0
