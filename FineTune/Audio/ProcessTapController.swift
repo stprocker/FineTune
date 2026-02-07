@@ -12,7 +12,7 @@ final class ProcessTapController {
     private let logger: Logger
     // Note: This queue is passed to AudioDeviceCreateIOProcIDWithBlock but the actual
     // audio callback runs on CoreAudio's real-time HAL I/O thread, not this queue.
-    private let queue = DispatchQueue(label: "ProcessTapController", qos: .userInitiated)
+    private let queue: DispatchQueue
 
     /// Weak reference to device monitor for O(1) device lookups during crossfade
     private weak var deviceMonitor: AudioDeviceMonitor?
@@ -215,11 +215,12 @@ final class ProcessTapController {
     var destructiveSwitchPostSilenceMs: UInt64 = 150
     var destructiveSwitchFadeInMs: UInt64 = 100
 
-    init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true) {
+    init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true, queue: DispatchQueue? = nil) {
         self.app = app
         self.targetDeviceUID = targetDeviceUID
         self.deviceMonitor = deviceMonitor
         self.muteOriginal = muteOriginal
+        self.queue = queue ?? DispatchQueue(label: "ProcessTapController", qos: .userInitiated)
         self.logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "ProcessTapController(\(app.name))")
     }
 
