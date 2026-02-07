@@ -53,6 +53,7 @@ let package = Package(
             dependencies: ["FineTuneCore"],
             path: "testing/tests",
             sources: [
+                "AppRowInteractionTests.swift",
                 "AudioBufferProcessorTests.swift",
                 "BiquadMathTests.swift",
                 "CrossfadeStateTests.swift",
