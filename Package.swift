@@ -75,6 +75,7 @@ let package = Package(
                 "AudioSwitchingTests.swift",
                 "DefaultDeviceBehaviorTests.swift",
                 "IntegrationTestHelpers.swift",
+                "ProcessTapControllerTests.swift",
                 "StartupAudioInterruptionTests.swift",
                 "SingleInstanceGuardTests.swift",
             ]
