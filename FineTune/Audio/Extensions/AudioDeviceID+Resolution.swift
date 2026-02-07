@@ -21,13 +21,8 @@ extension AudioObjectID {
         for deviceUID: String,
         using deviceMonitor: AudioDeviceMonitor? = nil
     ) -> OutputStreamInfo? {
-        // Fast path: use cached device lookup
-        let deviceID: AudioDeviceID
-        if let device = deviceMonitor?.device(for: deviceUID) {
-            deviceID = device.id
-        } else if let id = (try? AudioObjectID.readDeviceList())?.first(where: { (try? $0.readDeviceUID()) == deviceUID }) {
-            deviceID = id
-        } else {
+        // Fast path: use cached device lookup, fallback to fresh CoreAudio read
+        guard let deviceID = deviceMonitor?.resolveDeviceID(for: deviceUID) else {
             return nil
         }
 

@@ -97,6 +97,16 @@ final class AudioDeviceMonitor {
         devicesByID[id]
     }
 
+    /// Resolves an AudioDeviceID for a UID. Tries cached O(1) lookup first,
+    /// falls back to a fresh CoreAudio device list read on cache miss.
+    nonisolated func resolveDeviceID(for uid: String) -> AudioDeviceID? {
+        if let cached = devicesByUID[uid] {
+            return cached.id
+        }
+        // Fallback: device may have disconnected or cache not yet populated
+        return (try? AudioObjectID.readDeviceList())?.first(where: { (try? $0.readDeviceUID()) == uid })
+    }
+
     private func refresh() {
         do {
             let deviceIDs = try AudioObjectID.readDeviceList()

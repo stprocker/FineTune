@@ -478,22 +478,11 @@ final class ProcessTapController {
         // Fast path: use cached device lookup (O(1)), fallback to readDeviceList if cache miss
         var sourceVolume: Float = 1.0
         var sourceSampleRate: Float64 = 0
-        if let sourceUID = currentDeviceUID {
-            if let sourceDevice = deviceMonitor?.device(for: sourceUID) {
-                // Cache hit - use O(1) lookup
-                sourceVolume = sourceDevice.id.readOutputVolumeScalar()
-                sourceSampleRate = (try? sourceDevice.id.readNominalSampleRate()) ?? 0
-                logger.debug("[CROSSFADE] Source device (cached): volume=\(sourceVolume), sampleRate=\(sourceSampleRate)Hz")
-            } else {
-                // Fallback: device may have disconnected, try fresh read
-                if let devices = try? AudioObjectID.readDeviceList(),
-                   let sourceDevice = devices.first(where: { (try? $0.readDeviceUID()) == sourceUID }) {
-                    sourceVolume = sourceDevice.readOutputVolumeScalar()
-                    sourceSampleRate = (try? sourceDevice.readNominalSampleRate()) ?? 0
-                    logger.debug("[CROSSFADE] Source device (fallback): volume=\(sourceVolume), sampleRate=\(sourceSampleRate)Hz")
-                }
-                // Continue with defaults if device gone
-            }
+        if let sourceUID = currentDeviceUID,
+           let sourceDeviceID = deviceMonitor?.resolveDeviceID(for: sourceUID) {
+            sourceVolume = sourceDeviceID.readOutputVolumeScalar()
+            sourceSampleRate = (try? sourceDeviceID.readNominalSampleRate()) ?? 0
+            logger.debug("[CROSSFADE] Source device: volume=\(sourceVolume), sampleRate=\(sourceSampleRate)Hz")
         }
 
         // Read destination device volume and sample rate
@@ -501,23 +490,12 @@ final class ProcessTapController {
         var destSampleRate: Float64 = 0
         var isBluetoothDestination = false
 
-        if let destDevice = deviceMonitor?.device(for: newOutputUID) {
-            // Cache hit - use O(1) lookup
-            destVolume = destDevice.id.readOutputVolumeScalar()
-            destSampleRate = (try? destDevice.id.readNominalSampleRate()) ?? 0
-            let transport = destDevice.id.readTransportType()
+        if let destDeviceID = deviceMonitor?.resolveDeviceID(for: newOutputUID) {
+            destVolume = destDeviceID.readOutputVolumeScalar()
+            destSampleRate = (try? destDeviceID.readNominalSampleRate()) ?? 0
+            let transport = destDeviceID.readTransportType()
             isBluetoothDestination = (transport == .bluetooth || transport == .bluetoothLE)
-            logger.debug("[CROSSFADE] Destination device (cached): volume=\(destVolume), sampleRate=\(destSampleRate)Hz, BT=\(isBluetoothDestination)")
-        } else {
-            // Fallback: device may have disconnected, try fresh read
-            if let devices = try? AudioObjectID.readDeviceList(),
-               let destDevice = devices.first(where: { (try? $0.readDeviceUID()) == newOutputUID }) {
-                destVolume = destDevice.readOutputVolumeScalar()
-                destSampleRate = (try? destDevice.readNominalSampleRate()) ?? 0
-                let transport = destDevice.readTransportType()
-                isBluetoothDestination = (transport == .bluetooth || transport == .bluetoothLE)
-                logger.debug("[CROSSFADE] Destination device (fallback): volume=\(destVolume), sampleRate=\(destSampleRate)Hz, BT=\(isBluetoothDestination)")
-            }
+            logger.debug("[CROSSFADE] Destination device: volume=\(destVolume), sampleRate=\(destSampleRate)Hz, BT=\(isBluetoothDestination)")
         }
 
         // Log sample rate mismatch but proceed with crossfade anyway
