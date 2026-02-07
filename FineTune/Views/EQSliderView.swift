@@ -13,10 +13,10 @@ struct EQSliderView: View {
     // Use design tokens for slider style variant support
     private var trackWidth: CGFloat { DesignTokens.Dimensions.sliderTrackHeight }
     private var thumbSize: CGFloat { DesignTokens.Dimensions.sliderThumbSize }
-    private let tickCount = 5  // Number of tick marks
-    private let tickWidth: CGFloat = 3
-    private let tickGap: CGFloat = 3
-    private let verticalPadding: CGFloat = 8
+    private var tickCount: Int { DesignTokens.EQSlider.tickCount }
+    private var tickWidth: CGFloat { DesignTokens.EQSlider.tickWidth }
+    private var tickGap: CGFloat { DesignTokens.EQSlider.tickGap }
+    private var verticalPadding: CGFloat { DesignTokens.EQSlider.verticalPadding }
 
     private func formatGain(_ gain: Float) -> String {
         gain >= 0 ? String(format: "+%.0fdB", gain) : String(format: "%.0fdB", gain)

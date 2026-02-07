@@ -14,16 +14,12 @@ struct MenuBarPopupView: View {
     /// Track popup visibility to pause VU meter polling when hidden
     @State private var isPopupVisible = true
 
-    // MARK: - Scroll Thresholds
+    // MARK: - Scroll Thresholds (from DesignTokens)
 
-    /// Number of devices before scroll kicks in
-    private let deviceScrollThreshold = 4
-    /// Max height for devices scroll area
-    private let deviceScrollHeight: CGFloat = 160
-    /// Number of apps before scroll kicks in
-    private let appScrollThreshold = 5
-    /// Max height for apps scroll area
-    private let appScrollHeight: CGFloat = 220
+    private var deviceScrollThreshold: Int { DesignTokens.ScrollThresholds.deviceCount }
+    private var deviceScrollHeight: CGFloat { DesignTokens.ScrollThresholds.deviceScrollHeight }
+    private var appScrollThreshold: Int { DesignTokens.ScrollThresholds.appCount }
+    private var appScrollHeight: CGFloat { DesignTokens.ScrollThresholds.appScrollHeight }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
@@ -187,7 +183,7 @@ struct MenuBarPopupView: View {
                         isEQAnimating = true
 
                         let isExpanding = expandedEQAppID != app.id
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        withAnimation(DesignTokens.Animation.eqToggle) {
                             if expandedEQAppID == app.id {
                                 expandedEQAppID = nil
                             } else {

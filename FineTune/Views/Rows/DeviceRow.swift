@@ -19,7 +19,7 @@ struct DeviceRow: View {
     private var showMutedIcon: Bool { isMuted || sliderValue == 0 }
 
     /// Default volume to restore when unmuting from 0 (50%)
-    private let defaultUnmuteVolume: Double = 0.5
+    private var defaultUnmuteVolume: Double { DesignTokens.Volume.defaultUnmuteSliderPosition }
 
     init(
         device: AudioDevice,

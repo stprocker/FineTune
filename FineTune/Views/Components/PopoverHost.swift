@@ -71,7 +71,7 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
             let screenFrame = parentWindow.convertToScreen(parentFrame)
             let panelOrigin = NSPoint(
                 x: screenFrame.origin.x,
-                y: screenFrame.origin.y - panel.frame.height - 4
+                y: screenFrame.origin.y - panel.frame.height - DesignTokens.Popover.dropdownOffset
             )
             panel.setFrameOrigin(panelOrigin)
 

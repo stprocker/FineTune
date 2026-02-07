@@ -265,6 +265,52 @@ enum DesignTokens {
 
     }
 
+    // MARK: - Scroll Thresholds
+
+    enum ScrollThresholds {
+        /// Number of output devices before scroll area activates
+        static let deviceCount: Int = 4
+
+        /// Max height for devices scroll area
+        static let deviceScrollHeight: CGFloat = 160
+
+        /// Number of apps before scroll area activates
+        static let appCount: Int = 5
+
+        /// Max height for apps scroll area
+        static let appScrollHeight: CGFloat = 220
+    }
+
+    // MARK: - EQ Slider
+
+    enum EQSlider {
+        /// Number of tick marks on each side of the slider
+        static let tickCount: Int = 5
+
+        /// Width of each tick mark
+        static let tickWidth: CGFloat = 3
+
+        /// Gap between tick marks and slider track
+        static let tickGap: CGFloat = 3
+
+        /// Vertical padding for slider content area
+        static let verticalPadding: CGFloat = 8
+    }
+
+    // MARK: - Popover
+
+    enum Popover {
+        /// Vertical offset below trigger for dropdown panels
+        static let dropdownOffset: CGFloat = 4
+    }
+
+    // MARK: - Volume
+
+    enum Volume {
+        /// Default volume to restore when unmuting from 0 (50% = unity gain)
+        static let defaultUnmuteSliderPosition: Double = 0.5
+    }
+
     // MARK: - Animation (smooth style - macOS-like springs)
 
     enum Animation {
@@ -276,6 +322,12 @@ enum DesignTokens {
 
         /// VU meter level change
         static let vuMeterLevel = SwiftUI.Animation.linear(duration: 0.05)
+
+        /// EQ expand/collapse toggle
+        static let eqToggle = SwiftUI.Animation.spring(response: 0.35, dampingFraction: 0.85)
+
+        /// EQ button icon rotation
+        static let eqButton = SwiftUI.Animation.spring(response: 0.3, dampingFraction: 0.75)
     }
 
     // MARK: - Timing

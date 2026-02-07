@@ -44,7 +44,7 @@ struct AppRow: View {
     }
 
     /// Default volume to restore when unmuting from 0 (50% = unity gain)
-    private let defaultUnmuteVolume: Double = 0.5
+    private var defaultUnmuteVolume: Double { DesignTokens.Volume.defaultUnmuteSliderPosition }
 
     init(
         app: AudioApp,
@@ -213,7 +213,7 @@ struct AppRow: View {
                     .buttonStyle(.plain)
                     .onHover { isEQButtonHovered = $0 }
                     .help(isEQExpanded ? "Close Equalizer" : "Equalizer")
-                    .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isEQExpanded)
+                    .animation(DesignTokens.Animation.eqButton, value: isEQExpanded)
                     .animation(DesignTokens.Animation.hover, value: isEQButtonHovered)
                 }
                 .opacity(controlsOpacity)
