@@ -2,17 +2,10 @@
 import SwiftUI
 
 struct MenuBarPopupView: View {
-    @Bindable var audioEngine: AudioEngine
-    @Bindable var deviceVolumeMonitor: DeviceVolumeMonitor
+    @Bindable var viewModel: MenuBarPopupViewModel
 
-    /// Track which app has its EQ panel expanded (only one at a time)
-    @State private var expandedEQAppID: pid_t?
-
-    /// Debounce EQ toggle to prevent rapid clicks during animation
-    @State private var isEQAnimating = false
-
-    /// Track popup visibility to pause VU meter polling when hidden
-    @State private var isPopupVisible = true
+    private var audioEngine: AudioEngine { viewModel.audioEngine }
+    private var deviceVolumeMonitor: DeviceVolumeMonitor { viewModel.deviceVolumeMonitor }
 
     // MARK: - Scroll Thresholds (from DesignTokens)
 
@@ -56,12 +49,12 @@ struct MenuBarPopupView: View {
         .darkGlassBackground()
         .environment(\.colorScheme, .dark)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            isPopupVisible = true
+            viewModel.isPopupVisible = true
             // Re-sync default device in case of missed listener updates
             deviceVolumeMonitor.refreshDefaultDevice()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
-            isPopupVisible = false
+            viewModel.isPopupVisible = false
         }
     }
 
@@ -72,7 +65,7 @@ struct MenuBarPopupView: View {
         SectionHeader(title: "Output Devices")
             .padding(.bottom, DesignTokens.Spacing.xs)
 
-        if sortedDevices.count > deviceScrollThreshold {
+        if viewModel.sortedDevices.count > deviceScrollThreshold {
             ScrollView {
                 devicesContent
             }
@@ -85,7 +78,7 @@ struct MenuBarPopupView: View {
 
     private var devicesContent: some View {
         VStack(spacing: DesignTokens.Spacing.xs) {
-            ForEach(sortedDevices) { device in
+            ForEach(viewModel.sortedDevices) { device in
                 DeviceRow(
                     device: device,
                     isDefault: device.id == deviceVolumeMonitor.defaultDeviceID,
@@ -159,7 +152,7 @@ struct MenuBarPopupView: View {
                     devices: audioEngine.outputDevices,
                     selectedDeviceUID: deviceUID,
                     getAudioLevel: { audioEngine.getAudioLevel(for: app) },
-                    isPopupVisible: isPopupVisible,
+                    isPopupVisible: viewModel.isPopupVisible,
                     onVolumeChange: { volume in
                         audioEngine.setVolume(for: app, to: volume)
                     },
@@ -170,34 +163,18 @@ struct MenuBarPopupView: View {
                         audioEngine.setDevice(for: app, deviceUID: newDeviceUID)
                     },
                     onAppActivate: {
-                        activateApp(pid: app.id, bundleID: app.bundleID)
+                        viewModel.activateApp(pid: app.id, bundleID: app.bundleID)
                     },
                     eqSettings: audioEngine.getEQSettings(for: app),
                     onEQChange: { settings in
                         audioEngine.setEQSettings(settings, for: app)
                     },
-                    isEQExpanded: expandedEQAppID == app.id,
+                    isEQExpanded: viewModel.expandedEQAppID == app.id,
                     onEQToggle: {
-                        // Debounce: ignore clicks during animation
-                        guard !isEQAnimating else { return }
-                        isEQAnimating = true
-
-                        let isExpanding = expandedEQAppID != app.id
                         withAnimation(DesignTokens.Animation.eqToggle) {
-                            if expandedEQAppID == app.id {
-                                expandedEQAppID = nil
-                            } else {
-                                expandedEQAppID = app.id
+                            if let scrollTarget = viewModel.toggleEQ(for: app.id) {
+                                scrollProxy.scrollTo(scrollTarget, anchor: .top)
                             }
-                            // Scroll in same animation transaction
-                            if isExpanding {
-                                scrollProxy.scrollTo(app.id, anchor: .top)
-                            }
-                        }
-
-                        // Re-enable after animation completes
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            isEQAnimating = false
                         }
                     }
                 )
@@ -207,36 +184,6 @@ struct MenuBarPopupView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Helpers
-
-    private var sortedDevices: [AudioDevice] {
-        let devices = audioEngine.outputDevices
-        let defaultID = deviceVolumeMonitor.defaultDeviceID
-        return devices.sorted { lhs, rhs in
-            if lhs.id == defaultID { return true }
-            if rhs.id == defaultID { return false }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-    }
-
-    /// Activates an app, bringing it to foreground and restoring minimized windows
-    private func activateApp(pid: pid_t, bundleID: String?) {
-        // Step 1: Always activate via NSRunningApplication (reliable for non-minimized)
-        let runningApp = NSWorkspace.shared.runningApplications.first { $0.processIdentifier == pid }
-        runningApp?.activate()
-
-        // Step 2: Try to restore minimized windows via AppleScript
-        if let bundleID = bundleID {
-            // reopen + activate restores minimized windows for most apps
-            let script = NSAppleScript(source: """
-                tell application id "\(bundleID)"
-                    reopen
-                    activate
-                end tell
-                """)
-            script?.executeAndReturnError(nil)
-        }
-    }
 }
 
 // MARK: - Previews

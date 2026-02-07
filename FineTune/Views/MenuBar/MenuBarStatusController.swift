@@ -162,10 +162,11 @@ final class MenuBarStatusController: NSObject {
     }
 
     private func createPanel() -> KeyablePanel {
-        let rootView = MenuBarPopupView(
+        let viewModel = MenuBarPopupViewModel(
             audioEngine: audioEngine,
             deviceVolumeMonitor: audioEngine.deviceVolumeMonitor
         )
+        let rootView = MenuBarPopupView(viewModel: viewModel)
 
         let hostingView = NSHostingView(rootView: rootView)
         let fitted = hostingView.fittingSize
