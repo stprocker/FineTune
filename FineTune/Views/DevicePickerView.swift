@@ -18,11 +18,7 @@ struct DevicePickerView: View {
                     onDeviceSelected(device.uid)
                 } label: {
                     HStack {
-                        if let icon = device.icon {
-                            Image(nsImage: icon)
-                        } else {
-                            Image(systemName: "hifispeaker")
-                        }
+                        DeviceIconView(icon: device.icon, size: 16, fallbackSymbol: "hifispeaker")
                         Text(device.name)
                         if selectedDeviceUID == device.uid {
                             Spacer()
@@ -33,15 +29,7 @@ struct DevicePickerView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                if let icon = displayIcon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 14, height: 14)
-                } else {
-                    Image(systemName: "hifispeaker")
-                        .font(.caption)
-                }
+                DeviceIconView(icon: displayIcon, size: 14, fallbackSymbol: "hifispeaker")
                 Text(displayName)
                     .font(.caption)
                     .lineLimit(1)

@@ -21,29 +21,13 @@ struct DevicePicker: View {
             onSelect: { device in onDeviceSelected(device.uid) }
         ) { selected in
             HStack(spacing: DesignTokens.Spacing.xs) {
-                if let icon = selected?.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(systemName: "speaker.wave.2")
-                        .font(.system(size: 14))
-                }
+                DeviceIconView(icon: selected?.icon, size: 16)
                 Text(selected?.name ?? "Select")
                     .lineLimit(1)
             }
         } itemContent: { device, isSelected in
             HStack {
-                if let icon = device.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(systemName: "speaker.wave.2")
-                        .font(.system(size: 14))
-                }
+                DeviceIconView(icon: device.icon, size: 16)
                 Text(device.name)
                 Spacer()
                 if isSelected {

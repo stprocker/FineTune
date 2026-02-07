@@ -46,18 +46,7 @@ struct DeviceRow: View {
             RadioButton(isSelected: isDefault, action: onSetDefault)
 
             // Device icon (vibrancy-aware)
-            Group {
-                if let icon = device.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                } else {
-                    Image(systemName: "speaker.wave.2")
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: DesignTokens.Dimensions.iconSize, height: DesignTokens.Dimensions.iconSize)
+            DeviceIconView(icon: device.icon)
 
             // Device name
             Text(device.name)
