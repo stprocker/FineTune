@@ -34,7 +34,7 @@ struct MenuBarPopupView: View {
                 .padding(.vertical, DesignTokens.Spacing.xs)
 
             // Apps section
-            if audioEngine.apps.isEmpty {
+            if audioEngine.displayedApps.isEmpty {
                 emptyStateView
             } else {
                 appsSection
@@ -134,7 +134,7 @@ struct MenuBarPopupView: View {
 
         // ScrollViewReader needed for EQ expand scroll-to behavior
         ScrollViewReader { scrollProxy in
-            if audioEngine.apps.count > appScrollThreshold {
+            if audioEngine.displayedApps.count > appScrollThreshold {
                 ScrollView {
                     appsContent(scrollProxy: scrollProxy)
                 }
@@ -148,7 +148,7 @@ struct MenuBarPopupView: View {
 
     private func appsContent(scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
-            ForEach(audioEngine.apps) { app in
+            ForEach(audioEngine.displayedApps) { app in
                 // Use explicit device routing if available, otherwise fall back to first real (non-virtual) device
                 // Don't use defaultDeviceUID as fallback — it may be a virtual device (e.g., SRAudioDriver)
                 let deviceUID = audioEngine.appDeviceRouting[app.id]
@@ -158,50 +158,51 @@ struct MenuBarPopupView: View {
                     app: app,
                     volume: audioEngine.getVolume(for: app),
                     isMuted: audioEngine.getMute(for: app),
+                    isPaused: audioEngine.isPausedDisplayApp(app),
                     devices: audioEngine.outputDevices,
                     selectedDeviceUID: deviceUID,
-                        getAudioLevel: { audioEngine.getAudioLevel(for: app) },
-                        isPopupVisible: isPopupVisible,
-                        onVolumeChange: { volume in
-                            audioEngine.setVolume(for: app, to: volume)
-                        },
-                        onMuteChange: { muted in
-                            audioEngine.setMute(for: app, to: muted)
-                        },
-                        onDeviceSelected: { newDeviceUID in
-                            audioEngine.setDevice(for: app, deviceUID: newDeviceUID)
-                        },
-                        onAppActivate: {
-                            activateApp(pid: app.id, bundleID: app.bundleID)
-                        },
-                        eqSettings: audioEngine.getEQSettings(for: app),
-                        onEQChange: { settings in
-                            audioEngine.setEQSettings(settings, for: app)
-                        },
-                        isEQExpanded: expandedEQAppID == app.id,
-                        onEQToggle: {
-                            // Debounce: ignore clicks during animation
-                            guard !isEQAnimating else { return }
-                            isEQAnimating = true
+                    getAudioLevel: { audioEngine.getAudioLevel(for: app) },
+                    isPopupVisible: isPopupVisible,
+                    onVolumeChange: { volume in
+                        audioEngine.setVolume(for: app, to: volume)
+                    },
+                    onMuteChange: { muted in
+                        audioEngine.setMute(for: app, to: muted)
+                    },
+                    onDeviceSelected: { newDeviceUID in
+                        audioEngine.setDevice(for: app, deviceUID: newDeviceUID)
+                    },
+                    onAppActivate: {
+                        activateApp(pid: app.id, bundleID: app.bundleID)
+                    },
+                    eqSettings: audioEngine.getEQSettings(for: app),
+                    onEQChange: { settings in
+                        audioEngine.setEQSettings(settings, for: app)
+                    },
+                    isEQExpanded: expandedEQAppID == app.id,
+                    onEQToggle: {
+                        // Debounce: ignore clicks during animation
+                        guard !isEQAnimating else { return }
+                        isEQAnimating = true
 
-                            let isExpanding = expandedEQAppID != app.id
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                if expandedEQAppID == app.id {
-                                    expandedEQAppID = nil
-                                } else {
-                                    expandedEQAppID = app.id
-                                }
-                                // Scroll in same animation transaction
-                                if isExpanding {
-                                    scrollProxy.scrollTo(app.id, anchor: .top)
-                                }
+                        let isExpanding = expandedEQAppID != app.id
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            if expandedEQAppID == app.id {
+                                expandedEQAppID = nil
+                            } else {
+                                expandedEQAppID = app.id
                             }
-
-                            // Re-enable after animation completes
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                isEQAnimating = false
+                            // Scroll in same animation transaction
+                            if isExpanding {
+                                scrollProxy.scrollTo(app.id, anchor: .top)
                             }
                         }
+
+                        // Re-enable after animation completes
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            isEQAnimating = false
+                        }
+                    }
                 )
                 .id(app.id)
             }

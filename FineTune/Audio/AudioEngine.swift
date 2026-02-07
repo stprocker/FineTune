@@ -1,5 +1,6 @@
 // FineTune/Audio/AudioEngine.swift
 import AudioToolbox
+import Darwin
 import Foundation
 import os
 import UserNotifications
@@ -16,12 +17,15 @@ final class AudioEngine {
     let volumeState: VolumeState
     let settingsManager: SettingsManager
     private let defaultOutputDeviceUIDProvider: () throws -> String
+    private let isProcessRunningProvider: (pid_t) -> Bool
 
     private var taps: [pid_t: ProcessTapController] = [:]
     private var appliedPIDs: Set<pid_t> = []
     var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
+    private var lastDisplayedApp: AudioApp?
+    private var previousActiveAppIDs: Set<pid_t> = []
 
     /// Whether system audio recording permission has been confirmed THIS SESSION.
     /// Per-session flag (not persisted) — on each launch, taps start with `.unmuted`
@@ -57,11 +61,17 @@ final class AudioEngine {
 
     init(
         settingsManager: SettingsManager? = nil,
-        defaultOutputDeviceUIDProvider: @escaping () throws -> String = { try AudioDeviceID.readDefaultOutputDeviceUID() }
+        defaultOutputDeviceUIDProvider: @escaping () throws -> String = { try AudioDeviceID.readDefaultOutputDeviceUID() },
+        isProcessRunningProvider: @escaping (pid_t) -> Bool = { pid in
+            guard pid > 0 else { return false }
+            if kill(pid, 0) == 0 { return true }
+            return errno == EPERM
+        }
     ) {
         let manager = settingsManager ?? SettingsManager()
         self.settingsManager = manager
         self.defaultOutputDeviceUIDProvider = defaultOutputDeviceUIDProvider
+        self.isProcessRunningProvider = isProcessRunningProvider
         self.volumeState = VolumeState(settingsManager: manager)
         self.deviceVolumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor)
 
@@ -72,6 +82,7 @@ final class AudioEngine {
 
         Task { @MainActor in
             processMonitor.start()
+            updateDisplayedAppsState(activeApps: processMonitor.activeApps)
             deviceMonitor.start()
 
             // Start device volume monitor AFTER deviceMonitor.start() populates devices
@@ -127,7 +138,8 @@ final class AudioEngine {
             applyPersistedSettings()
 
             // Wire up onAppsChanged AFTER initial tap creation to prevent early bypass
-            processMonitor.onAppsChanged = { [weak self] _ in
+            processMonitor.onAppsChanged = { [weak self] apps in
+                self?.updateDisplayedAppsState(activeApps: apps)
                 self?.cleanupStaleTaps()
                 self?.applyPersistedSettings()
             }
@@ -260,6 +272,18 @@ final class AudioEngine {
         processMonitor.activeApps
     }
 
+    /// Apps shown in the UI: active apps when playing, otherwise a single
+    /// cached app row from the most recently active app (shown as paused).
+    var displayedApps: [AudioApp] {
+        if !apps.isEmpty { return apps }
+        if let lastDisplayedApp { return [lastDisplayedApp] }
+        return []
+    }
+
+    func isPausedDisplayApp(_ app: AudioApp) -> Bool {
+        apps.isEmpty && lastDisplayedApp?.id == app.id
+    }
+
     /// Audio levels for all active apps (for VU meter visualization)
     /// Returns a dictionary mapping PID to peak audio level (0-1)
     var audioLevels: [pid_t: Float] {
@@ -278,6 +302,7 @@ final class AudioEngine {
     func start() {
         // Monitors have internal guards against double-starting
         processMonitor.start()
+        updateDisplayedAppsState(activeApps: processMonitor.activeApps)
         deviceMonitor.start()
         applyPersistedSettings()
         logger.info("AudioEngine started")
@@ -721,5 +746,42 @@ final class AudioEngine {
         let pidsToKeep = activePIDs.union(Set(pendingCleanup.keys))
         appliedPIDs = appliedPIDs.intersection(pidsToKeep)
         volumeState.cleanup(keeping: pidsToKeep)
+    }
+
+    private func updateDisplayedAppsState(activeApps: [AudioApp]) {
+        let activeIDs = Set(activeApps.map(\.id))
+        defer { previousActiveAppIDs = activeIDs }
+
+        guard !activeApps.isEmpty else {
+            guard let cached = lastDisplayedApp else { return }
+            // In tests, fake PIDs are not OS processes; keep fallback deterministic.
+            guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+            if !isProcessRunningProvider(cached.id) {
+                lastDisplayedApp = nil
+            }
+            return
+        }
+
+        let newlyActiveIDs = activeIDs.subtracting(previousActiveAppIDs)
+        if let newest = activeApps.first(where: { newlyActiveIDs.contains($0.id) }) {
+            lastDisplayedApp = newest
+            return
+        }
+
+        if let cached = lastDisplayedApp,
+           let refreshed = activeApps.first(where: { $0.id == cached.id }) {
+            lastDisplayedApp = refreshed
+            return
+        }
+
+        lastDisplayedApp = activeApps.first
+    }
+
+    // MARK: - Test Helpers
+
+    @MainActor
+    func updateDisplayedAppsStateForTests(activeApps: [AudioApp]) {
+        processMonitor.setActiveAppsForTests(activeApps, notify: false)
+        updateDisplayedAppsState(activeApps: activeApps)
     }
 }

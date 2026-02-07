@@ -8,6 +8,7 @@ struct AppRow: View {
     let app: AudioApp
     let volume: Float  // Linear gain 0-2
     let audioLevel: Float
+    let isPaused: Bool
     let devices: [AudioDevice]
     let selectedDeviceUID: String
     let isMutedExternal: Bool  // Mute state from AudioEngine
@@ -28,6 +29,8 @@ struct AppRow: View {
 
     /// Show muted icon when explicitly muted OR volume is 0
     private var showMutedIcon: Bool { isMutedExternal || sliderValue == 0 }
+    private var controlsOpacity: Double { isPaused ? 0.82 : 1.0 }
+    private var rowTitleOpacity: Double { isPaused ? 0.92 : 1.0 }
 
     /// EQ button color following same pattern as MuteButton
     private var eqButtonColor: Color {
@@ -47,6 +50,7 @@ struct AppRow: View {
         app: AudioApp,
         volume: Float,
         audioLevel: Float = 0,
+        isPaused: Bool = false,
         devices: [AudioDevice],
         selectedDeviceUID: String,
         isMuted: Bool = false,
@@ -62,6 +66,7 @@ struct AppRow: View {
         self.app = app
         self.volume = volume
         self.audioLevel = audioLevel
+        self.isPaused = isPaused
         self.devices = devices
         self.selectedDeviceUID = selectedDeviceUID
         self.isMutedExternal = isMuted
@@ -102,10 +107,33 @@ struct AppRow: View {
                     }
 
                 // App name - expands to fill available space
-                Text(app.name)
-                    .font(DesignTokens.Typography.rowName)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: DesignTokens.Spacing.xs) {
+                    Text(app.name)
+                        .font(DesignTokens.Typography.rowName)
+                        .lineLimit(1)
+                        .opacity(rowTitleOpacity)
+
+                    if isPaused {
+                        HStack(spacing: DesignTokens.Spacing.xxs) {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 8, weight: .semibold))
+                            Text("Paused")
+                                .font(DesignTokens.Typography.caption)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.primary.opacity(0.10))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.primary.opacity(0.16), lineWidth: 0.5)
+                        )
+                        .foregroundStyle(DesignTokens.Colors.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Controls section - fixed width so sliders align across rows
                 HStack(spacing: DesignTokens.Spacing.sm) {
@@ -184,6 +212,7 @@ struct AppRow: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isEQExpanded)
                     .animation(DesignTokens.Animation.hover, value: isEQButtonHovered)
                 }
+                .opacity(controlsOpacity)
                 .frame(width: DesignTokens.Dimensions.controlsWidth)
             }
             .frame(height: DesignTokens.Dimensions.rowContentHeight)
@@ -221,6 +250,7 @@ struct AppRowWithLevelPolling: View {
     let app: AudioApp
     let volume: Float
     let isMuted: Bool
+    let isPaused: Bool
     let devices: [AudioDevice]
     let selectedDeviceUID: String
     let getAudioLevel: () -> Float
@@ -241,6 +271,7 @@ struct AppRowWithLevelPolling: View {
         app: AudioApp,
         volume: Float,
         isMuted: Bool,
+        isPaused: Bool = false,
         devices: [AudioDevice],
         selectedDeviceUID: String,
         getAudioLevel: @escaping () -> Float,
@@ -257,6 +288,7 @@ struct AppRowWithLevelPolling: View {
         self.app = app
         self.volume = volume
         self.isMuted = isMuted
+        self.isPaused = isPaused
         self.devices = devices
         self.selectedDeviceUID = selectedDeviceUID
         self.getAudioLevel = getAudioLevel
@@ -276,6 +308,7 @@ struct AppRowWithLevelPolling: View {
             app: app,
             volume: volume,
             audioLevel: displayLevel,
+            isPaused: isPaused,
             devices: devices,
             selectedDeviceUID: selectedDeviceUID,
             isMuted: isMuted,
@@ -289,19 +322,29 @@ struct AppRowWithLevelPolling: View {
             onEQToggle: onEQToggle
         )
         .onAppear {
-            if isPopupVisible {
+            if isPopupVisible && !isPaused {
                 startLevelPolling()
+            } else {
+                displayLevel = 0
             }
         }
         .onDisappear {
             stopLevelPolling()
         }
         .onChange(of: isPopupVisible) { _, visible in
-            if visible {
+            if visible && !isPaused {
                 startLevelPolling()
             } else {
                 stopLevelPolling()
                 displayLevel = 0  // Reset meter when hidden
+            }
+        }
+        .onChange(of: isPaused) { _, paused in
+            if paused {
+                stopLevelPolling()
+                displayLevel = 0
+            } else if isPopupVisible {
+                startLevelPolling()
             }
         }
     }

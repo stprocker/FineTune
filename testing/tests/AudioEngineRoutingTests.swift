@@ -29,7 +29,10 @@ final class AudioEngineRoutingTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
         let settings = SettingsManager(directory: tempDir)
-        engine = AudioEngine(settingsManager: settings)
+        engine = AudioEngine(
+            settingsManager: settings,
+            isProcessRunningProvider: { _ in true }
+        )
     }
 
     override func tearDown() async throws {
@@ -186,5 +189,42 @@ final class AudioEngineRoutingTests: XCTestCase {
             AudioEngine.shouldConfirmPermission(from: diagnostics),
             "Permission should be confirmed only once real input audio is observed."
         )
+    }
+
+    // MARK: - Apps Display Fallback (paused state)
+
+    /// When playback stops, the Apps section should keep showing the last app
+    /// and mark it as paused instead of dropping to empty state immediately.
+    func testDisplayedAppsFallsBackToLastActiveAppWhenPlaybackStops() {
+        let app = makeFakeApp(pid: 11001, name: "Brave", bundleID: "com.brave.Browser")
+
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        XCTAssertEqual(engine.displayedApps.map(\.id), [app.id])
+        XCTAssertFalse(engine.isPausedDisplayApp(app),
+                       "Actively playing app should not be marked paused")
+
+        engine.updateDisplayedAppsStateForTests(activeApps: [])
+        XCTAssertEqual(engine.displayedApps.map(\.id), [app.id],
+                       "Last app should remain visible when playback pauses")
+        XCTAssertTrue(engine.isPausedDisplayApp(app),
+                      "Fallback row should be marked paused when no apps are active")
+    }
+
+    /// Active apps should always take precedence over paused fallback.
+    func testDisplayedAppsPrefersCurrentActiveAppsOverPausedFallback() {
+        let first = makeFakeApp(pid: 12001, name: "Safari", bundleID: "com.apple.Safari")
+        let second = makeFakeApp(pid: 12002, name: "Music", bundleID: "com.apple.Music")
+
+        engine.updateDisplayedAppsStateForTests(activeApps: [first])
+        engine.updateDisplayedAppsStateForTests(activeApps: [])
+        XCTAssertEqual(engine.displayedApps.map(\.id), [first.id],
+                       "Precondition: first app is cached as paused fallback")
+
+        engine.updateDisplayedAppsStateForTests(activeApps: [second])
+        XCTAssertEqual(engine.displayedApps.map(\.id), [second.id],
+                       "When a new app is active, UI should show active app list")
+        XCTAssertFalse(engine.isPausedDisplayApp(second))
+        XCTAssertFalse(engine.displayedApps.contains(where: { $0.id == first.id }),
+                       "Paused fallback app should not be shown while an active app exists")
     }
 }
