@@ -70,7 +70,7 @@ final class AudioEngine {
 
     /// Permission is only considered confirmed once we see real input audio,
     /// not just callback/output activity (which can still be silent).
-    nonisolated static func shouldConfirmPermission(from diagnostics: ProcessTapController.TapDiagnostics) -> Bool {
+    nonisolated static func shouldConfirmPermission(from diagnostics: TapDiagnostics) -> Bool {
         guard diagnostics.callbackCount > 10 else { return false }
         guard diagnostics.outputWritten > 0 else { return false }
         return diagnostics.inputHasData > 0 || diagnostics.lastInputPeak > 0.0001

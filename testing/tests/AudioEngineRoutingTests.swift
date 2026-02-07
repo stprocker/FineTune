@@ -121,7 +121,7 @@ final class AudioEngineRoutingTests: XCTestCase {
     // MARK: - Permission confirmation safety
 
     func testPermissionConfirmationRequiresRealInputAudio() {
-        let diagnostics = ProcessTapController.TapDiagnostics(
+        let diagnostics = TapDiagnostics(
             callbackCount: 25,
             inputHasData: 0,
             outputWritten: 25,
@@ -150,7 +150,7 @@ final class AudioEngineRoutingTests: XCTestCase {
     }
 
     func testPermissionConfirmationSucceedsWithInputAudio() {
-        let diagnostics = ProcessTapController.TapDiagnostics(
+        let diagnostics = TapDiagnostics(
             callbackCount: 25,
             inputHasData: 10,
             outputWritten: 25,
