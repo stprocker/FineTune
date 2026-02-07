@@ -92,11 +92,13 @@ struct DeviceRow: View {
             .onChange(of: sliderValue) { _, newValue in
                 guard isEditing else { return }
                 onVolumeChange(Float(newValue))
-                // Auto-unmute when slider moved while muted
-                if isMuted && newValue > 0 {
-                    onMuteToggle()
-                }
             }
+            .autoUnmuteOnSliderMove(
+                sliderValue: sliderValue,
+                isMuted: isMuted,
+                requireNonZero: true,
+                onUnmute: onMuteToggle
+            )
 
             // Volume percentage
             Text("\(Int(sliderValue * 100))%")

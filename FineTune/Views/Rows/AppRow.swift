@@ -168,11 +168,12 @@ struct AppRow: View {
                     .onChange(of: sliderValue) { _, newValue in
                         let gain = VolumeMapping.sliderToGain(newValue)
                         onVolumeChange(gain)
-                        // Auto-unmute when slider moved while muted
-                        if isMutedExternal {
-                            onMuteChange(false)
-                        }
                     }
+                    .autoUnmuteOnSliderMove(
+                        sliderValue: sliderValue,
+                        isMuted: isMutedExternal,
+                        onUnmute: { onMuteChange(false) }
+                    )
 
                     // Volume percentage (0-200% matching slider position)
                     Text("\(Int(sliderValue * 200))%")
