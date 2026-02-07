@@ -2,6 +2,34 @@
 
 ## [Unreleased] - 2026-02-07
 
+### Audio Wiring Overhaul (agent team review + 5-phase implementation)
+
+Comprehensive review of audio switching/crossfade wiring by 4-agent team (best practices researcher, code reviewer, mediator, skeptical planner), followed by parallel implementation. 17 issues identified, 7 fixed. 269 tests, 0 failures.
+Full details: `docs/ai-chat-history/2026-02-07-audio-wiring-agent-team-review-and-implementation.md`
+Implementation plan: `docs/audio-wiring-plan.md`
+
+#### Fixed
+- **Bluetooth silence gap on device switch (CRITICAL):** Switching from speakers to AirPods no longer causes a ~200-400ms silence gap. Root cause: the 50ms crossfade completed (silencing speakers) before Bluetooth produced audible sound. Fix: introduced `CrossfadePhase` state machine (`.idle` -> `.warmingUp` -> `.crossfading`) where primary stays at full volume during warmup, and crossfade only begins after secondary device is confirmed producing audio. 7 new unit tests.
+- **Diagnostic counter data races during crossfade (HIGH):** Both primary and secondary IO callbacks were incrementing shared `_diagCallbackCount` and 15 other counters simultaneously (multi-writer read-modify-write, not atomic). Split into per-tap counter sets with merge-on-promotion and reset-on-cleanup.
+- **VU meter jitter during crossfade (HIGH):** Both callbacks were doing read-modify-write exponential smoothing on shared `_peakLevel`. Added separate `_secondaryPeakLevel` with merge-on-promotion. `audioLevel` getter returns `max()` of both during crossfade for smooth transitions.
+- **Volume jump on device switch (HIGH):** Re-enabled device volume compensation with fresh `sourceVolume / destVolume` ratio at each switch (clamped [0.1, 4.0]). Previous implementation was disabled due to cumulative attenuation bug caused by not resetting ratio. Applied to both crossfade and destructive switch paths.
+- **AirPlay not given extended warmup (MEDIUM):** AirPlay devices now receive the same 500ms extended warmup as Bluetooth. Renamed `isBluetoothDestination` to `needsExtendedWarmup` throughout.
+- **`destroyAsync` race window in `recreateAllTaps` (MEDIUM):** Old taps were destroyed asynchronously while new taps were created immediately, risking duplicate taps for the same process. Added `destroyAsync(completion:)` handler, `invalidateAsync()` with `withCheckedContinuation`, and `recreateAllTaps` now awaits all destructions via `withTaskGroup` before recreating.
+- **Duplicate `appliedPIDs.insert` (LOW):** Removed redundant insert in `AudioEngine.applyPersistedSettings` (L613). The unconditional insert at L605 already covers both success and failure paths.
+
+#### Changed
+- `CrossfadePhase` enum reduced from 4 cases to 3 (`completing` removed as unnecessary)
+- `CrossfadeState.isActive` is now a computed property (true when `.warmingUp` or `.crossfading`) — backward compatible
+- `performCrossfadeSwitch` restructured into two explicit phases: warmup (poll `isWarmupComplete`) then crossfade (poll `isCrossfadeComplete`)
+- `TapResources.destroyAsync()` now accepts optional completion handler (backward compatible)
+
+#### Added
+- `ProcessTapController.invalidateAsync()` — async version of `invalidate()` that awaits CoreAudio resource destruction
+- `CrossfadeState.beginCrossfading()` — transitions from `.warmingUp` to `.crossfading`, resets progress
+- 16 secondary diagnostic counter fields (`_diagSecondary*`) for race-free crossfade diagnostics
+- `_secondaryPeakLevel` for race-free VU metering during crossfade
+- `resetSecondaryDiagnostics()` helper for counter cleanup
+
 ### Documentation
 - **Architecture diagram comprehensive rewrite:** `docs/architecture/finetune-architecture.md` updated from 88-line single Mermaid flowchart to 332-line document with expanded diagram (12 subgraphs, ~50 nodes), data flow summary, 9 architectural pattern descriptions, and complete file layout. Reflects all changes from the 4-phase refactoring, FluidMenuBarExtra removal, ViewModel extraction, DesignTokens, and new component extractions.
   - Full details: `docs/ai-chat-history/2026-02-07-architecture-diagram-comprehensive-update.md`

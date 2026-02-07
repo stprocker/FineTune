@@ -38,6 +38,20 @@ final class AudioEngine {
     /// with `.mutedWhenTapped` for proper per-app volume control.
     /// Not persisted because permission can be revoked externally (tccutil reset).
     private var permissionConfirmed = false
+    /// Suppresses `routeAllApps` during tap teardown/recreation to prevent
+    /// aggregate-device destruction from triggering a bogus default-device-change
+    /// notification that overwrites per-app routing (e.g. AirPods → MacBook speakers).
+    private var isRecreatingTaps = false
+    /// Timestamp when the last recreation cycle ended. Used with `recreationGracePeriod`
+    /// to suppress late-arriving debounced device-change notifications that slip past
+    /// the `isRecreatingTaps` flag (300ms debounce + async dispatch can outlast the flag).
+    private var recreationEndedAt: Date = .distantPast
+    /// Grace period (seconds) after recreation ends during which device-change
+    /// notifications are still suppressed. Covers the debounce + async dispatch latency.
+    private let recreationGracePeriod: TimeInterval = 2.0
+    /// Stored task for `handleServiceRestarted` — cancelled on re-entry to prevent
+    /// overlapping delayed tasks from clearing `isRecreatingTaps` prematurely.
+    private var serviceRestartTask: Task<Void, Never>?
     /// Snapshot of tap diagnostics from the previous health check cycle.
     /// Used to detect both stalled taps (callbacks stopped) and broken taps
     /// (callbacks running but reporter disconnected — empty input, no output).
@@ -67,6 +81,21 @@ final class AudioEngine {
 
     /// Fast health check intervals after tap creation.
     var fastHealthCheckIntervals: [Duration] = [.milliseconds(300), .milliseconds(500), .milliseconds(700)]
+
+    /// Lightweight pause-state recovery interval (seconds).
+    /// Separate from the heavy diagnostic timer to provide faster pause→playing recovery
+    /// without increasing the cost of diagnostics/health checks.
+    var pauseRecoveryPollInterval: Duration = .seconds(1)
+
+    // MARK: - Recreation Suppression
+
+    /// Whether device-change notifications should be suppressed.
+    /// True during active recreation OR within the grace period after recreation ends.
+    /// This two-layer defense prevents both synchronous and late-arriving async notifications
+    /// from corrupting persisted routing via `routeAllApps`.
+    private var shouldSuppressDeviceNotifications: Bool {
+        isRecreatingTaps || Date().timeIntervalSince(recreationEndedAt) < recreationGracePeriod
+    }
 
     // MARK: - Permission Confirmation
 
@@ -139,6 +168,10 @@ final class AudioEngine {
             // Sync external default device changes (e.g., from System Settings) to all tapped apps
             deviceVolumeMonitor.onDefaultDeviceChangedExternally = { [weak self] deviceUID in
                 guard let self else { return }
+                if self.shouldSuppressDeviceNotifications {
+                    self.logger.info("Ignoring default device change to \(deviceUID) — recreation active or grace period (\(String(format: "%.1f", Date().timeIntervalSince(self.recreationEndedAt)))s since end)")
+                    return
+                }
                 self.logger.info("System default device changed externally to: \(deviceUID)")
                 self.routeAllApps(to: deviceUID)
             }
@@ -169,13 +202,25 @@ final class AudioEngine {
                 self?.applyPersistedSettings()
             }
 
-            // Diagnostic + health check timer
+            // Diagnostic + health check timer (heavy, 3s)
             Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: self?.diagnosticPollInterval ?? .seconds(3))
                     guard let self else { return }
                     self.logDiagnostics()
                     self.checkTapHealth()
+                }
+            }
+
+            // Lightweight pause-state recovery timer (1s).
+            // Breaks the circular dependency where isPaused→true stops VU polling,
+            // which prevents lastAudibleAtByPID updates, which keeps isPaused→true forever.
+            // This reads tap.audioLevel directly, independent of UI polling state.
+            Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: self?.pauseRecoveryPollInterval ?? .seconds(1))
+                    guard let self else { return }
+                    self.updatePauseStates()
                 }
             }
         }
@@ -188,6 +233,12 @@ final class AudioEngine {
     /// all AudioObjectIDs become invalid. We must tear down everything and start fresh.
     private func handleServiceRestarted() {
         logger.warning("[SERVICE-RESTART] coreaudiod restarted — destroying all taps and recreating")
+
+        // Cancel any previous restart task to prevent overlapping delayed tasks
+        // from clearing isRecreatingTaps prematurely (reentrancy guard).
+        serviceRestartTask?.cancel()
+
+        isRecreatingTaps = true
 
         // Cancel all in-flight switches
         for task in switchTasks.values { task.cancel() }
@@ -203,13 +254,46 @@ final class AudioEngine {
         appliedPIDs.removeAll()
         lastHealthSnapshots.removeAll()
 
-        // Wait for coreaudiod to stabilize, then recreate all taps
-        Task { @MainActor [weak self] in
+        // Wait for coreaudiod to stabilize, then recreate all taps.
+        // If permission was already confirmed in a previous cycle, taps are created
+        // directly with .mutedWhenTapped — no extra .unmuted→confirm→recreate cycle.
+        // On first launch (permission not yet confirmed), creates .unmuted taps,
+        // then probes for audio data inline to confirm permission and upgrade
+        // to .mutedWhenTapped in one consolidated flow (avoids double recreation).
+        serviceRestartTask = Task { @MainActor [weak self] in
             self?.logger.info("[SERVICE-RESTART] Waiting for coreaudiod to stabilize...")
             try? await Task.sleep(for: self?.serviceRestartDelay ?? .milliseconds(1500))
-            guard let self else { return }
-            self.logger.info("[SERVICE-RESTART] Recreating taps")
+            guard let self, !Task.isCancelled else { return }
+            self.logger.info("[SERVICE-RESTART] Recreating taps (permissionConfirmed=\(self.permissionConfirmed))")
             self.applyPersistedSettings()
+
+            // If permission wasn't yet confirmed, probe for audio data now to avoid
+            // the fast health check triggering a redundant recreateAllTaps() cycle.
+            if !self.permissionConfirmed {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                let confirmed = self.taps.values.contains { Self.shouldConfirmPermission(from: $0.diagnostics) }
+                if confirmed {
+                    self.permissionConfirmed = true
+                    self.logger.info("[SERVICE-RESTART] Permission confirmed inline — upgrading to .mutedWhenTapped")
+                    // Destroy current .unmuted taps and recreate with .mutedWhenTapped
+                    await withTaskGroup(of: Void.self) { group in
+                        for (pid, tap) in self.taps {
+                            let name = self.apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+                            self.logger.info("[SERVICE-RESTART] Upgrading tap for \(name)")
+                            group.addTask { await tap.invalidateAsync() }
+                        }
+                    }
+                    guard !Task.isCancelled else { return }
+                    self.taps.removeAll()
+                    self.appliedPIDs.removeAll()
+                    self.lastHealthSnapshots.removeAll()
+                    self.applyPersistedSettings()
+                }
+            }
+
+            self.isRecreatingTaps = false
+            self.recreationEndedAt = Date()
         }
     }
 
@@ -340,19 +424,55 @@ final class AudioEngine {
         return level
     }
 
+    /// Updates `lastAudibleAtByPID` for all tapped apps by reading tap audio levels directly.
+    /// Called from the 1s pause-recovery timer to break the circular dependency where
+    /// the VU polling in AppRowWithLevelPolling stops when isPaused is true,
+    /// which prevents getAudioLevel from being called, which prevents recovery.
+    private func updatePauseStates() {
+        for (pid, tap) in taps {
+            if tap.audioLevel > pausedLevelThreshold {
+                lastAudibleAtByPID[pid] = Date()
+            }
+        }
+    }
+
     /// Resolves which device UID should be shown in the row picker.
-    /// Priority: explicit app routing, then current system default (if visible), then first visible device.
+    /// Priority:
+    ///  1. In-memory routing → visible device (normal case)
+    ///  2. Persisted routing → visible device (fallback during recreation)
+    ///  3. In-memory routing → even if device temporarily invisible (Bluetooth reconnecting)
+    ///  4. Persisted routing → even if device temporarily invisible
+    ///  5. System default → visible device
+    ///  6. First visible device
+    /// Priorities 3-4 prevent the display from flipping to "MacBook Pro Speakers"
+    /// when AirPods temporarily disappear during coreaudiod restart.
     func resolvedDeviceUIDForDisplay(
         app: AudioApp,
         availableDevices: [AudioDevice],
         defaultDeviceUID: String?
     ) -> String {
+        // 1: In-memory routing matching a visible device (normal steady-state)
         if let routedUID = appDeviceRouting[app.id], availableDevices.contains(where: { $0.uid == routedUID }) {
             return routedUID
         }
+        // 2: Persisted routing matching a visible device (covers recreation window when appDeviceRouting is stale)
+        if let savedUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier),
+           availableDevices.contains(where: { $0.uid == savedUID }) {
+            return savedUID
+        }
+        // 3: In-memory routing even if device temporarily invisible (BT transient absence)
+        if let routedUID = appDeviceRouting[app.id] {
+            return routedUID
+        }
+        // 4: Persisted routing even if device temporarily invisible
+        if let savedUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier) {
+            return savedUID
+        }
+        // 5: System default
         if let defaultDeviceUID, availableDevices.contains(where: { $0.uid == defaultDeviceUID }) {
             return defaultDeviceUID
         }
+        // 6: First visible device
         return availableDevices.first?.uid ?? ""
     }
 
@@ -509,6 +629,15 @@ final class AudioEngine {
     /// Called when user selects a device in the OUTPUT DEVICES section.
     /// This provides macOS-like "switch all audio" behavior.
     func routeAllApps(to deviceUID: String) {
+        // SAFETY: Reject routing during recreation to prevent spurious device-change
+        // notifications from corrupting all persisted routing data.
+        // This is belt-and-suspenders with the callback guard — if a notification
+        // slips past the callback check, this prevents data corruption.
+        if shouldSuppressDeviceNotifications {
+            logger.warning("routeAllApps(\(deviceUID)) blocked — recreation active or grace period")
+            return
+        }
+
         // Update persisted routing for ALL known app identifiers so that
         // inactive/paused apps will use the new device when they start playing again.
         settingsManager.updateAllDeviceRoutings(to: deviceUID)
@@ -670,7 +799,9 @@ final class AudioEngine {
 
                     // Confirm permission once we see audio flowing successfully.
                     // Recreates all taps with .mutedWhenTapped for proper per-app control.
-                    if needsPermissionConfirmation && Self.shouldConfirmPermission(from: d) {
+                    // Check current permissionConfirmed (not captured value) — the restart
+                    // handler may have already confirmed and upgraded taps inline.
+                    if needsPermissionConfirmation && !self.permissionConfirmed && Self.shouldConfirmPermission(from: d) {
                         self.permissionConfirmed = true
                         self.logger.info("[PERMISSION] System audio permission confirmed — recreating taps with .mutedWhenTapped")
                         self.recreateAllTaps()
@@ -706,6 +837,10 @@ final class AudioEngine {
     /// Uses async destruction to ensure CoreAudio resources are fully torn down before
     /// creating new taps, preventing resource conflicts with the old taps.
     private func recreateAllTaps() {
+        // Set flag synchronously BEFORE entering the Task to prevent any interleaved
+        // MainActor work (e.g., debounced device-change notifications) from firing
+        // routeAllApps between this call and the Task body executing.
+        isRecreatingTaps = true
         Task { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (pid, tap) in taps {
@@ -718,6 +853,8 @@ final class AudioEngine {
             appliedPIDs.removeAll()
             lastHealthSnapshots.removeAll()
             applyPersistedSettings()
+            isRecreatingTaps = false
+            recreationEndedAt = Date()
         }
     }
 
