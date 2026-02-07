@@ -110,6 +110,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testPrimaryMultiplierAtMidpoint() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         state.progress = 0.5
         let expected = cos(0.5 * Float.pi / 2.0)
         XCTAssertEqual(state.primaryMultiplier, expected, accuracy: 1e-5)
@@ -118,6 +119,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testPrimaryMultiplierAtEnd() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         state.progress = 1.0
         XCTAssertEqual(state.primaryMultiplier, 0.0, accuracy: 1e-5,
                         "Primary should be silent at end of crossfade")
@@ -127,10 +129,10 @@ final class CrossfadeStateTests: XCTestCase {
     /// Primary must stay silent until state is fully reset by complete().
     func testPrimaryMultiplierDeadZone() {
         var state = CrossfadeState()
-        state.isActive = false
+        state.phase = .idle
         state.progress = 1.0
         XCTAssertEqual(state.primaryMultiplier, 0.0,
-                        "Primary should be silent in dead zone (isActive=false, progress>=1.0)")
+                        "Primary should be silent in dead zone (phase=idle, progress>=1.0)")
     }
 
     func testPrimaryMultiplierAfterComplete() {
@@ -155,6 +157,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testSecondaryMultiplierAtMidpoint() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         state.progress = 0.5
         let expected = sin(0.5 * Float.pi / 2.0)
         XCTAssertEqual(state.secondaryMultiplier, expected, accuracy: 1e-5)
@@ -163,6 +166,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testSecondaryMultiplierAtEnd() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         state.progress = 1.0
         XCTAssertEqual(state.secondaryMultiplier, 1.0, accuracy: 1e-5,
                         "Secondary should be at full volume at end of crossfade")
@@ -179,7 +183,8 @@ final class CrossfadeStateTests: XCTestCase {
     func testEqualPowerConservation() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
-        // At any point: primary² + secondary² ≈ 1.0 (equal-power property)
+        state.beginCrossfading()
+        // At any point during crossfading: primary² + secondary² ≈ 1.0 (equal-power property)
         for i in 0...10 {
             state.progress = Float(i) / 10.0
             let p = state.primaryMultiplier
@@ -195,6 +200,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testUpdateProgressAccumulatesSamples() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         // At 48kHz with 50ms duration: totalSamples = 2400
         XCTAssertEqual(state.totalSamples, 2400)
 
@@ -207,6 +213,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testUpdateProgressIncrementalAccumulation() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         _ = state.updateProgress(samples: 1000)
         _ = state.updateProgress(samples: 1000)
         XCTAssertEqual(state.secondarySamplesProcessed, 2000)
@@ -216,6 +223,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testProgressClampedToOne() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         _ = state.updateProgress(samples: 10000)
         XCTAssertEqual(state.progress, 1.0, "Progress should be clamped to 1.0")
     }
@@ -223,6 +231,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testIsCrossfadeCompleteAtFullProgress() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         _ = state.updateProgress(samples: 10000)
         XCTAssertTrue(state.isCrossfadeComplete)
     }
@@ -230,6 +239,7 @@ final class CrossfadeStateTests: XCTestCase {
     func testIsCrossfadeCompleteBeforeFullProgress() {
         var state = CrossfadeState()
         state.beginCrossfade(at: 48000)
+        state.beginCrossfading()
         _ = state.updateProgress(samples: 100)
         XCTAssertFalse(state.isCrossfadeComplete)
     }
@@ -242,7 +252,7 @@ final class CrossfadeStateTests: XCTestCase {
         state.progress = 0.5
         state.secondarySampleCount = 999
         state.secondarySamplesProcessed = 999
-        state.isActive = false
+        state.phase = .idle
 
         state.beginCrossfade(at: 48000)
 
@@ -250,6 +260,7 @@ final class CrossfadeStateTests: XCTestCase {
         XCTAssertEqual(state.secondarySampleCount, 0)
         XCTAssertEqual(state.secondarySamplesProcessed, 0)
         XCTAssertTrue(state.isActive)
+        XCTAssertEqual(state.phase, .warmingUp)
         XCTAssertGreaterThan(state.totalSamples, 0)
     }
 
@@ -265,6 +276,82 @@ final class CrossfadeStateTests: XCTestCase {
         XCTAssertEqual(state.secondarySampleCount, 0)
         XCTAssertEqual(state.secondarySamplesProcessed, 0)
         XCTAssertEqual(state.totalSamples, 0)
+    }
+
+    // MARK: - Phase Transitions (Phase 1: Bluetooth warmup fix)
+
+    func testPhaseTransitionsIdleToWarmingUp() {
+        var state = CrossfadeState()
+        XCTAssertEqual(state.phase, .idle, "Phase should start idle")
+        state.beginCrossfade(at: 48000)
+        XCTAssertEqual(state.phase, .warmingUp,
+                        "beginCrossfade should set phase to warmingUp (not crossfading)")
+    }
+
+    func testPhaseTransitionsWarmingUpToCrossfading() {
+        var state = CrossfadeState()
+        state.beginCrossfade(at: 48000)
+        XCTAssertEqual(state.phase, .warmingUp)
+        state.beginCrossfading()
+        XCTAssertEqual(state.phase, .crossfading,
+                        "beginCrossfading should transition from warmingUp to crossfading")
+    }
+
+    func testPrimaryMultiplierDuringWarmup() {
+        var state = CrossfadeState()
+        state.beginCrossfade(at: 48000)
+        // During warmup, primary must stay at full volume
+        XCTAssertEqual(state.phase, .warmingUp)
+        XCTAssertEqual(state.primaryMultiplier, 1.0, accuracy: 1e-6,
+                        "Primary must be 1.0 during warmup to avoid silence gap")
+    }
+
+    func testSecondaryMultiplierDuringWarmup() {
+        var state = CrossfadeState()
+        state.beginCrossfade(at: 48000)
+        // During warmup, secondary must be silent
+        XCTAssertEqual(state.phase, .warmingUp)
+        XCTAssertEqual(state.secondaryMultiplier, 0.0, accuracy: 1e-6,
+                        "Secondary must be 0.0 during warmup (BT not ready)")
+    }
+
+    func testProgressDoesNotAdvanceDuringWarmup() {
+        var state = CrossfadeState()
+        state.beginCrossfade(at: 48000)
+        XCTAssertEqual(state.phase, .warmingUp)
+        // Process samples during warmup
+        _ = state.updateProgress(samples: 1000)
+        _ = state.updateProgress(samples: 1000)
+        // Progress should NOT advance because we haven't entered crossfading phase
+        XCTAssertEqual(state.progress, 0.0,
+                        "Progress must not advance during warmup phase")
+        XCTAssertEqual(state.secondarySampleCount, 0,
+                        "secondarySampleCount must not increment during warmup")
+    }
+
+    func testWarmupSamplesStillCountDuringWarmup() {
+        var state = CrossfadeState()
+        state.beginCrossfade(at: 48000)
+        XCTAssertEqual(state.phase, .warmingUp)
+        _ = state.updateProgress(samples: 512)
+        _ = state.updateProgress(samples: 512)
+        // secondarySamplesProcessed should still increase (for warmup detection)
+        XCTAssertEqual(state.secondarySamplesProcessed, 1024,
+                        "secondarySamplesProcessed must still count during warmup")
+    }
+
+    func testBeginCrossfadingResetsProgress() {
+        var state = CrossfadeState()
+        state.beginCrossfade(at: 48000)
+        // Simulate some warmup samples (which would have advanced progress in old code)
+        _ = state.updateProgress(samples: 2048)
+        // Transition to crossfading
+        state.beginCrossfading()
+        XCTAssertEqual(state.progress, 0.0,
+                        "beginCrossfading must reset progress to 0")
+        XCTAssertEqual(state.secondarySampleCount, 0,
+                        "beginCrossfading must reset secondarySampleCount to 0")
+        XCTAssertEqual(state.phase, .crossfading)
     }
 
     // MARK: - CrossfadeConfig

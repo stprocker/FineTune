@@ -173,20 +173,21 @@ final class StartupAudioInterruptionTests: XCTestCase {
     /// retries the full tap-creation sequence for apps it already failed on.
     func testRetryStormWritesSettingsRepeatedly() {
         let app = makeFakeApp()
+        // App needs custom settings to pass the hasCustomSettings guard
+        // (apps with no saved state are intentionally skipped on startup)
+        settings.setVolume(for: app.persistenceIdentifier, to: 0.5)
 
-        // First call writes routing to settings (bug #1)
+        // First call: processes app (has saved volume), writes routing,
+        // tap fails → appliedPIDs records the PID to prevent retries
         engine.applyPersistedSettingsForTests(apps: [app])
-        let routingAfterFirst = settings.getDeviceRouting(for: app.persistenceIdentifier)
 
         // Manually clear the persisted routing to detect if the second call re-writes it
-        // (simulates what would happen if cleanup did clear settings)
         settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "CLEARED")
 
-        // Second call (simulates onAppsChanged firing)
+        // Second call (simulates onAppsChanged firing) — should skip because
+        // appliedPIDs already contains this PID from the first (failed) attempt
         engine.applyPersistedSettingsForTests(apps: [app])
 
-        // BUG: The engine re-runs the full sequence because appliedPIDs doesn't
-        // contain this PID (tap creation failed). It overwrites our "CLEARED" marker.
         let routingAfterSecond = settings.getDeviceRouting(for: app.persistenceIdentifier)
         XCTAssertEqual(routingAfterSecond, "CLEARED",
                         "After initial failure, subsequent applyPersistedSettings calls should not " +

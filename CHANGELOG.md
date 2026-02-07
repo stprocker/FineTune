@@ -2,6 +2,66 @@
 
 ## [Unreleased] - 2026-02-07
 
+### Documentation
+- **Architecture diagram comprehensive rewrite:** `docs/architecture/finetune-architecture.md` updated from 88-line single Mermaid flowchart to 332-line document with expanded diagram (12 subgraphs, ~50 nodes), data flow summary, 9 architectural pattern descriptions, and complete file layout. Reflects all changes from the 4-phase refactoring, FluidMenuBarExtra removal, ViewModel extraction, DesignTokens, and new component extractions.
+  - Full details: `docs/ai-chat-history/2026-02-07-architecture-diagram-comprehensive-update.md`
+
+### Refactoring (4-phase codebase restructuring)
+
+Comprehensive internal refactoring for readability, DRY, complexity reduction, and architecture.
+All public APIs preserved. 1,041 lines added, 951 lines removed across 37 files. 42 new tests.
+Full details: `docs/ai-chat-history/2026-02-07-comprehensive-codebase-refactoring.md`
+
+#### Phase 0 — Testability & Seam Setup
+- Audited and documented all existing test injection points
+- Added injectable timing properties on AudioEngine (diagnosticPollInterval, startupTapDelay, staleTapGracePeriod, serviceRestartDelay, fastHealthCheckIntervals)
+- Added deterministic queue injection for ProcessTapController and DeviceVolumeMonitor
+- Added 20 AppRow interaction tests (volume, mute, auto-unmute, device selection)
+
+#### Phase 1 — Cleanup & Dead Code Removal
+- Removed orphaned `FineTuneTests/` test files (720 lines — duplicates of `testing/tests/` with wrong imports)
+- Removed deprecated `AppVolumeRowView.swift` and `DeviceVolumeRowView.swift` (189 lines, zero references)
+- Added `.lancedb/` to `.gitignore`
+- Centralized magic numbers into `DesignTokens.swift` (scroll thresholds, animation constants, VU meter interval, default unmute volume)
+
+#### Phase 2 — DRY Extractions (serial, 8 steps)
+- **SliderAutoUnmute.swift** — ViewModifier replacing duplicated auto-unmute patterns in AppRow/DeviceRow
+- **DropdownMenu consolidation** — extracted shared trigger button, merged two near-identical variants (-110 lines)
+- **DeviceIconView.swift** — shared NSImage/SF Symbol icon component replacing 3 duplicated renderers
+- **AudioObjectID+Listener.swift** — CoreAudio listener add/remove factory used by 3 monitors
+- **DevicePropertyKind enum** — consolidated 6 volume/mute listener methods to 3 in DeviceVolumeMonitor (-80 lines)
+- **resolveDeviceID(for:)** — cache-then-fallback device lookup on AudioDeviceMonitor, replaces inline pattern in ProcessTapController and AudioDeviceID+Resolution
+- **Volume read strategy loop** — replaced 3 near-identical read blocks in AudioDeviceID+Volume (-25 lines)
+- **Shared test helpers** — AudioBufferTestHelpers.swift and IntegrationTestHelpers.swift, removed duplicates from 6 test files
+
+#### Phase 3 — God-Class Breakup
+- **ProcessTapController** (1414→1380 lines): 15 characterization tests, 10 MARK sections, extracted TapDiagnostics to standalone struct
+- **AudioEngine** (838→870 lines): 7 characterization tests, 12 MARK sections, consolidated test helpers
+- **AppRow** (437→415 lines): MARK grouping, extracted AppRowEQToggle sub-view
+
+#### Phase 4 — ViewModel Extraction
+- **MenuBarPopupViewModel.swift** — EQ expansion state, animation debounce, popup visibility, device sorting, app activation logic moved from MenuBarPopupView to dedicated ViewModel
+
+### Added (new files)
+- `FineTune/Views/Components/SliderAutoUnmute.swift`
+- `FineTune/Views/Components/DeviceIconView.swift`
+- `FineTune/Audio/Extensions/AudioObjectID+Listener.swift`
+- `FineTune/Audio/Tap/TapDiagnostics.swift`
+- `FineTune/Views/Rows/AppRowEQToggle.swift`
+- `FineTune/Views/MenuBarPopupViewModel.swift`
+- `FineTune/Views/DesignSystem/DesignTokens.swift`
+- `testing/tests/AudioBufferTestHelpers.swift`
+- `testing/tests/IntegrationTestHelpers.swift`
+- `testing/tests/ProcessTapControllerTests.swift` (15 tests)
+- `testing/tests/AudioEngineCharacterizationTests.swift` (7 tests)
+- `testing/tests/AppRowInteractionTests.swift` (20 tests)
+
+### Removed (deleted files)
+- `FineTuneTests/StartupAudioInterruptionTests.swift` (orphaned, 585 lines)
+- `FineTuneTests/SingleInstanceGuardTests.swift` (orphaned, 135 lines)
+- `FineTune/Views/AppVolumeRowView.swift` (deprecated, 82 lines)
+- `FineTune/Views/DeviceVolumeRowView.swift` (deprecated, 107 lines)
+
 ### Fixed
 - **False-positive permission confirmation causing post-Allow mute risk:** `AudioEngine` permission confirmation now requires real input evidence (`inputHasData > 0` or `lastInputPeak > 0.0001`) in addition to callback/output activity. Prevents premature tap recreation with `.mutedWhenTapped` while input is still silent.
 - **Menu bar panel sizing recursion trigger:** Removed forced `layoutSubtreeIfNeeded` path from `MenuBarStatusController` panel sizing logic and switched to `fittingSize` fallback sizing only.

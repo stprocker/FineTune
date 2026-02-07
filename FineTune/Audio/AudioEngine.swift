@@ -509,8 +509,17 @@ final class AudioEngine {
     /// Called when user selects a device in the OUTPUT DEVICES section.
     /// This provides macOS-like "switch all audio" behavior.
     func routeAllApps(to deviceUID: String) {
-        guard !apps.isEmpty else {
-            logger.debug("No apps to route - only setting system default")
+        // Update persisted routing for ALL known app identifiers so that
+        // inactive/paused apps will use the new device when they start playing again.
+        settingsManager.updateAllDeviceRoutings(to: deviceUID)
+
+        // Update in-memory routing for displayed-but-not-active apps
+        // (e.g., paused app shown via lastDisplayedApp cache)
+        if apps.isEmpty {
+            for app in displayedApps {
+                appDeviceRouting[app.id] = deviceUID
+            }
+            logger.debug("No active apps to route — updated \(self.displayedApps.count) displayed app(s)")
             return
         }
 
@@ -589,15 +598,18 @@ final class AudioEngine {
             // Always create tap for audio apps (always-on strategy)
             ensureTapExists(for: app, deviceUID: deviceUID)
 
-            // Only mark as applied if tap was successfully created
-            // This allows retry on next applyPersistedSettings() call if tap failed
+            // Mark as applied regardless of tap outcome to prevent retry storm:
+            // without this, every onAppsChanged fires the full sequence again
+            // (write routing → attempt tap → fail → clean up) for already-failed apps.
+            // Recovery is handled by health checks, service restart, and app reappearance.
+            appliedPIDs.insert(app.id)
+
             guard taps[app.id] != nil else {
                 // Remove stale routing so UI falls back to showing default device
                 // (no tap = audio goes through system default, not the saved device)
                 appDeviceRouting.removeValue(forKey: app.id)
                 continue
             }
-            appliedPIDs.insert(app.id)
 
             if let volume = savedVolume {
                 let displayPercent = Int(VolumeMapping.gainToSlider(volume) * 200)
@@ -691,16 +703,22 @@ final class AudioEngine {
     }
 
     /// Destroys all taps and recreates them (e.g., to upgrade from .unmuted to .mutedWhenTapped).
+    /// Uses async destruction to ensure CoreAudio resources are fully torn down before
+    /// creating new taps, preventing resource conflicts with the old taps.
     private func recreateAllTaps() {
-        for (pid, tap) in taps {
-            let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
-            logger.info("[RECREATE] Destroying tap for \(appName)")
-            tap.invalidate()
+        Task { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (pid, tap) in taps {
+                    let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+                    logger.info("[RECREATE] Destroying tap for \(appName)")
+                    group.addTask { await tap.invalidateAsync() }
+                }
+            }
+            taps.removeAll()
+            appliedPIDs.removeAll()
+            lastHealthSnapshots.removeAll()
+            applyPersistedSettings()
         }
-        taps.removeAll()
-        appliedPIDs.removeAll()
-        lastHealthSnapshots.removeAll()
-        applyPersistedSettings()
     }
 
     // MARK: - Device Disconnect

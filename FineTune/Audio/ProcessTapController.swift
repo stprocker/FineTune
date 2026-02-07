@@ -52,12 +52,18 @@ final class ProcessTapController {
     // Uses exponential smoothing to reduce nervous jumping
     private nonisolated(unsafe) var _peakLevel: Float = 0.0
 
+    // Secondary peak level (written only by processAudioSecondary during crossfade)
+    // Prevents read-modify-write race on _peakLevel when both callbacks run simultaneously.
+    // Promoted to _peakLevel in promoteSecondaryToPrimary().
+    private nonisolated(unsafe) var _secondaryPeakLevel: Float = 0.0
+
     // Smoothing factor for VU meter (0-1)
     // Lower = smoother/slower response, Higher = more responsive
     // 0.3 gives ~30ms effective integration at 30fps UI update rate
     private let levelSmoothingFactor: Float = 0.3
 
     // --- Diagnostic counters (RT-safe: atomic increments on 64-bit ARM) ---
+    // Primary tap counters (written only by processAudio)
     private nonisolated(unsafe) var _diagCallbackCount: UInt64 = 0
     private nonisolated(unsafe) var _diagInputHasData: UInt64 = 0
     private nonisolated(unsafe) var _diagOutputWritten: UInt64 = 0
@@ -75,6 +81,26 @@ final class ProcessTapController {
     private nonisolated(unsafe) var _diagFormatIsInterleaved: Bool = false
     private nonisolated(unsafe) var _diagFormatSampleRate: Float = 0
 
+    // Secondary tap counters (written only by processAudioSecondary during crossfade)
+    // Prevents read-modify-write data races when both callbacks run simultaneously.
+    // Merged into primary counters in promoteSecondaryToPrimary().
+    private nonisolated(unsafe) var _diagSecondaryCallbackCount: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryInputHasData: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryOutputWritten: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondarySilencedForce: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondarySilencedMute: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryConverterUsed: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryConverterFailed: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryDirectFloat: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryNonFloatPassthrough: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryEmptyInput: UInt64 = 0
+    private nonisolated(unsafe) var _diagSecondaryLastInputPeak: Float = 0
+    private nonisolated(unsafe) var _diagSecondaryLastOutputPeak: Float = 0
+    private nonisolated(unsafe) var _diagSecondaryFormatChannels: UInt32 = 0
+    private nonisolated(unsafe) var _diagSecondaryFormatIsFloat: Bool = false
+    private nonisolated(unsafe) var _diagSecondaryFormatIsInterleaved: Bool = false
+    private nonisolated(unsafe) var _diagSecondaryFormatSampleRate: Float = 0
+
     // Current device volume scalar (0-1) for VU meter calculation
     // Updated from main thread when device volume changes
     private nonisolated(unsafe) var _currentDeviceVolume: Float = 1.0
@@ -84,7 +110,8 @@ final class ProcessTapController {
 
     /// Current peak audio level (0-1) for VU meter visualization
     /// Read from main thread, written from audio callback (atomic Float)
-    var audioLevel: Float { _peakLevel }
+    /// During crossfade, returns max of both taps for smoother VU transitions
+    var audioLevel: Float { max(_peakLevel, _secondaryPeakLevel) }
 
     // MARK: - Diagnostics (TapDiagnostics struct is in Tap/TapDiagnostics.swift)
 
@@ -472,14 +499,14 @@ final class ProcessTapController {
         // Read destination device volume and sample rate
         var destVolume: Float = 1.0
         var destSampleRate: Float64 = 0
-        var isBluetoothDestination = false
+        var needsExtendedWarmup = false
 
         if let destDeviceID = deviceMonitor?.resolveDeviceID(for: newOutputUID) {
             destVolume = destDeviceID.readOutputVolumeScalar()
             destSampleRate = (try? destDeviceID.readNominalSampleRate()) ?? 0
             let transport = destDeviceID.readTransportType()
-            isBluetoothDestination = (transport == .bluetooth || transport == .bluetoothLE)
-            logger.debug("[CROSSFADE] Destination device: volume=\(destVolume), sampleRate=\(destSampleRate)Hz, BT=\(isBluetoothDestination)")
+            needsExtendedWarmup = (transport == .bluetooth || transport == .bluetoothLE || transport == .airPlay)
+            logger.debug("[CROSSFADE] Destination device: volume=\(destVolume), sampleRate=\(destSampleRate)Hz, extendedWarmup=\(needsExtendedWarmup)")
         }
 
         // Log sample rate mismatch but proceed with crossfade anyway
@@ -490,66 +517,86 @@ final class ProcessTapController {
             logger.info("[CROSSFADE] Sample rate mismatch: source=\(sourceSampleRate)Hz, dest=\(destSampleRate)Hz - proceeding anyway (avoids audio leak)")
         }
 
-        // Device volume compensation disabled - causes cumulative attenuation on round-trip switches
-        // Keep compensation at 1.0 so slider directly controls output volume
-        logger.info("[CROSSFADE] Device volumes: source=\(sourceVolume), dest=\(destVolume) (no compensation applied)")
+        // Compute volume compensation: adjust so perceived loudness stays constant
+        // Fresh ratio computed at each switch — no cumulative attenuation
+        if sourceVolume > 0.01 && destVolume > 0.01 {
+            _deviceVolumeCompensation = sourceVolume / destVolume
+            // Clamp to reasonable range to avoid extreme amplification
+            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 4.0)
+        } else {
+            _deviceVolumeCompensation = 1.0
+        }
+        logger.info("[CROSSFADE] Volume compensation: source=\(sourceVolume), dest=\(destVolume), ratio=\(self._deviceVolumeCompensation)")
 
-        logger.info("[CROSSFADE] Step 2: Preparing crossfade state")
+        logger.info("[CROSSFADE] Step 2: Preparing crossfade state (warmingUp)")
 
-        // Enable crossfade BEFORE secondary tap starts, so it begins silent.
+        // Enter warmingUp phase BEFORE secondary tap starts, so it begins silent.
         // NOTE: Can't use crossfadeState.beginCrossfade(at:) here because we don't know
-        // the sample rate until after tap creation. isActive must be true before the
+        // the sample rate until after tap creation. Phase must be warmingUp before the
         // secondary callback starts to ensure secondaryMultiplier returns 0 (silent).
         // totalSamples is set later in createSecondaryTap() once sample rate is known.
         crossfadeState.progress = 0
         crossfadeState.secondarySampleCount = 0
         crossfadeState.secondarySamplesProcessed = 0
-        crossfadeState.isActive = true
+        crossfadeState.phase = .warmingUp
         OSMemoryBarrier()  // Ensure audio callbacks see crossfade state before secondary tap starts
 
-        // Create secondary tap (starts at sin(0) = 0 = silent because isActive=true)
+        // Create secondary tap (starts silent because phase=warmingUp, secondaryMultiplier=0)
         logger.info("[CROSSFADE] Step 3: Creating secondary tap for new device")
         try createSecondaryTap(for: newOutputUID)
 
-        if isBluetoothDestination {
-            logger.info("[CROSSFADE] Destination is Bluetooth - using extended warmup")
+        if needsExtendedWarmup {
+            logger.info("[CROSSFADE] Destination needs extended warmup (Bluetooth/AirPlay)")
         }
 
         // Wait for secondary tap to warm up and start producing samples
-        // Bluetooth devices need much longer warmup due to A2DP connection latency (can take 500ms+)
-        let warmupMs = isBluetoothDestination ? crossfadeWarmupBTMs : crossfadeWarmupMs
+        // Bluetooth/AirPlay devices need much longer warmup due to connection latency (can take 500ms+)
+        let warmupMs = needsExtendedWarmup ? crossfadeWarmupBTMs : crossfadeWarmupMs
         logger.info("[CROSSFADE] Step 4: Waiting for secondary tap warmup (\(warmupMs)ms)...")
         try await Task.sleep(for: .milliseconds(UInt64(warmupMs)))
 
-        logger.info("[CROSSFADE] Step 5: Crossfade in progress (\(CrossfadeConfig.duration * 1000)ms)")
-
-        // Poll for completion (don't control timing - secondary callback does)
-        // Wait for BOTH: crossfade animation complete AND secondary tap warmup complete
-        // Bluetooth gets extended timeout to account for A2DP connection latency
-        let timeoutMs = Int(CrossfadeConfig.duration * 1000) + (isBluetoothDestination ? crossfadeTimeoutPaddingBTMs : crossfadeTimeoutPaddingMs)
+        // --- Phase A: Wait for warmup confirmation ---
+        // Poll until secondary tap has processed enough samples to confirm device is producing audio.
+        // During warmingUp phase, primary stays at full volume and secondary is silent,
+        // so there's no audible gap even if the device takes time to start.
+        let warmupTimeoutMs = needsExtendedWarmup ? 3000 : 500
         let pollIntervalMs: UInt64 = crossfadePollIntervalMs
-        var elapsedMs: Int = 0
+        var warmupElapsedMs: Int = 0
 
-        while (!crossfadeState.isCrossfadeComplete || !crossfadeState.isWarmupComplete) && elapsedMs < timeoutMs {
+        while !crossfadeState.isWarmupComplete && warmupElapsedMs < warmupTimeoutMs {
             try await Task.sleep(for: .milliseconds(pollIntervalMs))
-            elapsedMs += Int(pollIntervalMs)
+            warmupElapsedMs += Int(pollIntervalMs)
         }
 
-        // Verify secondary tap is actually producing audio before destroying primary.
+        // Verify secondary tap is actually producing audio before starting crossfade.
         // If warmup never completed, the secondary tap isn't working — fall back to
         // destructive switch rather than promoting a non-functioning tap.
         if !crossfadeState.isWarmupComplete {
             let samplesProcessed = crossfadeState.secondarySamplesProcessed
-            logger.error("[CROSSFADE] Secondary tap warmup incomplete after \(elapsedMs)ms (processed: \(samplesProcessed)/\(CrossfadeState.minimumWarmupSamples) samples)")
+            logger.error("[CROSSFADE] Secondary tap warmup incomplete after \(warmupElapsedMs)ms (processed: \(samplesProcessed)/\(CrossfadeState.minimumWarmupSamples) samples)")
             throw NSError(domain: "ProcessTapController", code: -2,
-                          userInfo: [NSLocalizedDescriptionKey: "Secondary tap warmup incomplete after \(elapsedMs)ms"])
+                          userInfo: [NSLocalizedDescriptionKey: "Secondary tap warmup incomplete after \(warmupElapsedMs)ms"])
+        }
+
+        logger.info("[CROSSFADE] Step 5: Warmup confirmed after \(warmupElapsedMs)ms, beginning crossfade (\(CrossfadeConfig.duration * 1000)ms)")
+
+        // --- Phase B: Begin crossfade and poll for completion ---
+        // Transition to crossfading phase: progress resets to 0, secondary starts fading in.
+        crossfadeState.beginCrossfading()
+
+        let crossfadeTimeoutMs = Int(CrossfadeConfig.duration * 1000) + (needsExtendedWarmup ? crossfadeTimeoutPaddingBTMs : crossfadeTimeoutPaddingMs)
+        var crossfadeElapsedMs: Int = 0
+
+        while !crossfadeState.isCrossfadeComplete && crossfadeElapsedMs < crossfadeTimeoutMs {
+            try await Task.sleep(for: .milliseconds(pollIntervalMs))
+            crossfadeElapsedMs += Int(pollIntervalMs)
         }
 
         // Small buffer to ensure final samples processed
         try await Task.sleep(for: .milliseconds(Int64(crossfadePostBufferMs)))
 
         // Crossfade complete - destroy primary, promote secondary
-        logger.info("[CROSSFADE] Crossfade complete (progress: \(self.crossfadeState.progress), elapsed: \(elapsedMs)ms), promoting secondary")
+        logger.info("[CROSSFADE] Crossfade complete (progress: \(self.crossfadeState.progress), warmup: \(warmupElapsedMs)ms, crossfade: \(crossfadeElapsedMs)ms), promoting secondary")
 
         destroyPrimaryTap()
         promoteSecondaryToPrimary()  // Also resets crossfade state after promotion
@@ -689,6 +736,9 @@ final class ProcessTapController {
         secondaryResources.destroy()
         secondaryFormat = nil
         destroyConverter(&secondaryConverter)
+
+        // Discard secondary diagnostic counters (crossfade failed, don't merge into primary)
+        resetSecondaryDiagnostics()
     }
 
     /// Promotes secondary tap to primary after crossfade.
@@ -711,10 +761,57 @@ final class ProcessTapController {
         _primaryCurrentVolume = _secondaryCurrentVolume
         _secondaryCurrentVolume = 0
 
+        // Transfer peak level from secondary to primary
+        _peakLevel = _secondaryPeakLevel
+        _secondaryPeakLevel = 0.0
+
+        // Merge secondary diagnostic counters into primary (preserves totals across crossfades)
+        _diagCallbackCount += _diagSecondaryCallbackCount
+        _diagInputHasData += _diagSecondaryInputHasData
+        _diagOutputWritten += _diagSecondaryOutputWritten
+        _diagSilencedForce += _diagSecondarySilencedForce
+        _diagSilencedMute += _diagSecondarySilencedMute
+        _diagConverterUsed += _diagSecondaryConverterUsed
+        _diagConverterFailed += _diagSecondaryConverterFailed
+        _diagDirectFloat += _diagSecondaryDirectFloat
+        _diagNonFloatPassthrough += _diagSecondaryNonFloatPassthrough
+        _diagEmptyInput += _diagSecondaryEmptyInput
+        _diagLastInputPeak = _diagSecondaryLastInputPeak
+        _diagLastOutputPeak = _diagSecondaryLastOutputPeak
+        _diagFormatChannels = _diagSecondaryFormatChannels
+        _diagFormatIsFloat = _diagSecondaryFormatIsFloat
+        _diagFormatIsInterleaved = _diagSecondaryFormatIsInterleaved
+        _diagFormatSampleRate = _diagSecondaryFormatSampleRate
+
+        // Reset secondary counters for next crossfade
+        resetSecondaryDiagnostics()
+
         // Reset crossfade state for next switch (includes isActive=false + OSMemoryBarrier)
         // CRITICAL: This must happen AFTER all state is transferred so audio callback
         // sees the promoted resources before it checks isActive for EQ processing
         crossfadeState.complete()
+    }
+
+    /// Resets all secondary diagnostic counters and peak level to zero.
+    /// Called after merging into primary (promotion) or after crossfade failure (cleanup).
+    private func resetSecondaryDiagnostics() {
+        _diagSecondaryCallbackCount = 0
+        _diagSecondaryInputHasData = 0
+        _diagSecondaryOutputWritten = 0
+        _diagSecondarySilencedForce = 0
+        _diagSecondarySilencedMute = 0
+        _diagSecondaryConverterUsed = 0
+        _diagSecondaryConverterFailed = 0
+        _diagSecondaryDirectFloat = 0
+        _diagSecondaryNonFloatPassthrough = 0
+        _diagSecondaryEmptyInput = 0
+        _diagSecondaryLastInputPeak = 0
+        _diagSecondaryLastOutputPeak = 0
+        _diagSecondaryFormatChannels = 0
+        _diagSecondaryFormatIsFloat = false
+        _diagSecondaryFormatIsInterleaved = false
+        _diagSecondaryFormatSampleRate = 0
+        _secondaryPeakLevel = 0.0
     }
 
     // MARK: - Destructive Switch (Fallback)
@@ -762,8 +859,16 @@ final class ProcessTapController {
             }
         }
 
-        // Device volume compensation disabled - causes cumulative attenuation on round-trip switches
-        logger.info("[SWITCH-DESTROY] Device volumes: source=\(sourceVolume), dest=\(destVolume) (no compensation applied)")
+        // Compute volume compensation: adjust so perceived loudness stays constant
+        // Fresh ratio computed at each switch — no cumulative attenuation
+        if sourceVolume > 0.01 && destVolume > 0.01 {
+            _deviceVolumeCompensation = sourceVolume / destVolume
+            // Clamp to reasonable range to avoid extreme amplification
+            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 4.0)
+        } else {
+            _deviceVolumeCompensation = 1.0
+        }
+        logger.info("[SWITCH-DESTROY] Volume compensation: source=\(sourceVolume), dest=\(destVolume), ratio=\(self._deviceVolumeCompensation)")
 
         _forceSilence = true
         OSMemoryBarrier()  // Ensure audio thread sees this write immediately
@@ -1098,11 +1203,11 @@ final class ProcessTapController {
     private func processAudioSecondary(_ inputBufferList: UnsafePointer<AudioBufferList>, to outputBufferList: UnsafeMutablePointer<AudioBufferList>) {
         let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
         let inputBuffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputBufferList))
-        _diagCallbackCount += 1
+        _diagSecondaryCallbackCount += 1
 
         // Check silence flag first (atomic Bool read)
         if _forceSilence {
-            _diagSilencedForce += 1
+            _diagSecondarySilencedForce += 1
             zeroOutputBuffers(outputBuffers)
             return
         }
@@ -1115,25 +1220,26 @@ final class ProcessTapController {
             sampleRate: 48000
         )
 
-        // Record format info (RT-safe atomic writes)
-        _diagFormatChannels = UInt32(format.channelCount)
-        _diagFormatIsFloat = format.isFloat32
-        _diagFormatIsInterleaved = format.isInterleaved
-        _diagFormatSampleRate = Float(format.sampleRate)
+        // Record format info to secondary counters (RT-safe atomic writes)
+        _diagSecondaryFormatChannels = UInt32(format.channelCount)
+        _diagSecondaryFormatIsFloat = format.isFloat32
+        _diagSecondaryFormatIsInterleaved = format.isInterleaved
+        _diagSecondaryFormatSampleRate = Float(format.sampleRate)
 
         // Track peak level for VU meter (RT-safe: simple max tracking + smoothing)
         // Always measure INPUT signal so VU shows source activity even when muted
+        // Uses _secondaryPeakLevel to avoid read-modify-write race with primary callback
         var totalSamplesThisBuffer: Int = 0
         if format.isFloat32 {
             let maxPeak = computePeak(inputBuffers: inputBuffers)
             let rawPeak = min(maxPeak, 1.0)
-            _peakLevel = _peakLevel + levelSmoothingFactor * (rawPeak - _peakLevel)
+            _secondaryPeakLevel = _secondaryPeakLevel + levelSmoothingFactor * (rawPeak - _secondaryPeakLevel)
             if rawPeak > 0 {
-                _diagInputHasData += 1
-                _diagLastInputPeak = rawPeak
+                _diagSecondaryInputHasData += 1
+                _diagSecondaryLastInputPeak = rawPeak
             }
         } else {
-            _peakLevel = 0.0
+            _secondaryPeakLevel = 0.0
         }
 
         if inputBuffers.count > 0 {
@@ -1157,7 +1263,7 @@ final class ProcessTapController {
         // Check user mute flag (atomic Bool read)
         // When muted, output zeros but VU meter still shows source activity (measured above)
         if _isMuted {
-            _diagSilencedMute += 1
+            _diagSecondarySilencedMute += 1
             zeroOutputBuffers(outputBuffers)
             return
         }
@@ -1176,7 +1282,7 @@ final class ProcessTapController {
         let activeRampCoef = crossfadeState.isActive ? secondaryRampCoefficient : rampCoefficient
 
         if let converter = secondaryConverter {
-            _diagConverterUsed += 1
+            _diagSecondaryConverterUsed += 1
             let processed = processWithConverter(
                 converter: converter,
                 format: format,
@@ -1191,28 +1297,28 @@ final class ProcessTapController {
                 allowEQ: !crossfadeState.isActive
             )
             if processed {
-                _diagOutputWritten += 1
-                _diagLastOutputPeak = computeOutputPeak(outputBuffers)
+                _diagSecondaryOutputWritten += 1
+                _diagSecondaryLastOutputPeak = computeOutputPeak(outputBuffers)
                 _secondaryCurrentVolume = currentVol
                 return
             }
-            _diagConverterFailed += 1
+            _diagSecondaryConverterFailed += 1
         }
 
         // If format isn't Float32 PCM, pass through untouched (avoid corrupting non-float buffers)
         // During crossfade, silence non-float output to prevent doubled audio from both taps
         guard format.isFloat32 else {
-            _diagNonFloatPassthrough += 1
+            _diagSecondaryNonFloatPassthrough += 1
             if crossfadeMultiplier < 1.0 {
                 zeroOutputBuffers(outputBuffers)
             } else {
                 copyInputToOutput(inputBuffers: inputBuffers, outputBuffers: outputBuffers)
             }
-            _diagOutputWritten += 1
+            _diagSecondaryOutputWritten += 1
             return
         }
 
-        _diagDirectFloat += 1
+        _diagSecondaryDirectFloat += 1
 
         processFloatBuffers(
             format: format,
@@ -1243,8 +1349,8 @@ final class ProcessTapController {
             )
         }
 
-        _diagOutputWritten += 1
-        _diagLastOutputPeak = computeOutputPeak(outputBuffers)
+        _diagSecondaryOutputWritten += 1
+        _diagSecondaryLastOutputPeak = computeOutputPeak(outputBuffers)
 
         // Store for next callback
         _secondaryCurrentVolume = currentVol
@@ -1382,6 +1488,42 @@ final class ProcessTapController {
         destroyConverter(&secondaryConverter)
 
         logger.info("Tap invalidated for \(self.app.name)")
+    }
+
+    /// Async version of invalidate() that waits for CoreAudio resource destruction to complete.
+    /// Use this when you need to ensure all resources are fully torn down before proceeding
+    /// (e.g., recreating taps immediately after destruction).
+    func invalidateAsync() async {
+        guard activated else { return }
+        activated = false
+
+        logger.debug("Invalidating tap (async) for \(self.app.name)")
+
+        // Stop crossfade immediately if in progress (includes OSMemoryBarrier)
+        crossfadeState.complete()
+
+        // Await destruction of both tap resource sets
+        await withCheckedContinuation { continuation in
+            let group = DispatchGroup()
+            if primaryResources.tapID.isValid || primaryResources.aggregateDeviceID.isValid {
+                group.enter()
+                primaryResources.destroyAsync { group.leave() }
+            }
+            if secondaryResources.tapID.isValid || secondaryResources.aggregateDeviceID.isValid {
+                group.enter()
+                secondaryResources.destroyAsync { group.leave() }
+            }
+            group.notify(queue: .global(qos: .utility)) {
+                continuation.resume()
+            }
+        }
+
+        primaryFormat = nil
+        secondaryFormat = nil
+        destroyConverter(&primaryConverter)
+        destroyConverter(&secondaryConverter)
+
+        logger.info("Tap invalidated (async) for \(self.app.name)")
     }
 
 #if DEBUG

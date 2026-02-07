@@ -16,15 +16,10 @@ public enum CrossfadeConfig {
 }
 
 /// State machine phases for device switching crossfade.
-public enum CrossfadePhase: Equatable {
-    /// No crossfade in progress
-    case idle
-    /// Secondary tap created, waiting for warmup
-    case warmingUp
-    /// Crossfade in progress (0 → 1)
-    case crossfading
-    /// Crossfade complete, promoting secondary to primary
-    case completing
+public enum CrossfadePhase: Int, Equatable {
+    case idle = 0
+    case warmingUp = 1
+    case crossfading = 2
 }
 
 /// RT-safe crossfade state container.
@@ -36,10 +31,21 @@ public struct CrossfadeState: @unchecked Sendable {
     /// Current crossfade progress (0 = full primary, 1 = full secondary)
     nonisolated(unsafe) public var progress: Float = 0
 
-    /// Whether a crossfade is currently active
-    nonisolated(unsafe) public var isActive: Bool = false
+    /// RT-safe phase storage (Int for atomic reads on audio thread)
+    nonisolated(unsafe) private var _phaseRawValue: Int = 0
 
-    /// Sample count from secondary callback (drives timing)
+    /// Current crossfade phase
+    public var phase: CrossfadePhase {
+        get { CrossfadePhase(rawValue: _phaseRawValue) ?? .idle }
+        set { _phaseRawValue = newValue.rawValue }
+    }
+
+    /// Backward-compatible: true when warmingUp OR crossfading
+    public var isActive: Bool {
+        _phaseRawValue != CrossfadePhase.idle.rawValue
+    }
+
+    /// Sample count from secondary callback (drives crossfade timing)
     nonisolated(unsafe) public var secondarySampleCount: Int64 = 0
 
     /// Total samples for the crossfade duration
@@ -53,14 +59,22 @@ public struct CrossfadeState: @unchecked Sendable {
 
     public init() {}
 
-    /// Resets all state for a new crossfade
+    /// Resets all state and enters warmingUp phase (secondary tap starting, not yet crossfading)
     public mutating func beginCrossfade(at sampleRate: Double) {
         progress = 0
         secondarySampleCount = 0
         secondarySamplesProcessed = 0
         totalSamples = CrossfadeConfig.totalSamples(at: sampleRate)
-        isActive = true
-        OSMemoryBarrier()  // Ensure audio callbacks see all state before isActive
+        phase = .warmingUp
+        OSMemoryBarrier()  // Ensure audio callbacks see all state before phase change
+    }
+
+    /// Transitions from warmingUp to crossfading (called after warmup confirmed)
+    public mutating func beginCrossfading() {
+        secondarySampleCount = 0
+        progress = 0
+        phase = .crossfading
+        OSMemoryBarrier()
     }
 
     /// Updates progress based on samples processed (called from secondary callback)
@@ -69,7 +83,7 @@ public struct CrossfadeState: @unchecked Sendable {
     @inline(__always)
     public mutating func updateProgress(samples: Int) -> Float {
         secondarySamplesProcessed += samples
-        if isActive {
+        if phase == .crossfading {
             secondarySampleCount += Int64(samples)
             progress = min(1.0, Float(secondarySampleCount) / Float(max(1, totalSamples)))
         }
@@ -78,7 +92,7 @@ public struct CrossfadeState: @unchecked Sendable {
 
     /// Completes the crossfade and resets all state
     public mutating func complete() {
-        isActive = false
+        phase = .idle
         progress = 0
         secondarySampleCount = 0
         secondarySamplesProcessed = 0
@@ -97,25 +111,30 @@ public struct CrossfadeState: @unchecked Sendable {
     }
 
     /// Computes equal-power fade-out multiplier for primary tap.
-    /// cos(0) = 1.0, cos(π/2) = 0.0
+    /// cos(0) = 1.0, cos(pi/2) = 0.0
     @inline(__always)
     public var primaryMultiplier: Float {
-        if isActive {
+        switch phase {
+        case .idle:
+            return progress >= 1.0 ? 0.0 : 1.0
+        case .warmingUp:
+            return 1.0
+        case .crossfading:
             return cos(progress * .pi / 2.0)
-        } else if progress >= 1.0 {
-            // Crossfade complete but not yet reset - stay silent
-            return 0.0
         }
-        return 1.0
     }
 
     /// Computes equal-power fade-in multiplier for secondary tap.
-    /// sin(0) = 0.0, sin(π/2) = 1.0
+    /// sin(0) = 0.0, sin(pi/2) = 1.0
     @inline(__always)
     public var secondaryMultiplier: Float {
-        if isActive {
+        switch phase {
+        case .idle:
+            return 1.0  // After promotion, full volume
+        case .warmingUp:
+            return 0.0
+        case .crossfading:
             return sin(progress * .pi / 2.0)
         }
-        return 1.0  // After promotion, full volume
     }
 }

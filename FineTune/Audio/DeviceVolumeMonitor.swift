@@ -327,7 +327,7 @@ final class DeviceVolumeMonitor {
             // causing audio to not play until the device is "poked" (e.g., by System Settings).
             let transport = newDeviceID?.readTransportType() ?? .unknown
             if transport == .bluetooth || transport == .bluetoothLE {
-                let btDelay = await MainActor.run { self?.bluetoothInitDelayMs ?? 500 }
+                let btDelay = await MainActor.run { [weak self] in self?.bluetoothInitDelayMs ?? 500 }
                 try? await Task.sleep(for: .milliseconds(btDelay))
             }
 

@@ -119,6 +119,9 @@ final class DefaultDeviceBehaviorTests: XCTestCase {
         engine.deviceMonitor.setOutputDevicesForTests([realDevice])
 
         let app = makeFakeApp()
+        // App needs custom settings to pass the hasCustomSettings guard
+        // (apps with no saved state are intentionally skipped on startup)
+        settings.setVolume(for: app.persistenceIdentifier, to: 0.8)
         engine.applyPersistedSettingsForTests(apps: [app])
 
         let persistedUID = settings.getDeviceRouting(for: app.persistenceIdentifier)

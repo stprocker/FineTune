@@ -52,6 +52,21 @@ final class SettingsManager {
         }
     }
 
+    /// Updates all persisted device routings to the given device.
+    /// Called when the user selects a new output device in the OUTPUT DEVICES section
+    /// so that inactive/paused apps will use the new device when they start playing again.
+    func updateAllDeviceRoutings(to deviceUID: String) {
+        guard !settings.appDeviceRouting.isEmpty else { return }
+        var changed = false
+        for identifier in settings.appDeviceRouting.keys {
+            if settings.appDeviceRouting[identifier] != deviceUID {
+                settings.appDeviceRouting[identifier] = deviceUID
+                changed = true
+            }
+        }
+        if changed { scheduleSave() }
+    }
+
     func hasCustomSettings(for identifier: String) -> Bool {
         settings.appDeviceRouting[identifier] != nil
             || settings.appVolumes[identifier] != nil
