@@ -8,7 +8,7 @@ import AudioToolbox
 /// - `pci` (kAudioDeviceTransportTypePCI)
 /// - `fireWire` (kAudioDeviceTransportTypeFireWire)
 /// - See kAudioDeviceTransportType* constants in AudioHardware.h
-enum TransportType: Sendable {
+nonisolated enum TransportType: Sendable {
     case builtIn
     case usb
     case bluetooth
@@ -20,7 +20,7 @@ enum TransportType: Sendable {
     case aggregate
     case unknown
 
-    init(rawValue: UInt32) {
+    nonisolated init(rawValue: UInt32) {
         switch rawValue {
         case kAudioDeviceTransportTypeBuiltIn:     self = .builtIn
         case kAudioDeviceTransportTypeUSB:         self = .usb
@@ -37,7 +37,7 @@ enum TransportType: Sendable {
 
     /// Default SF Symbol for this transport type.
     /// Used as fallback when device-specific icon unavailable.
-    var defaultIconSymbol: String {
+    nonisolated var defaultIconSymbol: String {
         switch self {
         case .builtIn:     return "hifispeaker"
         case .usb:         return "headphones"

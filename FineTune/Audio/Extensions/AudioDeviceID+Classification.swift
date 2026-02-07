@@ -18,7 +18,7 @@ extension AudioDeviceID {
         return classID == kAudioAggregateDeviceClassID
     }
 
-    @MainActor func isVirtualDevice() -> Bool {
+    nonisolated func isVirtualDevice() -> Bool {
         readTransportType() == .virtual
     }
 }
@@ -69,4 +69,3 @@ extension AudioDeviceID {
         return transport.defaultIconSymbol
     }
 }
-

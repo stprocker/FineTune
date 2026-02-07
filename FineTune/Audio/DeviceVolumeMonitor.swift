@@ -318,7 +318,7 @@ final class DeviceVolumeMonitor {
             // Read CoreAudio properties on background thread to avoid blocking MainActor
             let newDeviceID = try? AudioDeviceID.readDefaultOutputDevice()
             let newDeviceUID = try? newDeviceID?.readDeviceUID()
-            let isVirtual = await newDeviceID?.isVirtualDevice() ?? false
+            let isVirtual = newDeviceID?.isVirtualDevice() ?? false
 
             // Bluetooth devices need extra time for stream initialization after connection.
             // Without this, process tap creation may fail because output streams aren't ready yet,
@@ -450,7 +450,7 @@ final class DeviceVolumeMonitor {
 
             // Read on background thread
             await Task.detached { [weak self] in
-                let newVolume = await deviceID.readOutputVolumeScalar()
+                let newVolume = deviceID.readOutputVolumeScalar()
 
                 await MainActor.run { [weak self] in
                     guard let self else { return }
@@ -508,7 +508,7 @@ final class DeviceVolumeMonitor {
 
             // Read on background thread
             await Task.detached { [weak self] in
-                let newMuteState = await deviceID.readMuteState()
+                let newMuteState = deviceID.readMuteState()
 
                 await MainActor.run { [weak self] in
                     guard let self else { return }
@@ -556,8 +556,8 @@ final class DeviceVolumeMonitor {
             var bluetoothDeviceIDs: [AudioDeviceID] = []
 
             for device in devices {
-                let volume = await device.id.readOutputVolumeScalar()
-                let muted = await device.id.readMuteState()
+                let volume = device.id.readOutputVolumeScalar()
+                let muted = device.id.readMuteState()
                 volumeResults[device.id] = volume
                 muteResults[device.id] = muted
 
@@ -567,13 +567,16 @@ final class DeviceVolumeMonitor {
                 }
             }
 
+            let volumeSnapshot = volumeResults
+            let muteSnapshot = muteResults
+
             // Update state on MainActor
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                for (deviceID, volume) in volumeResults {
+                for (deviceID, volume) in volumeSnapshot {
                     self.volumes[deviceID] = volume
                 }
-                for (deviceID, muted) in muteResults {
+                for (deviceID, muted) in muteSnapshot {
                     self.muteStates[deviceID] = muted
                 }
             }
@@ -588,8 +591,8 @@ final class DeviceVolumeMonitor {
                 }
                 guard stillTracked else { continue }
 
-                let confirmedVolume = await deviceID.readOutputVolumeScalar()
-                let confirmedMute = await deviceID.readMuteState()
+                let confirmedVolume = deviceID.readOutputVolumeScalar()
+                let confirmedMute = deviceID.readMuteState()
 
                 await MainActor.run { [weak self] in
                     guard let self, self.volumes.keys.contains(deviceID) else { return }

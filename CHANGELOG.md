@@ -1,11 +1,13 @@
 # Changelog
 
-## [Unreleased] - 2026-02-06
+## [Unreleased] - 2026-02-07
 
 ### Fixed
 - **False-positive permission confirmation causing post-Allow mute risk:** `AudioEngine` permission confirmation now requires real input evidence (`inputHasData > 0` or `lastInputPeak > 0.0001`) in addition to callback/output activity. Prevents premature tap recreation with `.mutedWhenTapped` while input is still silent.
 - **Menu bar panel sizing recursion trigger:** Removed forced `layoutSubtreeIfNeeded` path from `MenuBarStatusController` panel sizing logic and switched to `fittingSize` fallback sizing only.
 - **SingleInstanceGuard actor-isolation warnings in Xcode debug flow:** Guard helper methods are now explicitly `nonisolated`, eliminating main-actor isolation warning calls from this utility path.
+- **Additional Swift 6 actor/concurrency warnings in audio wrappers and monitors:** `AudioScope`/`TransportType` utilities, device volume/mute CoreAudio wrappers, and monitor callsites now use explicit nonisolated-safe access patterns. Also fixed captured mutable vars in async contexts (`DeviceVolumeMonitor`) via immutable snapshots before `MainActor.run`.
+- **`AudioDeviceMonitor` cache warning noise with `@Observable`:** marked cache dictionaries as `@ObservationIgnored` while retaining explicit cross-actor lookup strategy.
 
 ### Added
 - **Permission confirmation test coverage (fail-first then pass):**
@@ -16,6 +18,7 @@
   - `docs/ai-chat-history/2026-02-07-xcode-permission-pause-menubar-trace-and-audio-mute-fix.md`
 
 ### Changed
+- **Concurrency annotation cleanup for CoreAudio utility types:** `AudioScope.propertyScope`, `TransportType.init(rawValue:)`, and `TransportType.defaultIconSymbol` now compile cleanly under default MainActor isolation when called from nonisolated codepaths.
 - **Replaced FluidMenuBarExtra with native AppKit status item:** FluidMenuBarExtra v1.5.1 relied on `NSEvent.addLocalMonitorForEvents` to detect clicks on the status bar button, which is broken on macOS 26. Replaced with direct `NSStatusItem` + `button.action`/`target` pattern using `NSApplicationDelegateAdaptor` for reliable AppKit lifecycle initialization.
   - New `MenuBarStatusController` class (`FineTune/Views/MenuBar/MenuBarStatusController.swift`) — owns `NSStatusItem`, `KeyablePanel`, and popup lifecycle
   - New `AppDelegate` in `FineTuneApp.swift` — uses `@NSApplicationDelegateAdaptor` to set up AudioEngine and menu bar in `applicationDidFinishLaunching`

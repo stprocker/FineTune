@@ -26,6 +26,10 @@ final class AudioEngine {
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
     private var lastDisplayedApp: AudioApp?
     private var previousActiveAppIDs: Set<pid_t> = []
+    private var lastAudibleAtByPID: [pid_t: Date] = [:]
+    private let pausedLevelThreshold: Float = 0.002
+    private let pausedSilenceGraceInterval: TimeInterval = 0.5
+    private var pauseEligiblePIDsForTests: Set<pid_t>?
 
     /// Whether system audio recording permission has been confirmed THIS SESSION.
     /// Per-session flag (not persisted) — on each launch, taps start with `.unmuted`
@@ -281,7 +285,15 @@ final class AudioEngine {
     }
 
     func isPausedDisplayApp(_ app: AudioApp) -> Bool {
-        apps.isEmpty && lastDisplayedApp?.id == app.id
+        if apps.isEmpty && lastDisplayedApp?.id == app.id {
+            return true
+        }
+
+        guard apps.contains(where: { $0.id == app.id }) else { return false }
+        let isPauseEligible = taps[app.id] != nil || (pauseEligiblePIDsForTests?.contains(app.id) ?? false)
+        guard isPauseEligible else { return false }
+        let lastAudibleAt = lastAudibleAtByPID[app.id] ?? .distantPast
+        return Date().timeIntervalSince(lastAudibleAt) >= pausedSilenceGraceInterval
     }
 
     /// Audio levels for all active apps (for VU meter visualization)
@@ -296,7 +308,27 @@ final class AudioEngine {
 
     /// Get audio level for a specific app
     func getAudioLevel(for app: AudioApp) -> Float {
-        taps[app.id]?.audioLevel ?? 0.0
+        let level = taps[app.id]?.audioLevel ?? 0.0
+        if level > pausedLevelThreshold {
+            lastAudibleAtByPID[app.id] = Date()
+        }
+        return level
+    }
+
+    /// Resolves which device UID should be shown in the row picker.
+    /// Priority: explicit app routing, then current system default (if visible), then first visible device.
+    func resolvedDeviceUIDForDisplay(
+        app: AudioApp,
+        availableDevices: [AudioDevice],
+        defaultDeviceUID: String?
+    ) -> String {
+        if let routedUID = appDeviceRouting[app.id], availableDevices.contains(where: { $0.uid == routedUID }) {
+            return routedUID
+        }
+        if let defaultDeviceUID, availableDevices.contains(where: { $0.uid == defaultDeviceUID }) {
+            return defaultDeviceUID
+        }
+        return availableDevices.first?.uid ?? ""
     }
 
     func start() {
@@ -750,6 +782,11 @@ final class AudioEngine {
 
     private func updateDisplayedAppsState(activeApps: [AudioApp]) {
         let activeIDs = Set(activeApps.map(\.id))
+        var pidsToKeep = activeIDs
+        if let cachedID = lastDisplayedApp?.id {
+            pidsToKeep.insert(cachedID)
+        }
+        lastAudibleAtByPID = lastAudibleAtByPID.filter { pidsToKeep.contains($0.key) }
         defer { previousActiveAppIDs = activeIDs }
 
         guard !activeApps.isEmpty else {
@@ -760,6 +797,10 @@ final class AudioEngine {
                 lastDisplayedApp = nil
             }
             return
+        }
+
+        for pid in activeIDs where lastAudibleAtByPID[pid] == nil {
+            lastAudibleAtByPID[pid] = Date()
         }
 
         let newlyActiveIDs = activeIDs.subtracting(previousActiveAppIDs)
@@ -783,5 +824,15 @@ final class AudioEngine {
     func updateDisplayedAppsStateForTests(activeApps: [AudioApp]) {
         processMonitor.setActiveAppsForTests(activeApps, notify: false)
         updateDisplayedAppsState(activeApps: activeApps)
+    }
+
+    @MainActor
+    func setLastAudibleAtForTests(pid: pid_t, date: Date?) {
+        lastAudibleAtByPID[pid] = date
+    }
+
+    @MainActor
+    func setPauseEligibilityForTests(_ pids: Set<pid_t>?) {
+        pauseEligiblePIDsForTests = pids
     }
 }

@@ -18,6 +18,7 @@ final class AudioProcessMonitor {
     private var processListListenerBlock: AudioObjectPropertyListenerBlock?
     private var processListenerBlocks: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
     private var monitoredProcesses: Set<AudioObjectID> = []
+    private var refreshTask: Task<Void, Never>?
 
     private var processListAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyProcessObjectList,
@@ -118,6 +119,16 @@ final class AudioProcessMonitor {
 
         // Initial refresh
         refresh()
+
+        // Safety poll for pause/resume transitions that don't reliably trigger listeners.
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard let self else { return }
+                await self.refreshAsync()
+            }
+        }
     }
 
     func stop() {
@@ -131,6 +142,8 @@ final class AudioProcessMonitor {
 
         // Remove all per-process listeners
         removeAllProcessListeners()
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
     private func refresh() {

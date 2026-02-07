@@ -150,10 +150,11 @@ struct MenuBarPopupView: View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
             ForEach(audioEngine.displayedApps) { app in
                 // Use explicit device routing if available, otherwise fall back to first real (non-virtual) device
-                // Don't use defaultDeviceUID as fallback — it may be a virtual device (e.g., SRAudioDriver)
-                let deviceUID = audioEngine.appDeviceRouting[app.id]
-                    ?? audioEngine.outputDevices.first?.uid
-                    ?? ""
+                let deviceUID = audioEngine.resolvedDeviceUIDForDisplay(
+                    app: app,
+                    availableDevices: audioEngine.outputDevices,
+                    defaultDeviceUID: deviceVolumeMonitor.defaultDeviceUID
+                )
                 AppRowWithLevelPolling(
                     app: app,
                     volume: audioEngine.getVolume(for: app),

@@ -111,6 +111,8 @@ struct AppRow: View {
                     Text(app.name)
                         .font(DesignTokens.Typography.rowName)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(0)
                         .opacity(rowTitleOpacity)
 
                     if isPaused {
@@ -130,6 +132,8 @@ struct AppRow: View {
                             Capsule()
                                 .stroke(Color.primary.opacity(0.16), lineWidth: 0.5)
                         )
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(2)
                         .foregroundStyle(DesignTokens.Colors.textSecondary)
                     }
                 }

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import AudioToolbox
 @testable import FineTuneIntegration
 
 /// Tests for AudioEngine routing state management.
@@ -226,5 +227,30 @@ final class AudioEngineRoutingTests: XCTestCase {
         XCTAssertFalse(engine.isPausedDisplayApp(second))
         XCTAssertFalse(engine.displayedApps.contains(where: { $0.id == first.id }),
                        "Paused fallback app should not be shown while an active app exists")
+    }
+
+    func testActiveAppIsMarkedPausedAfterSilenceGrace() {
+        let app = makeFakeApp(pid: 13001, name: "YouTube", bundleID: "com.brave.Browser")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.setPauseEligibilityForTests([app.id])
+
+        engine.setLastAudibleAtForTests(pid: app.id, date: Date().addingTimeInterval(-5))
+        XCTAssertTrue(engine.isPausedDisplayApp(app),
+                      "Active app with stale audio activity should show paused quickly")
+    }
+
+    func testResolvedDisplayDevicePrefersDefaultWhenNoExplicitRouting() {
+        let app = makeFakeApp(pid: 14001, name: "Brave", bundleID: "com.brave.Browser")
+        let builtIn = AudioDevice(id: AudioDeviceID(1), uid: "built-in", name: "Built-in", icon: nil)
+        let calDigit = AudioDevice(id: AudioDeviceID(2), uid: "caldigit", name: "CalDigit", icon: nil)
+
+        let resolved = engine.resolvedDeviceUIDForDisplay(
+            app: app,
+            availableDevices: [calDigit, builtIn],
+            defaultDeviceUID: "built-in"
+        )
+
+        XCTAssertEqual(resolved, "built-in",
+                       "UI should show system default device when app has no explicit routing")
     }
 }

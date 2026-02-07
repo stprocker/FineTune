@@ -1,6 +1,7 @@
 // FineTune/Audio/AudioDeviceMonitor.swift
 import AppKit
 import AudioToolbox
+import Observation
 import os
 
 // Use shared CoreAudio listener queue
@@ -11,10 +12,14 @@ private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
 final class AudioDeviceMonitor {
     private(set) var outputDevices: [AudioDevice] = []
 
-    /// O(1) device lookup by UID (nonisolated for cross-actor reads from ProcessTapController)
+    /// O(1) device lookup by UID (nonisolated for cross-actor reads from ProcessTapController).
+    /// Marked ObservationIgnored so @Observable does not actor-isolate this cache field.
+    @ObservationIgnored
     nonisolated(unsafe) private(set) var devicesByUID: [String: AudioDevice] = [:] // Cross-actor reads only; updated on MainActor
 
-    /// O(1) device lookup by AudioDeviceID (nonisolated for cross-actor reads from ProcessTapController)
+    /// O(1) device lookup by AudioDeviceID (nonisolated for cross-actor reads from ProcessTapController).
+    /// Marked ObservationIgnored so @Observable does not actor-isolate this cache field.
+    @ObservationIgnored
     nonisolated(unsafe) private(set) var devicesByID: [AudioDeviceID: AudioDevice] = [:] // Cross-actor reads only; updated on MainActor
 
     /// Called immediately when device disappears (passes UID and name)
