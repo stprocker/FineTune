@@ -120,47 +120,29 @@ final class DeviceVolumeMonitor {
         refreshDeviceListeners()
 
         // Listen for default output device changes (with debouncing)
-        defaultDeviceListenerBlock = { [weak self] _, _ in
+        let defaultBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 self?.defaultDeviceDebounceTask?.cancel()
                 self?.defaultDeviceDebounceTask = Task { @MainActor [weak self] in
-                    // Wait for System Settings to finish its handshake with coreaudiod
-                    // before we potentially hammer the HAL with app re-routing.
                     try? await Task.sleep(for: .milliseconds(self?.defaultDeviceDebounceMs ?? 300))
                     guard !Task.isCancelled else { return }
                     self?.handleDefaultDeviceChanged()
                 }
             }
         }
-
-        let defaultDeviceStatus = AudioObjectAddPropertyListenerBlock(
-            .system,
-            &defaultDeviceAddress,
-            coreAudioListenerQueue,
-            defaultDeviceListenerBlock!
+        defaultDeviceListenerBlock = AudioObjectID.system.addPropertyListener(
+            address: &defaultDeviceAddress, queue: coreAudioListenerQueue, block: defaultBlock
         )
 
-        if defaultDeviceStatus != noErr {
-            logger.error("Failed to add default device listener: \(defaultDeviceStatus)")
-        }
-
         // Listen for coreaudiod restart to recover from daemon crashes
-        serviceRestartListenerBlock = { [weak self] _, _ in
+        let restartBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 self?.handleServiceRestarted()
             }
         }
-
-        let serviceRestartStatus = AudioObjectAddPropertyListenerBlock(
-            .system,
-            &serviceRestartAddress,
-            coreAudioListenerQueue,
-            serviceRestartListenerBlock!
+        serviceRestartListenerBlock = AudioObjectID.system.addPropertyListener(
+            address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: restartBlock
         )
-
-        if serviceRestartStatus != noErr {
-            logger.error("Failed to add service restart listener: \(serviceRestartStatus)")
-        }
 
         // Observe device list changes from deviceMonitor using withObservationTracking
         startObservingDeviceList()
@@ -188,13 +170,13 @@ final class DeviceVolumeMonitor {
 
         // Remove default device listener
         if let block = defaultDeviceListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &defaultDeviceAddress, coreAudioListenerQueue, block)
+            AudioObjectID.system.removePropertyListener(address: &defaultDeviceAddress, queue: coreAudioListenerQueue, block: block)
             defaultDeviceListenerBlock = nil
         }
 
         // Remove service restart listener
         if let block = serviceRestartListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &serviceRestartAddress, coreAudioListenerQueue, block)
+            AudioObjectID.system.removePropertyListener(address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: block)
             serviceRestartListenerBlock = nil
         }
 
@@ -435,19 +417,9 @@ final class DeviceVolumeMonitor {
             }
         }
 
-        volumeListeners[deviceID] = block
-
         var address = volumeAddress
-        let status = AudioObjectAddPropertyListenerBlock(
-            deviceID,
-            &address,
-            coreAudioListenerQueue,
-            block
-        )
-
-        if status != noErr {
-            logger.warning("Failed to add volume listener for device \(deviceID): \(status)")
-            volumeListeners.removeValue(forKey: deviceID)
+        if deviceID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
+            volumeListeners[deviceID] = block
         }
     }
 
@@ -455,7 +427,7 @@ final class DeviceVolumeMonitor {
         guard let block = volumeListeners[deviceID] else { return }
 
         var address = volumeAddress
-        AudioObjectRemovePropertyListenerBlock(deviceID, &address, coreAudioListenerQueue, block)
+        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
         volumeListeners.removeValue(forKey: deviceID)
     }
 
@@ -493,19 +465,9 @@ final class DeviceVolumeMonitor {
             }
         }
 
-        muteListeners[deviceID] = block
-
         var address = muteAddress
-        let status = AudioObjectAddPropertyListenerBlock(
-            deviceID,
-            &address,
-            coreAudioListenerQueue,
-            block
-        )
-
-        if status != noErr {
-            logger.warning("Failed to add mute listener for device \(deviceID): \(status)")
-            muteListeners.removeValue(forKey: deviceID)
+        if deviceID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
+            muteListeners[deviceID] = block
         }
     }
 
@@ -513,7 +475,7 @@ final class DeviceVolumeMonitor {
         guard let block = muteListeners[deviceID] else { return }
 
         var address = muteAddress
-        AudioObjectRemovePropertyListenerBlock(deviceID, &address, coreAudioListenerQueue, block)
+        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
         muteListeners.removeValue(forKey: deviceID)
     }
 

@@ -100,22 +100,14 @@ final class AudioProcessMonitor {
         logger.debug("Starting audio process monitor")
 
         // Set up listener first - fires on coreAudioListenerQueue
-        processListListenerBlock = { [weak self] numberAddresses, addresses in
+        let listBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task.detached { [weak self] in
                 await self?.refreshAsync()
             }
         }
-
-        let status = AudioObjectAddPropertyListenerBlock(
-            .system,
-            &processListAddress,
-            coreAudioListenerQueue,
-            processListListenerBlock!
+        processListListenerBlock = AudioObjectID.system.addPropertyListener(
+            address: &processListAddress, queue: coreAudioListenerQueue, block: listBlock
         )
-
-        if status != noErr {
-            logger.error("Failed to add process list listener: \(status)")
-        }
 
         // Initial refresh
         refresh()
@@ -136,7 +128,7 @@ final class AudioProcessMonitor {
 
         // Remove process list listener
         if let block = processListListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &processListAddress, coreAudioListenerQueue, block)
+            AudioObjectID.system.removePropertyListener(address: &processListAddress, queue: coreAudioListenerQueue, block: block)
             processListListenerBlock = nil
         }
 
@@ -285,12 +277,8 @@ final class AudioProcessMonitor {
             }
         }
 
-        let status = AudioObjectAddPropertyListenerBlock(objectID, &address, coreAudioListenerQueue, block)
-
-        if status == noErr {
+        if objectID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
             processListenerBlocks[objectID] = block
-        } else {
-            logger.warning("Failed to add isRunning listener for \(objectID): \(status)")
         }
     }
 
@@ -303,7 +291,7 @@ final class AudioProcessMonitor {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        AudioObjectRemovePropertyListenerBlock(objectID, &address, coreAudioListenerQueue, block)
+        objectID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
     }
 
     private func removeAllProcessListeners() {

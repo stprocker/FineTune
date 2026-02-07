@@ -54,52 +54,35 @@ final class AudioDeviceMonitor {
 
         refresh()
 
-        deviceListListenerBlock = { [weak self] _, _ in
-            // Listener fires on coreAudioListenerQueue - do CoreAudio reads here, not on MainActor
+        let deviceListBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task.detached { [weak self] in
                 await self?.handleDeviceListChangedAsync()
             }
         }
-
-        let status = AudioObjectAddPropertyListenerBlock(
-            .system,
-            &deviceListAddress,
-            coreAudioListenerQueue,
-            deviceListListenerBlock!
+        deviceListListenerBlock = AudioObjectID.system.addPropertyListener(
+            address: &deviceListAddress, queue: coreAudioListenerQueue, block: deviceListBlock
         )
 
-        if status != noErr {
-            logger.error("Failed to add device list listener: \(status)")
-        }
-
-        serviceRestartListenerBlock = { [weak self] _, _ in
+        let restartBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task.detached { [weak self] in
                 await self?.handleServiceRestartedAsync()
             }
         }
-
-        let restartStatus = AudioObjectAddPropertyListenerBlock(
-            .system,
-            &serviceRestartAddress,
-            coreAudioListenerQueue,
-            serviceRestartListenerBlock!
+        serviceRestartListenerBlock = AudioObjectID.system.addPropertyListener(
+            address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: restartBlock
         )
-
-        if restartStatus != noErr {
-            logger.error("Failed to add service restart listener: \(restartStatus)")
-        }
     }
 
     func stop() {
         logger.debug("Stopping audio device monitor")
 
         if let block = deviceListListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &deviceListAddress, coreAudioListenerQueue, block)
+            AudioObjectID.system.removePropertyListener(address: &deviceListAddress, queue: coreAudioListenerQueue, block: block)
             deviceListListenerBlock = nil
         }
 
         if let block = serviceRestartListenerBlock {
-            AudioObjectRemovePropertyListenerBlock(.system, &serviceRestartAddress, coreAudioListenerQueue, block)
+            AudioObjectID.system.removePropertyListener(address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: block)
             serviceRestartListenerBlock = nil
         }
     }
