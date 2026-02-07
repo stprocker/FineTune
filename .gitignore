@@ -28,3 +28,7 @@ _local/
 *.swp
 .gemini/
 gha-creds-*.json
+
+# LanceDB artifacts
+.lancedb/
+lancedb/
