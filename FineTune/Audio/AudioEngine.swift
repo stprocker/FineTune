@@ -69,6 +69,8 @@ final class AudioEngine {
     /// Stored task for `handleServiceRestarted` — cancelled on re-entry to prevent
     /// overlapping delayed tasks from clearing `isRecreatingTaps` prematurely.
     private var serviceRestartTask: Task<Void, Never>?
+    private var diagnosticPollTask: Task<Void, Never>?
+    private var pauseRecoveryPollTask: Task<Void, Never>?
     /// Snapshot of tap diagnostics from the previous health check cycle.
     /// Used to detect both stalled taps (callbacks stopped) and broken taps
     /// (callbacks running but reporter disconnected — empty input, no output).
@@ -299,7 +301,7 @@ final class AudioEngine {
             }
 
             // Diagnostic + health check timer (heavy, 3s)
-            Task { @MainActor [weak self] in
+            diagnosticPollTask = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: self?.diagnosticPollInterval ?? .seconds(3))
                     guard let self else { return }
@@ -312,7 +314,7 @@ final class AudioEngine {
             // Breaks the circular dependency where isPaused→true stops VU polling,
             // which prevents lastAudibleAtByPID updates, which keeps isPaused→true forever.
             // This reads tap.audioLevel directly, independent of UI polling state.
-            Task { @MainActor [weak self] in
+            pauseRecoveryPollTask = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: self?.pauseRecoveryPollInterval ?? .seconds(1))
                     guard let self else { return }
@@ -739,6 +741,14 @@ final class AudioEngine {
         deviceMonitor.stop()
         deviceVolumeMonitor.stop()
         mediaNotificationMonitor.stop()
+        diagnosticPollTask?.cancel()
+        diagnosticPollTask = nil
+        pauseRecoveryPollTask?.cancel()
+        pauseRecoveryPollTask = nil
+        for task in pendingCleanup.values { task.cancel() }
+        pendingCleanup.removeAll()
+        serviceRestartTask?.cancel()
+        serviceRestartTask = nil
         for task in switchTasks.values { task.cancel() }
         switchTasks.removeAll()
         for tap in taps.values {

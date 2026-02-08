@@ -12,8 +12,8 @@ import Foundation
 ///   C — bundleIDs + processRestoreEnabled (macOS 26)
 /// Not MainActor — runs entirely on a background thread to avoid freezing the UI.
 final class TapAPITestRunner: @unchecked Sendable {
-    private static var isRunning = false
-    static let logFile = URL(fileURLWithPath: "/tmp/TapAPITest.log")
+    nonisolated(unsafe) private static var isRunning = false
+    nonisolated(unsafe) static let logFile = URL(fileURLWithPath: "/tmp/TapAPITest.log")
 
     private nonisolated func log(_ msg: String) {
         let line = msg + "\n"

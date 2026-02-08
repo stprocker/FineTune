@@ -79,6 +79,8 @@
        for each agent-assisted run starting with the next sequential number. 
 	-review and update /docs/architecture and /docs/known_issues
 
+    6. Update CHANGELOG
+
 ──────────────────────────────────────────────────────────────────────────────
 3.  CODING STANDARDS
 ──────────────────────────────────────────────────────────────────────────────

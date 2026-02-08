@@ -62,6 +62,7 @@ let package = Package(
                 "EQSettingsTests.swift",
                 "GainProcessorTests.swift",
                 "SoftLimiterTests.swift",
+                "PostEQLimiterTests.swift",
                 "VolumeMappingTests.swift",
                 "VolumeRamperTests.swift",
             ]

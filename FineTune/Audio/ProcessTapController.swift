@@ -1204,6 +1204,7 @@ final class ProcessTapController {
                 output: outputSamples,
                 frameCount: frameCount
             )
+            SoftLimiter.processBuffer(outputSamples, sampleCount: sampleCount)
         }
 
         _diagOutputWritten += 1
@@ -1366,6 +1367,7 @@ final class ProcessTapController {
                 output: outputSamples,
                 frameCount: frameCount
             )
+            SoftLimiter.processBuffer(outputSamples, sampleCount: sampleCount)
         }
 
         _diagSecondaryOutputWritten += 1

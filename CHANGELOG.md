@@ -2,6 +2,65 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Safety & Reliability Fixes
+
+Six safety and reliability fixes addressing hearing safety, resource lifecycle, startup ordering, and data integrity.
+Full details: `docs/ai-chat-history/2026-02-08-safety-and-reliability-fixes.md`
+
+#### Added
+- **Post-EQ soft limiter** (hearing safety) — `SoftLimiter.processBuffer()` now runs after every `eqProcessor.process()` call across all three audio paths (primary tap, secondary tap, format converter). Prevents EQ bands at +12 dB from boosting output above 1.0. Signal chain is now: Gain -> SoftLimiter -> EQ -> SoftLimiter -> Output.
+- **PostEQLimiterTests.swift** — 3 tests: boosted signal clamping, below-threshold passthrough, interleaved stereo mixed amplitudes
+- **Thread-safe CrashGuard** — `os_unfair_lock` protects `trackDevice()`/`untrackDevice()` against data race between MainActor and `DispatchQueue.global(qos: .utility)` callers. Signal handler intentionally does not take the lock (standard signal-safe pattern).
+
+#### Fixed
+- **Post-EQ clipping (hearing safety):** EQ boost could push limited signal well above 1.0. Post-EQ `SoftLimiter.processBuffer()` now guarantees output <= 1.0 for any finite input.
+- **Leaked polling tasks on AudioEngine.stop():** Diagnostic health check (3s) and pause-recovery (1s) polling loops, plus `pendingCleanup` grace-period tasks and `serviceRestartTask`, were fire-and-forget. Now stored as task handles and cancelled in `stop()`.
+- **Second instance nukes first instance's audio:** `OrphanedTapCleanup.destroyOrphanedDevices()` ran before `SingleInstanceGuard` check, destroying the running instance's live aggregate devices. Reordered so single-instance check runs first; duplicate instance terminates immediately without creating any resources.
+- **NaN in EQ settings maps to max boost:** Corrupted settings with NaN band gains were mapped to +12 dB (max) due to IEEE 754 `min`/`max` behavior. Now maps NaN and Infinity to 0 dB (flat).
+- **CrashGuard data race:** `trackDevice()` (MainActor) and `untrackDevice()` (utility queue) had unsynchronized access to `gDeviceCount` and slot array. Now protected by `os_unfair_lock`.
+
+#### Known Issues
+- **PostEQLimiterTests not runnable via `swift test`** — compiles but can't execute due to pre-existing Sparkle dependency issue. Verified via standalone compilation.
+
+### Settings Panel Restoration + System Sounds Device Port
+
+Restored the missing Settings gear button and settings panel to the menu bar popup, and ported full system sounds device tracking from the original developer's codebase.
+Full details: `docs/ai-chat-history/2026-02-08-settings-panel-and-system-sounds-device-port.md`
+
+#### Added
+- **Settings gear button** in menu bar popup header — morphs to X when settings are open, with spring rotation animation
+- **Settings panel** slides in from the right with spring transition when gear is tapped; main content slides out to the left
+- **`Cmd+,` keyboard shortcut** to toggle settings panel from within the popup
+- **`UpdateManager` instantiation** — Sparkle update manager now created in `MenuBarPopupViewModel` and wired to `SettingsUpdateRow`
+- **Live menu bar icon switching** — changing the icon style in Settings immediately updates the status bar icon (via `onIconChanged` callback from ViewModel through `MenuBarStatusController`)
+- **System sounds device tracking** in `DeviceVolumeMonitor`:
+  - `systemDeviceID`, `systemDeviceUID`, `isSystemFollowingDefault` state properties
+  - CoreAudio listener for `kAudioHardwarePropertyDefaultSystemOutputDevice` with debouncing
+  - `setSystemFollowDefault()` and `setSystemDeviceExplicit(_:)` public control methods
+  - Automatic sync: when "follow default" is enabled, system sounds device updates whenever default output device changes
+  - External change detection: if system sounds device is changed outside FineTune (e.g., System Settings), "follow default" state is properly broken and persisted
+  - Startup validation: enforces persisted "follow default" preference if actual state drifted
+  - coreaudiod restart recovery: system device state re-read on daemon restart
+
+#### Changed
+- **`MenuBarPopupViewModel`** — now owns settings panel state (`isSettingsOpen`, `localAppSettings`), `UpdateManager`, icon change callback, and `toggleSettings()`/`syncSettings()` methods
+- **`MenuBarPopupView`** — body restructured with conditional settings/main content rendering and slide transitions
+- **`MenuBarStatusController`** — stores `popupViewModel` reference, wires `onIconChanged` to `updateIcon(to:)`
+- **`DeviceVolumeMonitor.init()`** — now loads persisted system sounds preference and reads initial system device
+- **`DeviceVolumeMonitor.start()`** — registers system device listener, validates system sound state on startup
+- **`DeviceVolumeMonitor.stop()`** — cleans up system device listener and state
+- **`DeviceVolumeMonitor.applyDefaultDeviceChange()`** — syncs system sounds when following default
+- **`DeviceVolumeMonitor.handleServiceRestarted()`** — refreshes system device on coreaudiod recovery
+
+#### Fixed
+- **Settings panel not accessible (from 2026-02-07 known issues)** — settings gear button and panel navigation now work in the fork's `MenuBarPopupView`
+- **Sound Effects device row non-functional** — previously wired with placeholder values (`nil`/`true`/no-ops); now connected to real `DeviceVolumeMonitor` system device properties
+
+#### Known Issues
+- **All changes are compile-verified only** — settings panel and system sounds device tracking have not been runtime-tested
+- **`SystemSoundsDeviceChanges.swift` is dead code** — 200-line documentation stub should be deleted now that integration is complete
+- **Settings panel doesn't auto-close on popup dismiss** — `isSettingsOpen` persists across popup show/hide cycles
+
 ### Crash-Safe Cleanup for Orphaned CoreAudio Resources
 
 Ensures orphaned FineTune process taps are always cleaned up, even after crashes or `kill -9`.

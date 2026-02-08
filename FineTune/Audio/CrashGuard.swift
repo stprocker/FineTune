@@ -1,5 +1,6 @@
 // FineTune/Audio/CrashGuard.swift
 import AudioToolbox
+import os
 
 // MARK: - Signal-Safe Globals
 
@@ -8,6 +9,7 @@ import AudioToolbox
 // Written from main/utility threads, read from signal handler (single execution).
 private nonisolated(unsafe) var gDeviceSlots: UnsafeMutablePointer<AudioObjectID>?
 private nonisolated(unsafe) var gDeviceCount: Int32 = 0
+private nonisolated(unsafe) var gDeviceLock = os_unfair_lock()
 private let gMaxDeviceSlots = 64
 
 // MARK: - Crash Signal Handler
@@ -57,6 +59,8 @@ enum CrashGuard {
     /// Registers an aggregate device for crash-safe cleanup.
     /// Call immediately after successful `AudioHardwareCreateAggregateDevice`.
     static func trackDevice(_ deviceID: AudioObjectID) {
+        os_unfair_lock_lock(&gDeviceLock)
+        defer { os_unfair_lock_unlock(&gDeviceLock) }
         guard let slots = gDeviceSlots else { return }
         let idx = Int(gDeviceCount)
         guard idx < gMaxDeviceSlots else { return }
@@ -67,6 +71,8 @@ enum CrashGuard {
     /// Removes an aggregate device from crash-safe tracking.
     /// Call immediately before `AudioHardwareDestroyAggregateDevice`.
     static func untrackDevice(_ deviceID: AudioObjectID) {
+        os_unfair_lock_lock(&gDeviceLock)
+        defer { os_unfair_lock_unlock(&gDeviceLock) }
         guard let slots = gDeviceSlots else { return }
         let n = Int(gDeviceCount)
         for i in 0..<n {

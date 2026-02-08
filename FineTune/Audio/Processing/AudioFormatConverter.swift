@@ -239,6 +239,7 @@ enum AudioFormatConverter {
                     output: outputSamples,
                     frameCount: actualFrames
                 )
+                SoftLimiter.processBuffer(outputSamples, sampleCount: Int(actualFrames) * 2)
             }
 
             var outputContext = ConverterInputContext(

@@ -17,6 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("[APPDELEGATE] applicationDidFinishLaunching fired")
 
+        // FIRST: bail immediately if another instance is running.
+        // Must happen before OrphanedTapCleanup, which would destroy
+        // the running instance's live aggregate devices.
+        if SingleInstanceGuard.shouldTerminateCurrentInstance() {
+            logger.warning("Another FineTune instance detected; terminating this process.")
+            NSApplication.shared.terminate(nil)
+            return
+        }
+
         // Clean up any orphaned aggregate devices from a previous crash,
         // then install crash signal handlers for this session
         OrphanedTapCleanup.destroyOrphanedDevices()
@@ -28,14 +37,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.audioEngine = engine
 
         installSignalHandlers()
-
-        if SingleInstanceGuard.shouldTerminateCurrentInstance() {
-            logger.warning("Another FineTune instance detected; terminating this process.")
-            engine.stopSync()
-            settings.flushSync()
-            NSApplication.shared.terminate(nil)
-            return
-        }
 
         // Request notification authorization (for device disconnect alerts)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, error in
