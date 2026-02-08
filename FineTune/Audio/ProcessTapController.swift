@@ -117,20 +117,26 @@ final class ProcessTapController {
 
     // MARK: - Diagnostics (TapDiagnostics struct is in Tap/TapDiagnostics.swift)
 
+    // Sums primary + secondary diagnostic counters.
+    // During crossfade: both taps are active, sum reflects total activity.
+    // After promotion: the promoted IOProc dynamically routes to processAudio
+    // (via captured aggregate ID), so primary counters increment. But as a
+    // belt-and-suspenders measure, we include secondary counters to prevent
+    // false stall detection if the dynamic dispatch hasn't kicked in yet.
     var diagnostics: TapDiagnostics {
         TapDiagnostics(
-            callbackCount: _diagCallbackCount,
-            inputHasData: _diagInputHasData,
-            outputWritten: _diagOutputWritten,
-            silencedForce: _diagSilencedForce,
-            silencedMute: _diagSilencedMute,
-            converterUsed: _diagConverterUsed,
-            converterFailed: _diagConverterFailed,
-            directFloat: _diagDirectFloat,
-            nonFloatPassthrough: _diagNonFloatPassthrough,
-            emptyInput: _diagEmptyInput,
-            lastInputPeak: _diagLastInputPeak,
-            lastOutputPeak: _diagLastOutputPeak,
+            callbackCount: _diagCallbackCount + _diagSecondaryCallbackCount,
+            inputHasData: _diagInputHasData + _diagSecondaryInputHasData,
+            outputWritten: _diagOutputWritten + _diagSecondaryOutputWritten,
+            silencedForce: _diagSilencedForce + _diagSecondarySilencedForce,
+            silencedMute: _diagSilencedMute + _diagSecondarySilencedMute,
+            converterUsed: _diagConverterUsed + _diagSecondaryConverterUsed,
+            converterFailed: _diagConverterFailed + _diagSecondaryConverterFailed,
+            directFloat: _diagDirectFloat + _diagSecondaryDirectFloat,
+            nonFloatPassthrough: _diagNonFloatPassthrough + _diagSecondaryNonFloatPassthrough,
+            emptyInput: _diagEmptyInput + _diagSecondaryEmptyInput,
+            lastInputPeak: max(_diagLastInputPeak, _diagSecondaryLastInputPeak),
+            lastOutputPeak: max(_diagLastOutputPeak, _diagSecondaryLastOutputPeak),
             outputBufCount: _diagOutputBufCount,
             outputBuf0ByteSize: _diagOutputBuf0ByteSize,
             formatChannels: _diagFormatChannels,
@@ -696,10 +702,20 @@ final class ProcessTapController {
         // Initialize secondary volume to match primary for smooth handoff
         _secondaryCurrentVolume = _primaryCurrentVolume
 
-        // Create IO proc for secondary
+        // Create IO proc for secondary.
+        // Captures the aggregate device ID so that after promotion (when this device becomes
+        // primaryResources.aggregateDeviceID), the callback dynamically routes to processAudio
+        // instead of processAudioSecondary. This ensures the promoted tap uses the correct
+        // crossfade multiplier (primaryMultiplier = fade-out) on subsequent device switches,
+        // and writes to the correct diagnostic counters for health monitoring.
+        let capturedAggID = secondaryResources.aggregateDeviceID
         err = AudioDeviceCreateIOProcIDWithBlock(&secondaryResources.deviceProcID, secondaryResources.aggregateDeviceID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
             guard let self else { return }
-            self.processAudioSecondary(inInputData, to: outOutputData)
+            if capturedAggID == self.primaryResources.aggregateDeviceID {
+                self.processAudio(inInputData, to: outOutputData)
+            } else {
+                self.processAudioSecondary(inInputData, to: outOutputData)
+            }
         }
         guard err == noErr else {
             CrashGuard.untrackDevice(secondaryResources.aggregateDeviceID)
@@ -743,6 +759,10 @@ final class ProcessTapController {
         // Reset crossfade state (includes memory barrier for audio callback visibility)
         crossfadeState.complete()
 
+        // Reset volume compensation — crossfade didn't complete, so the ratio
+        // computed for the source→dest transition is stale and must not persist.
+        _deviceVolumeCompensation = 1.0
+
         // Clean up secondary CoreAudio resources
         secondaryResources.destroy()
         secondaryFormat = nil
@@ -753,6 +773,12 @@ final class ProcessTapController {
     }
 
     /// Promotes secondary tap to primary after crossfade.
+    ///
+    /// After promotion, the IOProc (which was registered with processAudioSecondary)
+    /// dynamically routes to processAudio via the captured aggregate device ID check.
+    /// Secondary format/volume are preserved (not nil'd/zeroed) so that any callbacks
+    /// still in flight as processAudioSecondary see valid state during the brief
+    /// transition window before the memory barrier in crossfadeState.complete().
     private func promoteSecondaryToPrimary() {
         // Transfer resources from secondary to primary
         primaryResources = secondaryResources
@@ -760,8 +786,14 @@ final class ProcessTapController {
 
         primaryFormat = secondaryFormat
         primaryConverter = secondaryConverter
-        secondaryFormat = nil
+        // Nil secondaryConverter to transfer ownership — prevents double-free when
+        // next createSecondaryTap() calls destroyConverter(&secondaryConverter).
+        // Brief window where in-flight callbacks see nil is safe: processAudioSecondary
+        // falls through to direct float path (if let converter = secondaryConverter skips).
         secondaryConverter = nil
+        // Keep secondaryFormat intact (struct copy, no ownership issue).
+        // In-flight callbacks that haven't yet seen the promoted aggregateDeviceID
+        // will still have valid format data instead of a zeroed fallback.
 
         // Update ramp coefficient and EQ processor sample rate for new device
         let deviceSampleRate = (try? primaryResources.aggregateDeviceID.readNominalSampleRate()) ?? 48000
@@ -769,12 +801,11 @@ final class ProcessTapController {
         eqProcessor?.updateSampleRate(deviceSampleRate)
 
         // Transfer volume state from secondary to primary (prevents volume jump)
+        // Keep _secondaryCurrentVolume intact for in-flight callbacks
         _primaryCurrentVolume = _secondaryCurrentVolume
-        _secondaryCurrentVolume = 0
 
         // Transfer peak level from secondary to primary
         _peakLevel = _secondaryPeakLevel
-        _secondaryPeakLevel = 0.0
 
         // Merge secondary diagnostic counters into primary (preserves totals across crossfades)
         _diagCallbackCount += _diagSecondaryCallbackCount

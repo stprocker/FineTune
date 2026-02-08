@@ -1,6 +1,7 @@
 // FineTune/Utilities/URLHandler.swift
 import Foundation
 import os
+import FineTuneCore
 
 /// Handles URL scheme actions for FineTune (finetune://...)
 @MainActor

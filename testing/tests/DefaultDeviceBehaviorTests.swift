@@ -22,7 +22,7 @@ final class DefaultDeviceBehaviorTests: XCTestCase {
 
     func testVirtualDefaultDoesNotOverrideExplicitRouting() {
         let deviceMonitor = AudioDeviceMonitor()
-        let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor)
+        let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor, settingsManager: SettingsManager())
 
         var routedUIDs: [String] = []
         volumeMonitor.onDefaultDeviceChangedExternally = { uid in
@@ -55,7 +55,7 @@ final class DefaultDeviceBehaviorTests: XCTestCase {
 
     func testDefaultFlipBackDoesNotRouteVirtual() {
         let deviceMonitor = AudioDeviceMonitor()
-        let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor)
+        let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor, settingsManager: SettingsManager())
 
         var routedUIDs: [String] = []
         volumeMonitor.onDefaultDeviceChangedExternally = { uid in

@@ -43,6 +43,7 @@ let package = Package(
                 "Info.plist",
                 "Info-Debug.plist",
                 "FineTune.entitlements",
+                "Settings/UpdateManager.swift",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
