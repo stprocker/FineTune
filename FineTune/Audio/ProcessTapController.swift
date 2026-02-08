@@ -456,10 +456,14 @@ final class ProcessTapController {
             return
         }
 
+        // Snapshot state for diagnostics before the guard narrows optionality
+        let diagCurrentUID = currentDeviceUID ?? "nil"
+        let diagTargetUID = targetDeviceUID
+
         // Skip if already on the target device (can happen when a cancelled switch
         // leaves us on the original device and the new switch targets the same device)
         guard currentDeviceUID != newDeviceUID else {
-            logger.debug("[SWITCH] Already on target device \(newDeviceUID), skipping")
+            logger.debug("[SWITCH] Already on target device \(newDeviceUID), skipping (currentDeviceUID=\(diagCurrentUID), targetDeviceUID=\(diagTargetUID))")
             targetDeviceUID = newDeviceUID
             return
         }
@@ -467,7 +471,7 @@ final class ProcessTapController {
         try Task.checkCancellation()
 
         let startTime = CFAbsoluteTimeGetCurrent()
-        logger.info("[SWITCH] === START === \(self.app.name) -> \(newDeviceUID)")
+        logger.info("[SWITCH] === START === \(self.app.name) -> \(newDeviceUID) (currentDeviceUID=\(diagCurrentUID), targetDeviceUID=\(diagTargetUID))")
 
         // Use device UID directly (always explicit)
         let newOutputUID = newDeviceUID
@@ -482,7 +486,8 @@ final class ProcessTapController {
             // If cancelled by a newer switch, don't attempt destructive fallback —
             // the newer switch will handle routing to the correct device.
             if Task.isCancelled {
-                logger.info("[SWITCH] Cancelled during crossfade for \(self.app.name), aborting")
+                let phaseDesc: String = switch self.crossfadeState.phase { case .idle: "idle"; case .warmingUp: "warmingUp"; case .crossfading: "crossfading" }
+                logger.info("[SWITCH] Cancelled during crossfade for \(self.app.name), aborting (currentDeviceUID=\(self.currentDeviceUID ?? "nil"), targetDeviceUID=\(self.targetDeviceUID), crossfadePhase=\(phaseDesc))")
                 throw CancellationError()
             }
 
@@ -542,8 +547,9 @@ final class ProcessTapController {
         // Fresh ratio computed at each switch — no cumulative attenuation
         if sourceVolume > 0.01 && destVolume > 0.01 {
             _deviceVolumeCompensation = sourceVolume / destVolume
-            // Clamp to reasonable range to avoid extreme amplification
-            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 4.0)
+            // Clamp to reasonable range: max 2x avoids clipping/garbling when
+            // device volumes differ significantly (e.g., 62% speakers → 6% AirPods)
+            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 2.0)
         } else {
             _deviceVolumeCompensation = 1.0
         }
@@ -905,8 +911,9 @@ final class ProcessTapController {
         // Fresh ratio computed at each switch — no cumulative attenuation
         if sourceVolume > 0.01 && destVolume > 0.01 {
             _deviceVolumeCompensation = sourceVolume / destVolume
-            // Clamp to reasonable range to avoid extreme amplification
-            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 4.0)
+            // Clamp to reasonable range: max 2x avoids clipping/garbling when
+            // device volumes differ significantly (e.g., 62% speakers → 6% AirPods)
+            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 2.0)
         } else {
             _deviceVolumeCompensation = 1.0
         }

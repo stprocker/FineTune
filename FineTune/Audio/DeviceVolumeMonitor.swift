@@ -39,8 +39,9 @@ final class DeviceVolumeMonitor {
     var onMuteChanged: ((AudioDeviceID, Bool) -> Void)?
 
     /// Called when default device changes externally (e.g., from System Settings)
-    /// This allows AudioEngine to route all apps to the new device
-    var onDefaultDeviceChangedExternally: ((_ deviceUID: String) -> Void)?
+    /// This allows AudioEngine to route all apps to the new device.
+    /// The triggerSource parameter identifies what fired the callback for diagnostics.
+    var onDefaultDeviceChangedExternally: ((_ deviceUID: String, _ triggerSource: String) -> Void)?
 
     /// Flag to track if WE initiated the default device change (prevents feedback loop)
     private var isSettingDefaultDevice = false
@@ -376,7 +377,8 @@ final class DeviceVolumeMonitor {
                 // Update local state immediately for UI responsiveness
                 self.defaultDeviceID = deviceID
                 self.defaultDeviceUID = uid
-                self.onDefaultDeviceChangedExternally?(uid)
+                logger.debug("[ROUTE-TRIGGER] Manual callback from setDefaultDevice(\(deviceID)) → \(uid)")
+                self.onDefaultDeviceChangedExternally?(uid, "setDefaultDevice-manual")
             }
 
             Task.detached { [weak self, setDefaultConfirmationDelayMs] in
@@ -388,11 +390,14 @@ final class DeviceVolumeMonitor {
                     guard let self else { return }
                     guard let confirmedID, confirmedID.isValid else { return }
                     if confirmedID != deviceID {
+                        self.logger.warning("[ROUTE-TRIGGER] Confirmation task: expected device \(deviceID) but got \(confirmedID) (uid=\(confirmedUID ?? "nil")) after \(setDefaultConfirmationDelayMs)ms — triggering reroute")
                         self.defaultDeviceID = confirmedID
                         self.defaultDeviceUID = confirmedUID
                         if let uid = confirmedUID {
-                            self.onDefaultDeviceChangedExternally?(uid)
+                            self.onDefaultDeviceChangedExternally?(uid, "confirmation-task-mismatch")
                         }
+                    } else {
+                        self.logger.debug("[ROUTE-TRIGGER] Confirmation task: device \(deviceID) confirmed after \(setDefaultConfirmationDelayMs)ms — no action needed")
                     }
                 }
             }
@@ -550,7 +555,8 @@ final class DeviceVolumeMonitor {
 
         // Notify AudioEngine to route all apps to the new device
         if let uid = deviceUID {
-            onDefaultDeviceChangedExternally?(uid)
+            logger.debug("[ROUTE-TRIGGER] Listener path: applyDefaultDeviceChange(\(deviceID)) → \(uid)")
+            onDefaultDeviceChangedExternally?(uid, "listener-external")
         }
 
         // Sync system sounds if following default

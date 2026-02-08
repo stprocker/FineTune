@@ -44,6 +44,7 @@ let package = Package(
                 "Info-Debug.plist",
                 "FineTune.entitlements",
                 "Settings/UpdateManager.swift",
+                "Utilities/URLHandler.swift",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),

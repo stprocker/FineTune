@@ -352,7 +352,8 @@ final class SettingsManager {
             let data = try JSONEncoder().encode(settings)
             try data.write(to: settingsURL, options: .atomic)
 
-            logger.debug("Saved settings")
+            let routingMap = settings.appDeviceRouting.map { "\($0.key)→\($0.value)" }.joined(separator: ", ")
+            logger.debug("Saved settings (routings: [\(routingMap)])")
         } catch {
             logger.error("Failed to save settings: \(error.localizedDescription)")
         }

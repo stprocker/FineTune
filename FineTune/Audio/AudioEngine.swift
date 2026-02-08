@@ -29,6 +29,8 @@ final class AudioEngine {
     private var followsDefault: Set<pid_t> = []
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
+    private var lastRouteAllAppsTimestamp: CFAbsoluteTime = 0
+    private var lastRouteAllAppsDevice: String?
     private var lastDisplayedApp: AudioApp?
     private var previousActiveAppIDs: Set<pid_t> = []
     private var lastAudibleAtByPID: [pid_t: Date] = [:]
@@ -237,14 +239,14 @@ final class AudioEngine {
             }
 
             // Sync external default device changes (e.g., from System Settings) to all tapped apps
-            deviceVolumeMonitor.onDefaultDeviceChangedExternally = { [weak self] deviceUID in
+            deviceVolumeMonitor.onDefaultDeviceChangedExternally = { [weak self] deviceUID, triggerSource in
                 guard let self else { return }
                 if self.shouldSuppressDeviceNotifications {
                     self.logger.info("Ignoring default device change to \(deviceUID) — recreation active or grace period (\(String(format: "%.1f", Date().timeIntervalSince(self.recreationEndedAt)))s since end)")
                     return
                 }
-                self.logger.info("System default device changed externally to: \(deviceUID)")
-                self.routeAllApps(to: deviceUID)
+                self.logger.info("[ROUTE-TRIGGER] System default device changed to: \(deviceUID) (trigger=\(triggerSource))")
+                self.routeAllApps(to: deviceUID, source: "routeAllApps(\(triggerSource))")
             }
 
             deviceMonitor.onDeviceDisconnected = { [weak self] deviceUID, deviceName in
@@ -814,11 +816,17 @@ final class AudioEngine {
 
     // MARK: - Routing
 
-    func setDevice(for app: AudioApp, deviceUID: String) {
+    func setDevice(for app: AudioApp, deviceUID: String, source: String = "unknown") {
         // Allow re-routing when tap is missing (e.g., previous activation failed)
         // so users can retry device selection instead of getting silently blocked.
         let tapExists = taps[app.id] != nil
-        guard appDeviceRouting[app.id] != deviceUID || !tapExists else { return }
+        guard appDeviceRouting[app.id] != deviceUID || !tapExists else {
+            logger.debug("[ROUTE] setDevice(\(app.name), \(deviceUID)) skipped — already routed (source=\(source))")
+            return
+        }
+
+        let hasInflightSwitch = switchTasks[app.id] != nil
+        logger.info("[ROUTE] setDevice(\(app.name), \(deviceUID)) source=\(source) current=\(self.appDeviceRouting[app.id] ?? "nil") hasInflightSwitch=\(hasInflightSwitch)")
 
         // Explicit device selection clears temporary follow-default state
         followsDefault.remove(app.id)
@@ -826,6 +834,9 @@ final class AudioEngine {
         // Cancel any in-flight switch for this app to prevent concurrent switches.
         // Concurrent switchDevice calls on the same ProcessTapController corrupt
         // crossfade state and can cause crackling, audio drops, or stuck taps.
+        if hasInflightSwitch {
+            logger.info("[ROUTE] Cancelling in-flight switch for \(app.name) (source=\(source), new target=\(deviceUID))")
+        }
         switchTasks[app.id]?.cancel()
 
         let previousDeviceUID = appDeviceRouting[app.id]
@@ -889,7 +900,7 @@ final class AudioEngine {
     /// Routes all currently-active apps to the specified device.
     /// Called when user selects a device in the OUTPUT DEVICES section.
     /// This provides macOS-like "switch all audio" behavior.
-    func routeAllApps(to deviceUID: String) {
+    func routeAllApps(to deviceUID: String, source: String = "unknown") {
         // SAFETY: Reject routing during recreation to prevent spurious device-change
         // notifications from corrupting all persisted routing data.
         // This is belt-and-suspenders with the callback guard — if a notification
@@ -898,6 +909,17 @@ final class AudioEngine {
             logger.warning("routeAllApps(\(deviceUID)) blocked — recreation active or grace period")
             return
         }
+
+        // PROTECTION: Detect rapid contradictory reroutes that indicate a feedback loop.
+        // If routeAllApps was called very recently to a DIFFERENT device, something is
+        // fighting over the default device. Log prominently for diagnostics.
+        let now = CFAbsoluteTimeGetCurrent()
+        if let lastDevice = lastRouteAllAppsDevice, lastDevice != deviceUID,
+           now - lastRouteAllAppsTimestamp < 1.0 {
+            logger.warning("[ROUTE-CONFLICT] routeAllApps(\(deviceUID)) contradicts recent routeAllApps(\(lastDevice)) from \(String(format: "%.0f", (now - self.lastRouteAllAppsTimestamp) * 1000))ms ago (source=\(source))")
+        }
+        lastRouteAllAppsTimestamp = now
+        lastRouteAllAppsDevice = deviceUID
 
         // Early exit: if all in-memory routings already point at this device
         // AND all persisted routings match, skip the entire operation.
@@ -925,15 +947,27 @@ final class AudioEngine {
             return
         }
 
-        let appsToSwitch = apps.filter { shouldRouteAllApps(for: $0) && appDeviceRouting[$0.id] != deviceUID }
+        var appsToSwitch = apps.filter { shouldRouteAllApps(for: $0) && appDeviceRouting[$0.id] != deviceUID }
+
+        // PROTECTION: Skip apps with in-flight switches to prevent cancelling
+        // a switch that's already in progress. The in-flight switch will complete
+        // and route the app correctly; cancelling it mid-crossfade causes the
+        // "already on target" stale-state bug.
+        let appsWithInflightSwitch = appsToSwitch.filter { switchTasks[$0.id] != nil }
+        if !appsWithInflightSwitch.isEmpty {
+            let names = appsWithInflightSwitch.map(\.name).joined(separator: ", ")
+            logger.warning("[ROUTE-PROTECT] Skipping \(appsWithInflightSwitch.count) app(s) with in-flight switches: \(names) (source=\(source))")
+            appsToSwitch = appsToSwitch.filter { switchTasks[$0.id] == nil }
+        }
+
         if appsToSwitch.isEmpty {
-            logger.debug("All \(self.apps.count) app(s) already on device: \(deviceUID)")
+            logger.debug("All \(self.apps.count) app(s) already on device or have in-flight switches: \(deviceUID)")
             return
         }
 
-        logger.info("Routing \(appsToSwitch.count)/\(self.apps.count) app(s) to device: \(deviceUID)")
+        logger.info("Routing \(appsToSwitch.count)/\(self.apps.count) app(s) to device: \(deviceUID) (source=\(source))")
         for app in appsToSwitch {
-            setDevice(for: app, deviceUID: deviceUID)
+            setDevice(for: app, deviceUID: deviceUID, source: source)
         }
     }
 

@@ -383,7 +383,7 @@ struct MenuBarPopupView: View {
                 audioEngine.setMute(for: app, to: muted)
             },
             onDeviceSelected: { newDeviceUID in
-                audioEngine.setDevice(for: app, deviceUID: newDeviceUID)
+                audioEngine.setDevice(for: app, deviceUID: newDeviceUID, source: "user-per-app")
             },
             onAppActivate: {
                 viewModel.activateApp(pid: app.id, bundleID: app.bundleID)

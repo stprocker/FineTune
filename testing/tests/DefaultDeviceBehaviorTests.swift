@@ -25,7 +25,7 @@ final class DefaultDeviceBehaviorTests: XCTestCase {
         let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor, settingsManager: SettingsManager())
 
         var routedUIDs: [String] = []
-        volumeMonitor.onDefaultDeviceChangedExternally = { uid in
+        volumeMonitor.onDefaultDeviceChangedExternally = { uid, _ in
             routedUIDs.append(uid)
         }
 
@@ -58,7 +58,7 @@ final class DefaultDeviceBehaviorTests: XCTestCase {
         let volumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor, settingsManager: SettingsManager())
 
         var routedUIDs: [String] = []
-        volumeMonitor.onDefaultDeviceChangedExternally = { uid in
+        volumeMonitor.onDefaultDeviceChangedExternally = { uid, _ in
             routedUIDs.append(uid)
         }
 

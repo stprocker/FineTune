@@ -1,7 +1,6 @@
 // FineTune/Utilities/URLHandler.swift
 import Foundation
 import os
-import FineTuneCore
 
 /// Handles URL scheme actions for FineTune (finetune://...)
 @MainActor
@@ -243,7 +242,7 @@ final class URLHandler {
             return
         }
 
-        audioEngine.setDevice(for: app, deviceUID: deviceUID)
+        audioEngine.setDevice(for: app, deviceUID: deviceUID, source: "url-handler")
         logger.info("Routed \(app.name) to device \(deviceUID)")
     }
 
