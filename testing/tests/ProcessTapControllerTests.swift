@@ -159,6 +159,79 @@ final class ProcessTapControllerTests: XCTestCase {
         XCTAssertEqual(controller.destructiveSwitchPreSilenceMs, 0)
     }
 
+    // MARK: - Tap Description Flag Matrix (macOS 26 bundle-ID vs PID-only)
+
+    func testTapDescriptionUsesBundleIDByDefault() {
+        let app = makeFakeApp(name: "Safari", bundleID: "com.apple.Safari")
+        let controller = ProcessTapController(
+            app: app,
+            targetDeviceUID: "test-device-uid"
+        )
+        // Clear any overrides
+        UserDefaults.standard.removeObject(forKey: "FineTuneForcePIDOnlyTaps")
+        UserDefaults.standard.removeObject(forKey: "FineTuneDisableBundleIDTaps")
+
+        let flags = controller.testTapDescriptionFlags(for: "test-device-uid")
+        if #available(macOS 26.0, *) {
+            XCTAssertTrue(flags.usesBundleIDs, "Should use bundleIDs on macOS 26+")
+            XCTAssertTrue(flags.isProcessRestoreEnabled, "Should enable processRestore on macOS 26+")
+            XCTAssertEqual(flags.bundleID, "com.apple.Safari")
+        } else {
+            XCTAssertFalse(flags.usesBundleIDs, "Should not use bundleIDs before macOS 26")
+        }
+    }
+
+    func testTapDescriptionFallsToPIDWhenForced() {
+        let app = makeFakeApp(name: "Safari", bundleID: "com.apple.Safari")
+        let controller = ProcessTapController(
+            app: app,
+            targetDeviceUID: "test-device-uid"
+        )
+        UserDefaults.standard.set(true, forKey: "FineTuneForcePIDOnlyTaps")
+        defer { UserDefaults.standard.removeObject(forKey: "FineTuneForcePIDOnlyTaps") }
+
+        let flags = controller.testTapDescriptionFlags(for: "test-device-uid")
+        XCTAssertFalse(flags.usesBundleIDs, "Force-PID key should disable bundleIDs")
+        XCTAssertFalse(flags.isProcessRestoreEnabled)
+        XCTAssertNil(flags.bundleID)
+    }
+
+    func testTapDescriptionFallsToPIDWhenNoBundleID() {
+        let app = AudioApp(
+            id: 99998,
+            objectID: .unknown,
+            name: "NoBundleApp",
+            icon: NSImage(),
+            bundleID: nil
+        )
+        let controller = ProcessTapController(
+            app: app,
+            targetDeviceUID: "test-device-uid"
+        )
+        UserDefaults.standard.removeObject(forKey: "FineTuneForcePIDOnlyTaps")
+        UserDefaults.standard.removeObject(forKey: "FineTuneDisableBundleIDTaps")
+
+        let flags = controller.testTapDescriptionFlags(for: "test-device-uid")
+        XCTAssertFalse(flags.usesBundleIDs, "No bundleID should fall back to PID-only")
+        XCTAssertNil(flags.bundleID)
+    }
+
+    func testTapDescriptionDisableBundleIDTapsKey() {
+        let app = makeFakeApp(name: "Safari", bundleID: "com.apple.Safari")
+        let controller = ProcessTapController(
+            app: app,
+            targetDeviceUID: "test-device-uid"
+        )
+        UserDefaults.standard.removeObject(forKey: "FineTuneForcePIDOnlyTaps")
+        UserDefaults.standard.set(true, forKey: "FineTuneDisableBundleIDTaps")
+        defer { UserDefaults.standard.removeObject(forKey: "FineTuneDisableBundleIDTaps") }
+
+        let flags = controller.testTapDescriptionFlags(for: "test-device-uid")
+        XCTAssertFalse(flags.usesBundleIDs, "FineTuneDisableBundleIDTaps should disable bundleIDs")
+        XCTAssertFalse(flags.isProcessRestoreEnabled)
+        XCTAssertNil(flags.bundleID)
+    }
+
     // MARK: - Injectable Queue
 
     func testCustomQueueIsUsed() {

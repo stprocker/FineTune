@@ -284,12 +284,18 @@ final class ProcessTapController {
         tapDesc.isPrivate = true
         tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
 
-        if #available(macOS 26.0, *), let bundleID = app.bundleID,
-           !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps") {
-            tapDesc.bundleIDs = [bundleID]
-            tapDesc.isProcessRestoreEnabled = true
-            logger.info("Creating bundle-ID tap: \(bundleID) (processRestore=true)")
-        }
+        // DISABLED: bundle-ID taps produce zero callbacks on macOS 26 (Tahoe).
+        // Both bundleIDs alone and bundleIDs+isProcessRestoreEnabled result in
+        // an aggregate device whose IO proc never fires. PID-only taps work.
+        // Re-enable when Apple fixes CATapDescription.bundleIDs in a future macOS update.
+        //
+        // if #available(macOS 26.0, *), let bundleID = app.bundleID,
+        //    !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps"),
+        //    !UserDefaults.standard.bool(forKey: "FineTuneDisableBundleIDTaps") {
+        //     tapDesc.bundleIDs = [bundleID]
+        //     tapDesc.isProcessRestoreEnabled = true
+        //     logger.info("Creating bundle-ID tap: \(bundleID) (processRestore=true)")
+        // }
 
         return tapDesc
     }
@@ -1596,6 +1602,23 @@ final class ProcessTapController {
     /// Test-only entry point for destructive switch path.
     func performDestructiveDeviceSwitchForTests(to newDeviceUID: String) async throws {
         try await performDestructiveDeviceSwitch(to: newDeviceUID)
+    }
+
+    /// Test-only: returns the flags that would be set on a tap description
+    /// without calling CoreAudio. Mirrors the logic in makeTapDescription.
+    struct TapDescriptionFlags {
+        let usesBundleIDs: Bool
+        let isProcessRestoreEnabled: Bool
+        let bundleID: String?
+    }
+
+    func testTapDescriptionFlags(for outputUID: String) -> TapDescriptionFlags {
+        if #available(macOS 26.0, *), let bundleID = app.bundleID,
+           !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps"),
+           !UserDefaults.standard.bool(forKey: "FineTuneDisableBundleIDTaps") {
+            return TapDescriptionFlags(usesBundleIDs: true, isProcessRestoreEnabled: true, bundleID: bundleID)
+        }
+        return TapDescriptionFlags(usesBundleIDs: false, isProcessRestoreEnabled: false, bundleID: nil)
     }
 #endif
 

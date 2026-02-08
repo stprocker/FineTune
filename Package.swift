@@ -79,6 +79,7 @@ let package = Package(
                 "ProcessTapControllerTests.swift",
                 "StartupAudioInterruptionTests.swift",
                 "SingleInstanceGuardTests.swift",
+                "TapDiagnosticPatternTests.swift",
             ]
         ),
     ]

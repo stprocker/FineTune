@@ -137,10 +137,24 @@ final class AudioEngine {
 
     /// Permission is only considered confirmed once we see real input audio,
     /// not just callback/output activity (which can still be silent).
+    /// Also requires non-zero output peak so we don't upgrade to `.mutedWhenTapped`
+    /// when the aggregate output path is dead (the bundle-ID tap failure mode).
+    /// Exception: when volume is ~0, zero output peak is expected/legitimate.
     nonisolated static func shouldConfirmPermission(from diagnostics: TapDiagnostics) -> Bool {
         guard diagnostics.callbackCount > 10 else { return false }
         guard diagnostics.outputWritten > 0 else { return false }
-        return diagnostics.inputHasData > 0 || diagnostics.lastInputPeak > 0.0001
+
+        let hasInput = diagnostics.inputHasData > 0 || diagnostics.lastInputPeak > 0.0001
+        guard hasInput else { return false }
+
+        // If user expects audible output (volume > ~0), require real output peak
+        // to prevent promoting with dead output path (bundle-ID tap failure).
+        // Volume ~0 legitimately produces zero output peak — don't block permission.
+        let userExpectsAudio = diagnostics.volume > 0.01
+        if userExpectsAudio {
+            return diagnostics.lastOutputPeak > 0.0001
+        }
+        return true
     }
 
     var outputDevices: [AudioDevice] {
@@ -352,11 +366,19 @@ final class AudioEngine {
                 emptyInput: d.emptyInput
             )
 
-            // Skip first check (need a baseline)
-            guard prev.callbackCount > 0 else { continue }
-
             // Skip if we're in the middle of switching devices
             guard switchTasks[pid] == nil else { continue }
+
+            // Case 0: Dead — IO proc never fired across two health cycles.
+            // This catches taps targeting the wrong device or macOS 26 bundle-ID failures.
+            // Need two cycles (prev exists with callbackCount=0) to avoid false positives on fresh taps.
+            if prev.callbackCount == 0 && d.callbackCount == 0 && prev.outputWritten == 0 {
+                pidsToRecreate.append((pid, "dead (callbacks=0 across two health cycles)"))
+                continue
+            }
+
+            // Skip first real check (need a non-zero baseline for delta logic)
+            guard prev.callbackCount > 0 else { continue }
 
             let callbackDelta = d.callbackCount - prev.callbackCount
             let outputDelta = d.outputWritten - prev.outputWritten
@@ -387,6 +409,18 @@ final class AudioEngine {
             taps.removeValue(forKey: pid)
             appliedPIDs.remove(pid)
             lastHealthSnapshots.removeValue(forKey: pid)
+
+            // If tap is dead (zero callbacks), it may be targeting the wrong device.
+            // Try the system default device as fallback before recreating on the same device.
+            if reason.hasPrefix("dead") {
+                if let defaultUID = try? defaultOutputDeviceUIDProvider(), defaultUID != deviceUID {
+                    logger.info("[HEALTH] Rerouting \(app.name) to system default \(defaultUID)")
+                    appDeviceRouting[pid] = defaultUID
+                    settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: defaultUID)
+                    ensureTapExists(for: app, deviceUID: defaultUID)
+                    continue
+                }
+            }
 
             ensureTapExists(for: app, deviceUID: deviceUID)
         }
@@ -897,6 +931,44 @@ final class AudioEngine {
                         self.appliedPIDs.remove(pid)
                         self.lastHealthSnapshots.removeValue(forKey: pid)
                         self.ensureTapExists(for: app, deviceUID: deviceUID)
+                        return
+                    }
+
+                    // Dead = IO proc never fired at all (e.g., tap targeting wrong device,
+                    // or macOS 26 bundle-ID tap failure). After all fast checks with zero
+                    // callbacks, tear down and reroute to system default.
+                    if checkNum == checkIntervals.count - 1 && d.callbackCount == 0 {
+                        guard let app = self.apps.first(where: { $0.id == pid }) else { return }
+                        let currentDeviceUID = self.appDeviceRouting[pid]
+
+                        // Try system default device as fallback
+                        let fallbackUID: String?
+                        do {
+                            let defaultUID = try self.defaultOutputDeviceUIDProvider()
+                            fallbackUID = (defaultUID != currentDeviceUID) ? defaultUID : nil
+                        } catch {
+                            fallbackUID = nil
+                        }
+
+                        if let fallbackUID {
+                            self.logger.warning("[HEALTH-FAST] \(appName) tap dead (callbacks=0 after \(checkIntervals.count) checks), rerouting to system default \(fallbackUID)")
+                            tap.invalidate()
+                            self.taps.removeValue(forKey: pid)
+                            self.appliedPIDs.remove(pid)
+                            self.lastHealthSnapshots.removeValue(forKey: pid)
+                            self.appDeviceRouting[pid] = fallbackUID
+                            self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: fallbackUID)
+                            self.ensureTapExists(for: app, deviceUID: fallbackUID)
+                        } else {
+                            self.logger.warning("[HEALTH-FAST] \(appName) tap dead (callbacks=0), already on default device — recreating in place")
+                            tap.invalidate()
+                            self.taps.removeValue(forKey: pid)
+                            self.appliedPIDs.remove(pid)
+                            self.lastHealthSnapshots.removeValue(forKey: pid)
+                            if let deviceUID = currentDeviceUID {
+                                self.ensureTapExists(for: app, deviceUID: deviceUID)
+                            }
+                        }
                         return
                     }
                 }

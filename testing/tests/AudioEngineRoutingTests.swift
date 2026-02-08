@@ -134,6 +134,8 @@ final class AudioEngineRoutingTests: XCTestCase {
             emptyInput: 0,
             lastInputPeak: 0,
             lastOutputPeak: 0,
+            outputBufCount: 1,
+            outputBuf0ByteSize: 4096,
             formatChannels: 2,
             formatIsFloat: true,
             formatIsInterleaved: true,
@@ -163,6 +165,8 @@ final class AudioEngineRoutingTests: XCTestCase {
             emptyInput: 0,
             lastInputPeak: 0.22,
             lastOutputPeak: 0.22,
+            outputBufCount: 1,
+            outputBuf0ByteSize: 4096,
             formatChannels: 2,
             formatIsFloat: true,
             formatIsInterleaved: true,
@@ -176,6 +180,102 @@ final class AudioEngineRoutingTests: XCTestCase {
             AudioEngine.shouldConfirmPermission(from: diagnostics),
             "Permission should be confirmed only once real input audio is observed."
         )
+    }
+
+    // MARK: - Dead Output Safety Net (macOS 26 bundle-ID tap regression)
+
+    /// Primary regression test: bundle-ID tap failure pattern must not confirm permission.
+    /// High callbacks, input data present, output written, but lastOutputPeak=0.
+    func testPermissionNotConfirmedWithBundleIDTapPattern() {
+        let diagnostics = TapDiagnostics(
+            callbackCount: 50,
+            inputHasData: 40,
+            outputWritten: 50,
+            silencedForce: 0, silencedMute: 0,
+            converterUsed: 0, converterFailed: 0,
+            directFloat: 50, nonFloatPassthrough: 0,
+            emptyInput: 0, lastInputPeak: 0.3, lastOutputPeak: 0.0,
+            outputBufCount: 1, outputBuf0ByteSize: 4096,
+            formatChannels: 2, formatIsFloat: true,
+            formatIsInterleaved: true, formatSampleRate: 48000,
+            volume: 1.0, crossfadeActive: false, primaryCurrentVolume: 1.0
+        )
+        XCTAssertFalse(
+            AudioEngine.shouldConfirmPermission(from: diagnostics),
+            "Bundle-ID tap with dead output (outPeak=0) must not confirm permission"
+        )
+    }
+
+    /// Permission should only be confirmed once output peak is real, not during warmup.
+    func testPermissionNotConfirmedUntilOutputPeakIsReal() {
+        // Warmup snapshot: output peak still zero
+        let warmup = TapDiagnostics(
+            callbackCount: 15,
+            inputHasData: 5,
+            outputWritten: 15,
+            silencedForce: 0, silencedMute: 0,
+            converterUsed: 0, converterFailed: 0,
+            directFloat: 15, nonFloatPassthrough: 0,
+            emptyInput: 0, lastInputPeak: 0.2, lastOutputPeak: 0.0,
+            outputBufCount: 1, outputBuf0ByteSize: 4096,
+            formatChannels: 2, formatIsFloat: true,
+            formatIsInterleaved: true, formatSampleRate: 48000,
+            volume: 1.0, crossfadeActive: false, primaryCurrentVolume: 1.0
+        )
+        XCTAssertFalse(AudioEngine.shouldConfirmPermission(from: warmup),
+                       "Zero output peak during warmup should not confirm permission")
+
+        // Stabilized snapshot: output peak is real
+        let stable = TapDiagnostics(
+            callbackCount: 50,
+            inputHasData: 30,
+            outputWritten: 50,
+            silencedForce: 0, silencedMute: 0,
+            converterUsed: 0, converterFailed: 0,
+            directFloat: 50, nonFloatPassthrough: 0,
+            emptyInput: 0, lastInputPeak: 0.3, lastOutputPeak: 0.25,
+            outputBufCount: 1, outputBuf0ByteSize: 4096,
+            formatChannels: 2, formatIsFloat: true,
+            formatIsInterleaved: true, formatSampleRate: 48000,
+            volume: 1.0, crossfadeActive: false, primaryCurrentVolume: 1.0
+        )
+        XCTAssertTrue(AudioEngine.shouldConfirmPermission(from: stable),
+                      "Real output peak should confirm permission")
+    }
+
+    /// Exact boundary behavior at the output peak threshold.
+    func testPermissionConfirmationEdgeCaseNearThreshold() {
+        let atThreshold = TapDiagnostics(
+            callbackCount: 25,
+            inputHasData: 10,
+            outputWritten: 25,
+            silencedForce: 0, silencedMute: 0,
+            converterUsed: 0, converterFailed: 0,
+            directFloat: 25, nonFloatPassthrough: 0,
+            emptyInput: 0, lastInputPeak: 0.3, lastOutputPeak: 0.0001,
+            outputBufCount: 1, outputBuf0ByteSize: 4096,
+            formatChannels: 2, formatIsFloat: true,
+            formatIsInterleaved: true, formatSampleRate: 48000,
+            volume: 1.0, crossfadeActive: false, primaryCurrentVolume: 1.0
+        )
+        XCTAssertFalse(AudioEngine.shouldConfirmPermission(from: atThreshold),
+                       "Output peak exactly at threshold should not confirm (guard is >)")
+
+        let aboveThreshold = TapDiagnostics(
+            callbackCount: 25,
+            inputHasData: 10,
+            outputWritten: 25,
+            silencedForce: 0, silencedMute: 0,
+            converterUsed: 0, converterFailed: 0,
+            directFloat: 25, nonFloatPassthrough: 0,
+            emptyInput: 0, lastInputPeak: 0.3, lastOutputPeak: 0.00011,
+            outputBufCount: 1, outputBuf0ByteSize: 4096,
+            formatChannels: 2, formatIsFloat: true,
+            formatIsInterleaved: true, formatSampleRate: 48000,
+            volume: 1.0, crossfadeActive: false, primaryCurrentVolume: 1.0
+        )
+        XCTAssertTrue(AudioEngine.shouldConfirmPermission(from: aboveThreshold),
+                      "Output peak just above threshold should confirm permission")
     }
 
     // MARK: - Apps Display Fallback (paused state)

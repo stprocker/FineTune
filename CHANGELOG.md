@@ -2,6 +2,24 @@
 
 ## [Unreleased] - 2026-02-07
 
+### Media Notification Generalization + Output Path Diagnostics
+
+Generalized instant play/pause detection from Spotify-only to multi-app, and diagnosed/worked around a silent output path in macOS 26 bundle-ID taps.
+Full details: `docs/ai-chat-history/2026-02-07-media-notification-generalization-and-output-path-debugging.md`
+Known issue: `docs/known_issues/bundle-id-tap-silent-output-macos26.md`
+
+#### Added
+- **Table-driven `MediaNotificationMonitor`** — now monitors both Spotify (`com.spotify.client.PlaybackStateChanged`) and Apple Music (`com.apple.Music.playerInfo`) for instant play/pause detection via `DistributedNotificationCenter`
+- **Output buffer metadata diagnostics** — new `outBuf=NxMB` field in DIAG logs showing IOProc output buffer count and byte size, for diagnosing dead-output-path issues
+- **`FineTuneForcePIDOnlyTaps` defaults key** — A/B test toggle to bypass macOS 26 bundle-ID tap creation. Diagnostic-only, not a valid workaround (PID-only can't capture Brave audio on macOS 26).
+
+#### Fixed
+- **`outPeak` diagnostic now retain-non-zero** — previously used last-write-wins semantics, causing `outPeak=0.000` whenever the most recent callback had empty input. Now matches `inPeak` behavior (only updated when peak > 0), making the diagnostic actually useful.
+
+#### Known Issues
+- **Bundle-ID tap aggregate output dead on macOS 26** — bundle-ID taps (required for capture on macOS 26) create aggregate devices where the output path doesn't reach the physical device. PID-only taps have working output but can't capture audio. Neither mode fully works. Root cause under investigation. See `docs/known_issues/bundle-id-tap-silent-output-macos26.md`.
+- **`shouldConfirmPermission` can false-positive** — `outputWritten > 0` doesn't confirm real audio output, can promote to `.mutedWhenTapped` and expose the dead output path
+
 ### Audio Wiring Overhaul (agent team review + 5-phase implementation)
 
 Comprehensive review of audio switching/crossfade wiring by 4-agent team (best practices researcher, code reviewer, mediator, skeptical planner), followed by parallel implementation. 17 issues identified, 7 fixed. 269 tests, 0 failures.

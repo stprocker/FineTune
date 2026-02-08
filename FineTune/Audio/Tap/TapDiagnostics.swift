@@ -24,4 +24,15 @@ struct TapDiagnostics {
     let volume: Float
     let crossfadeActive: Bool
     let primaryCurrentVolume: Float
+
+    /// Output path is non-functional: callbacks run, buffers written, but no audio reaches hardware.
+    /// Only meaningful when volume > 0 (zero volume legitimately produces zero peak).
+    var hasDeadOutput: Bool {
+        callbackCount > 10 && outputWritten > 0 && lastOutputPeak < 0.0001 && volume > 0.01
+    }
+
+    /// Input path is non-functional: callbacks run but no captured audio data.
+    var hasDeadInput: Bool {
+        callbackCount > 10 && inputHasData == 0 && lastInputPeak < 0.0001
+    }
 }

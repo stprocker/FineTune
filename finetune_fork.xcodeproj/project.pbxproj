@@ -209,7 +209,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 79A607AA2F05C9E00008D52A /* Build configuration list for PBXProject "FineTune" */;
+			buildConfigurationList = 79A607AA2F05C9E00008D52A /* Build configuration list for PBXProject "finetune_fork" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -587,7 +587,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		79A607AA2F05C9E00008D52A /* Build configuration list for PBXProject "FineTune" */ = {
+		79A607AA2F05C9E00008D52A /* Build configuration list for PBXProject "finetune_fork" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				79A607CE2F05C9E10008D52A /* Debug */,
