@@ -12,14 +12,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var menuBarController: MenuBarStatusController?
     var audioEngine: AudioEngine?
     private var settings: SettingsManager?
+    private var signalSources: [any DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("[APPDELEGATE] applicationDidFinishLaunching fired")
+
+        // Clean up any orphaned aggregate devices from a previous crash,
+        // then install crash signal handlers for this session
+        OrphanedTapCleanup.destroyOrphanedDevices()
+        CrashGuard.install()
 
         let settings = SettingsManager()
         let engine = AudioEngine(settingsManager: settings)
         self.settings = settings
         self.audioEngine = engine
+
+        installSignalHandlers()
 
         if SingleInstanceGuard.shouldTerminateCurrentInstance() {
             logger.warning("Another FineTune instance detected; terminating this process.")
@@ -53,6 +61,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             urlHandler.handleURL(url)
         }
+    }
+
+    /// Installs POSIX signal handlers for SIGTERM and SIGINT so that `kill <pid>`
+    /// and Ctrl+C trigger a clean shutdown (destroying process taps before exit).
+    /// `kill -9` is uncatchable — startup cleanup handles that case.
+    private func installSignalHandlers() {
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+
+        let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        termSource.setEventHandler { [weak self] in
+            self?.audioEngine?.stopSync()
+            exit(0)
+        }
+        termSource.resume()
+
+        let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        intSource.setEventHandler { [weak self] in
+            self?.audioEngine?.stopSync()
+            exit(0)
+        }
+        intSource.resume()
+
+        signalSources = [termSource, intSource]
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -26,9 +26,45 @@ final class MenuBarPopupViewModel {
     /// Which device tab is selected (false = output, true = input)
     var showingInputDevices = false
 
+    /// Track whether settings panel is open
+    var isSettingsOpen = false
+
+    /// Debounce settings toggle to prevent rapid clicks during animation
+    private(set) var isSettingsAnimating = false
+
+    /// Local copy of app settings for binding
+    var localAppSettings: AppSettings = AppSettings()
+
+    /// Update manager for Sparkle integration
+    let updateManager: UpdateManager
+
+    /// Callback to update the menu bar icon live (wired by MenuBarStatusController)
+    var onIconChanged: ((MenuBarIconStyle) -> Void)?
+
     init(audioEngine: AudioEngine, deviceVolumeMonitor: DeviceVolumeMonitor) {
         self.audioEngine = audioEngine
         self.deviceVolumeMonitor = deviceVolumeMonitor
+        self.updateManager = UpdateManager()
+        self.localAppSettings = audioEngine.settingsManager.appSettings
+    }
+
+    // MARK: - Settings Toggle
+
+    /// Toggles the settings panel with animation debounce.
+    func toggleSettings() {
+        guard !isSettingsAnimating else { return }
+        isSettingsAnimating = true
+
+        isSettingsOpen.toggle()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.isSettingsAnimating = false
+        }
+    }
+
+    /// Syncs local app settings back to the settings manager.
+    func syncSettings() {
+        audioEngine.settingsManager.updateAppSettings(localAppSettings)
     }
 
     // MARK: - EQ Toggle

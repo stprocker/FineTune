@@ -1,6 +1,50 @@
 # Changelog
 
+## [Unreleased] - 2026-02-08
+
+### Crash-Safe Cleanup for Orphaned CoreAudio Resources
+
+Ensures orphaned FineTune process taps are always cleaned up, even after crashes or `kill -9`.
+Full details: `docs/ai-chat-history/2026-02-08-crash-safe-cleanup-orphaned-coreaudio-resources.md`
+
+#### Added
+- **`OrphanedTapCleanup.swift`** — Static utility that scans CoreAudio for aggregate devices named `"FineTune-*"` and destroys them. Runs on startup before any new taps are created, cleaning up orphans left by crashes or `kill -9`.
+- **`CrashGuard.swift`** — Tracks live aggregate device IDs in a fixed-size C buffer and installs crash signal handlers (SIGABRT, SIGSEGV, SIGBUS, SIGTRAP) that destroy them before the process terminates. Uses async-signal-safe memory and IPC to coreaudiod. Prevents orphaned taps on actual crashes.
+- **POSIX signal handlers** — `DispatchSource` handlers for SIGTERM and SIGINT in `AppDelegate` that call `audioEngine?.stopSync()` before `exit(0)`. Catches `kill <pid>` and Ctrl+C for clean shutdown.
+
+#### Changed
+- **`AppDelegate.applicationDidFinishLaunching`** — Now calls `OrphanedTapCleanup.destroyOrphanedDevices()` and `CrashGuard.install()` before creating `AudioEngine`, and `installSignalHandlers()` after engine creation.
+- **`ProcessTapController`** — All 3 aggregate device creation sites now call `CrashGuard.trackDevice()`. All 5 inline destruction sites call `CrashGuard.untrackDevice()` before `AudioHardwareDestroyAggregateDevice`.
+- **`TapResources.destroy()` / `destroyAsync()`** — Now call `CrashGuard.untrackDevice()` before destroying aggregate devices.
+
 ## [Unreleased] - 2026-02-07
+
+### Sparkle Update Toggle + CATapDescription Constructor Fix
+
+Added Sparkle auto-update settings UI and fixed the critical root cause of per-app volume control not working — the fork was using the wrong `CATapDescription` constructor.
+Full details: `docs/ai-chat-history/2026-02-07-sparkle-update-toggle-and-tap-constructor-fix.md`
+
+#### Added
+- **`UpdateManager.swift`** — Sparkle `SPUStandardUpdaterController` wrapper with `checkForUpdates()`, `automaticallyChecksForUpdates`, and `lastUpdateCheckDate`
+- **`SettingsUpdateRow.swift`** — Combined settings row with "Check for updates automatically" toggle + "Check for Updates" button, version display, and relative last-check date
+- **Sparkle SPM dependency** — added to FineTune target
+
+#### Fixed
+- **Per-app volume not working (CRITICAL):** Replaced `CATapDescription(__processes:andDeviceUID:withStream:)` with `CATapDescription(stereoMixdownOfProcesses:)` across all three code paths (`activate()`, `createSecondaryTap`, `performDeviceSwitch`). The device-specific constructor caused CoreAudio to disconnect the reporter, resulting in zero input data despite callbacks firing. Stereo mixdown captures all audio from the process regardless of device.
+- **Aggregate device configuration:** All three code paths now use `kAudioAggregateDeviceIsStackedKey: true` and `kAudioAggregateDeviceClockDeviceKey: outputUID` (matching the original dev's working implementation). Previously `isStacked` was `false` and `ClockDeviceKey` was missing.
+- **Sample rate reads:** All paths now read sample rate from aggregate device after creation instead of from `resolveOutputStreamInfo` (which is no longer needed).
+
+#### Changed
+- **`ensureTapExists` in AudioEngine** — removed permission checking flow; taps now always use `.mutedWhenTapped` (matching original dev). `permissionConfirmed`, `upgradeTapsToMutedWhenTapped()`, `shouldConfirmPermission()` are now dead code.
+- **`makeTapDescription()`** — changed from `makeTapDescription(for:streamIndex:)` (2 args) to `makeTapDescription()` (0 args); uses stereo mixdown instead of device-specific stream
+
+#### Removed
+- **`resolveOutputStreamInfo(for:)` wrapper** in ProcessTapController — no longer called from any code path after stereo mixdown change
+
+#### Known Issues
+- **Per-app volume fix is compile-verified only** — stereo mixdown constructor builds successfully but has not been runtime-tested yet
+- **`SettingsView` not accessible in fork UI** — no settings gear button or panel navigation exists in the fork's `MenuBarPopupView`
+- **Dead code in `AudioEngine.swift`** — `permissionConfirmed`, `upgradeTapsToMutedWhenTapped()`, `shouldConfirmPermission()` are unreachable but not yet removed
 
 ### Media Notification Generalization + Output Path Diagnostics
 

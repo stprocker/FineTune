@@ -11,8 +11,8 @@
 
     1. FineTune is a per-application audio control utility for macOS. CURRENT VERSION IS
        TAHOE (Mac OS 26) ONLY. 
-    2. It enables granular control over volume levels for individual running apps,
-       routing specific apps to different output devices, and applying 10-band EQ settings.
+    2. It enables granular control over volume levels for individual running apps and 
+       applies 10-band EQ settings.
     3. It runs as a menu bar application with a "Glassmorphic" native macOS UI.
 
   B. Architecture Summary
@@ -73,6 +73,11 @@
     2. Check that new Views respect the "Glassmorphic" design system (translucency, blur materials).
     3. Ensure clean separation between View and ViewModel/Model logic.
     4. Verify that strings are localized or localizable.
+    5. Update /docs:
+
+	-If you ran agents, put all agent dialogue and work product here: /docs/agents, adding a subfolder 
+       for each agent-assisted run starting with the next sequential number. 
+	-review and update /docs/architecture and /docs/known_issues
 
 ──────────────────────────────────────────────────────────────────────────────
 3.  CODING STANDARDS

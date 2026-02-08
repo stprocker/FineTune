@@ -12,6 +12,7 @@ final class MenuBarStatusController: NSObject {
     private var panel: KeyablePanel?
     private var globalClickMonitor: Any?
     private var buttonHealthTimer: Timer?
+    private var popupViewModel: MenuBarPopupViewModel?
 
     init(audioEngine: AudioEngine) {
         self.audioEngine = audioEngine
@@ -210,6 +211,10 @@ final class MenuBarStatusController: NSObject {
             audioEngine: audioEngine,
             deviceVolumeMonitor: audioEngine.deviceVolumeMonitor
         )
+        viewModel.onIconChanged = { [weak self] style in
+            self?.updateIcon(to: style)
+        }
+        self.popupViewModel = viewModel
         let rootView = MenuBarPopupView(viewModel: viewModel)
 
         let hostingView = NSHostingView(rootView: rootView)

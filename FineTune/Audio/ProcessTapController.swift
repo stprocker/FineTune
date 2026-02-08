@@ -382,6 +382,7 @@ final class ProcessTapController {
         }
 
         logger.debug("Created aggregate device #\(self.primaryResources.aggregateDeviceID)")
+        CrashGuard.trackDevice(primaryResources.aggregateDeviceID)
 
         // Read sample rate from aggregate device
         let sampleRate: Float64
@@ -663,6 +664,7 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create secondary aggregate: \(err)"])
         }
         logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryResources.aggregateDeviceID)")
+        CrashGuard.trackDevice(secondaryResources.aggregateDeviceID)
 
         // Read sample rate from aggregate device (matches activate())
         let deviceSampleRate: Float64
@@ -700,6 +702,7 @@ final class ProcessTapController {
             self.processAudioSecondary(inInputData, to: outOutputData)
         }
         guard err == noErr else {
+            CrashGuard.untrackDevice(secondaryResources.aggregateDeviceID)
             AudioHardwareDestroyAggregateDevice(secondaryResources.aggregateDeviceID)
             AudioHardwareDestroyProcessTap(secondaryResources.tapID)
             secondaryResources.aggregateDeviceID = .unknown
@@ -714,6 +717,7 @@ final class ProcessTapController {
             if let procID = secondaryResources.deviceProcID {
                 AudioDeviceDestroyIOProcID(secondaryResources.aggregateDeviceID, procID)
             }
+            CrashGuard.untrackDevice(secondaryResources.aggregateDeviceID)
             AudioHardwareDestroyAggregateDevice(secondaryResources.aggregateDeviceID)
             AudioHardwareDestroyProcessTap(secondaryResources.tapID)
             secondaryResources.deviceProcID = nil
@@ -970,6 +974,7 @@ final class ProcessTapController {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create aggregate: \(err)"])
         }
+        CrashGuard.trackDevice(newAggregateID)
 
         // Read sample rate from aggregate device (matches activate())
         let fallbackSampleRate: Float64
@@ -986,6 +991,7 @@ final class ProcessTapController {
             self.processAudio(inInputData, to: outOutputData)
         }
         guard err == noErr else {
+            CrashGuard.untrackDevice(newAggregateID)
             AudioHardwareDestroyAggregateDevice(newAggregateID)
             AudioHardwareDestroyProcessTap(newTapID)
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
@@ -997,6 +1003,7 @@ final class ProcessTapController {
             if let procID = newDeviceProcID {
                 AudioDeviceDestroyIOProcID(newAggregateID, procID)
             }
+            CrashGuard.untrackDevice(newAggregateID)
             AudioHardwareDestroyAggregateDevice(newAggregateID)
             AudioHardwareDestroyProcessTap(newTapID)
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
@@ -1009,6 +1016,7 @@ final class ProcessTapController {
             if let procID = primaryResources.deviceProcID {
                 AudioDeviceDestroyIOProcID(primaryResources.aggregateDeviceID, procID)
             }
+            CrashGuard.untrackDevice(primaryResources.aggregateDeviceID)
             AudioHardwareDestroyAggregateDevice(primaryResources.aggregateDeviceID)
         }
         if primaryResources.tapID.isValid {

@@ -19,40 +19,49 @@ struct MenuBarPopupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            // Header row with device tabs and default device status
+            // Header row - always visible, shows tabs or Settings title
             HStack(alignment: .top) {
-                deviceTabsHeader
+                if viewModel.isSettingsOpen {
+                    Text("Settings")
+                        .sectionHeaderStyle()
+                } else {
+                    deviceTabsHeader
+                    Spacer()
+                    defaultDevicesStatus
+                }
                 Spacer()
-                defaultDevicesStatus
+                settingsButton
             }
             .padding(.bottom, DesignTokens.Spacing.xs)
 
-            // Devices section (tabbed: Output / Input)
-            devicesSection
-
-            Divider()
-                .padding(.vertical, DesignTokens.Spacing.xs)
-
-            // Apps section (active + pinned inactive)
-            if audioEngine.displayableApps.isEmpty {
-                emptyStateView
+            // Conditional content with slide transition
+            if viewModel.isSettingsOpen {
+                SettingsView(
+                    settings: $viewModel.localAppSettings,
+                    updateManager: viewModel.updateManager,
+                    onResetAll: {
+                        audioEngine.settingsManager.resetAllSettings()
+                        viewModel.localAppSettings = audioEngine.settingsManager.appSettings
+                    },
+                    outputDevices: audioEngine.outputDevices,
+                    systemDeviceUID: deviceVolumeMonitor.defaultDeviceUID,
+                    defaultDeviceUID: deviceVolumeMonitor.defaultDeviceUID,
+                    isSystemFollowingDefault: true,
+                    onSystemDeviceSelected: { _ in },
+                    onSystemFollowDefault: { },
+                    currentIconStyle: audioEngine.settingsManager.appSettings.menuBarIconStyle,
+                    onIconChanged: viewModel.onIconChanged
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .trailing).combined(with: .opacity)
+                ))
             } else {
-                appsSection
-            }
-
-            Divider()
-                .padding(.vertical, DesignTokens.Spacing.xs)
-
-            // Quit button
-            HStack {
-                Spacer()
-                Button("Quit FineTune") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .buttonStyle(.plain)
-                .font(DesignTokens.Typography.caption)
-                .foregroundStyle(DesignTokens.Colors.textSecondary)
-                .glassButtonStyle()
+                mainContent
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
             }
         }
         .padding(DesignTokens.Spacing.lg)
@@ -66,6 +75,72 @@ struct MenuBarPopupView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
             viewModel.isPopupVisible = false
+        }
+        .onChange(of: viewModel.localAppSettings) { _, _ in
+            viewModel.syncSettings()
+        }
+        .background {
+            // Hidden button to handle ⌘, keyboard shortcut for toggling settings
+            Button("") { withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { viewModel.toggleSettings() } }
+                .keyboardShortcut(",", modifiers: .command)
+                .hidden()
+        }
+    }
+
+    // MARK: - Settings Button
+
+    /// Settings button with gear ↔ X morphing animation
+    private var settingsButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                viewModel.toggleSettings()
+            }
+        } label: {
+            Image(systemName: viewModel.isSettingsOpen ? "xmark" : "gearshape.fill")
+                .font(.system(size: 12, weight: viewModel.isSettingsOpen ? .bold : .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(DesignTokens.Colors.interactiveDefault)
+                .rotationEffect(.degrees(viewModel.isSettingsOpen ? 90 : 0))
+                .frame(
+                    minWidth: DesignTokens.Dimensions.minTouchTarget,
+                    minHeight: DesignTokens.Dimensions.minTouchTarget
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: viewModel.isSettingsOpen)
+    }
+
+    // MARK: - Main Content
+
+    @ViewBuilder
+    private var mainContent: some View {
+        // Devices section (tabbed: Output / Input)
+        devicesSection
+
+        Divider()
+            .padding(.vertical, DesignTokens.Spacing.xs)
+
+        // Apps section (active + pinned inactive)
+        if audioEngine.displayableApps.isEmpty {
+            emptyStateView
+        } else {
+            appsSection
+        }
+
+        Divider()
+            .padding(.vertical, DesignTokens.Spacing.xs)
+
+        // Quit button
+        HStack {
+            Spacer()
+            Button("Quit FineTune") {
+                NSApplication.shared.terminate(nil)
+            }
+            .buttonStyle(.plain)
+            .font(DesignTokens.Typography.caption)
+            .foregroundStyle(DesignTokens.Colors.textSecondary)
+            .glassButtonStyle()
         }
     }
 
