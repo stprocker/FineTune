@@ -14,6 +14,7 @@ final class AudioEngine {
     let processMonitor = AudioProcessMonitor()
     let deviceMonitor = AudioDeviceMonitor()
     let deviceVolumeMonitor: DeviceVolumeMonitor
+    let mediaNotificationMonitor = MediaNotificationMonitor()
     let volumeState: VolumeState
     let settingsManager: SettingsManager
     private let defaultOutputDeviceUIDProvider: () throws -> String
@@ -28,7 +29,19 @@ final class AudioEngine {
     private var previousActiveAppIDs: Set<pid_t> = []
     private var lastAudibleAtByPID: [pid_t: Date] = [:]
     private let pausedLevelThreshold: Float = 0.002
-    private let pausedSilenceGraceInterval: TimeInterval = 0.5
+    /// Asymmetric hysteresis: strict threshold prevents false pauses during song gaps / brief silence
+    private let playingToPausedGrace: TimeInterval = 1.5
+    /// Asymmetric hysteresis: loose threshold for nearly instant recovery when audio resumes
+    private let pausedToPlayingGrace: TimeInterval = 0.05
+
+    enum PauseState {
+        case playing
+        case paused
+    }
+    /// Per-PID pause state for asymmetric hysteresis.
+    /// Tracks whether each app is currently considered playing or paused,
+    /// so the appropriate grace period is used for state transitions.
+    private var pauseStateByPID: [pid_t: PauseState] = [:]
     private var pauseEligiblePIDsForTests: Set<pid_t>?
 
     /// Whether system audio recording permission has been confirmed THIS SESSION.
@@ -61,6 +74,9 @@ final class AudioEngine {
         var emptyInput: UInt64 = 0
     }
     private var lastHealthSnapshots: [pid_t: TapHealthSnapshot] = [:]
+    /// Routing snapshot taken before recreation events.
+    /// Restored after recreation to prevent spurious notifications from corrupting persisted routing.
+    private var routingSnapshot: (memory: [pid_t: String], persisted: [String: String])?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
@@ -95,6 +111,26 @@ final class AudioEngine {
     /// from corrupting persisted routing via `routeAllApps`.
     private var shouldSuppressDeviceNotifications: Bool {
         isRecreatingTaps || Date().timeIntervalSince(recreationEndedAt) < recreationGracePeriod
+    }
+
+    /// Captures a snapshot of both in-memory and persisted routing state.
+    /// Call before any recreation event to preserve routing.
+    private func snapshotRouting() {
+        routingSnapshot = (
+            memory: appDeviceRouting,
+            persisted: settingsManager.snapshotDeviceRoutings()
+        )
+        logger.debug("[SNAPSHOT] Captured routing: \(self.appDeviceRouting.count) in-memory, \(self.routingSnapshot?.persisted.count ?? 0) persisted")
+    }
+
+    /// Restores routing state from the most recent snapshot, then discards it.
+    /// Call after recreation completes to undo any spurious notification side-effects.
+    private func restoreRouting() {
+        guard let snapshot = routingSnapshot else { return }
+        appDeviceRouting = snapshot.memory
+        settingsManager.restoreDeviceRoutings(snapshot.persisted)
+        routingSnapshot = nil
+        logger.debug("[SNAPSHOT] Restored routing: \(snapshot.memory.count) in-memory, \(snapshot.persisted.count) persisted")
     }
 
     // MARK: - Permission Confirmation
@@ -223,6 +259,18 @@ final class AudioEngine {
                     self.updatePauseStates()
                 }
             }
+
+            // Spotify instant play/pause: bypass VU-level detection lag
+            mediaNotificationMonitor.onPlaybackStateChanged = { [weak self] pid, isPlaying in
+                guard let self else { return }
+                if isPlaying {
+                    self.lastAudibleAtByPID[pid] = Date()
+                    self.pauseStateByPID[pid] = .playing
+                } else {
+                    self.pauseStateByPID[pid] = .paused
+                }
+            }
+            mediaNotificationMonitor.start()
         }
     }
 
@@ -239,6 +287,7 @@ final class AudioEngine {
         serviceRestartTask?.cancel()
 
         isRecreatingTaps = true
+        snapshotRouting()
 
         // Cancel all in-flight switches
         for task in switchTasks.values { task.cancel() }
@@ -276,22 +325,11 @@ final class AudioEngine {
                 if confirmed {
                     self.permissionConfirmed = true
                     self.logger.info("[SERVICE-RESTART] Permission confirmed inline — upgrading to .mutedWhenTapped")
-                    // Destroy current .unmuted taps and recreate with .mutedWhenTapped
-                    await withTaskGroup(of: Void.self) { group in
-                        for (pid, tap) in self.taps {
-                            let name = self.apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
-                            self.logger.info("[SERVICE-RESTART] Upgrading tap for \(name)")
-                            group.addTask { await tap.invalidateAsync() }
-                        }
-                    }
-                    guard !Task.isCancelled else { return }
-                    self.taps.removeAll()
-                    self.appliedPIDs.removeAll()
-                    self.lastHealthSnapshots.removeAll()
-                    self.applyPersistedSettings()
+                    self.upgradeTapsToMutedWhenTapped()
                 }
             }
 
+            self.restoreRouting()
             self.isRecreatingTaps = false
             self.recreationEndedAt = Date()
         }
@@ -402,7 +440,26 @@ final class AudioEngine {
         let isPauseEligible = taps[app.id] != nil || (pauseEligiblePIDsForTests?.contains(app.id) ?? false)
         guard isPauseEligible else { return false }
         let lastAudibleAt = lastAudibleAtByPID[app.id] ?? .distantPast
-        return Date().timeIntervalSince(lastAudibleAt) >= pausedSilenceGraceInterval
+        let silenceDuration = Date().timeIntervalSince(lastAudibleAt)
+
+        // Asymmetric hysteresis: use different thresholds based on current state
+        let currentState = pauseStateByPID[app.id] ?? .playing
+        switch currentState {
+        case .playing:
+            // Strict: require longer silence before declaring paused (prevents false pauses during song gaps)
+            if silenceDuration >= playingToPausedGrace {
+                pauseStateByPID[app.id] = .paused
+                return true
+            }
+            return false
+        case .paused:
+            // Loose: nearly instant recovery when audio resumes
+            if silenceDuration < pausedToPlayingGrace {
+                pauseStateByPID[app.id] = .playing
+                return false
+            }
+            return true
+        }
     }
 
     /// Audio levels for all active apps (for VU meter visualization)
@@ -420,6 +477,10 @@ final class AudioEngine {
         let level = taps[app.id]?.audioLevel ?? 0.0
         if level > pausedLevelThreshold {
             lastAudibleAtByPID[app.id] = Date()
+            // Immediately mark as playing when audio detected (fast recovery path)
+            if pauseStateByPID[app.id] == .paused {
+                pauseStateByPID[app.id] = .playing
+            }
         }
         return level
     }
@@ -432,6 +493,10 @@ final class AudioEngine {
         for (pid, tap) in taps {
             if tap.audioLevel > pausedLevelThreshold {
                 lastAudibleAtByPID[pid] = Date()
+                // Immediately mark as playing when audio detected (fast recovery path)
+                if pauseStateByPID[pid] == .paused {
+                    pauseStateByPID[pid] = .playing
+                }
             }
         }
     }
@@ -491,6 +556,7 @@ final class AudioEngine {
         processMonitor.stop()
         deviceMonitor.stop()
         deviceVolumeMonitor.stop()
+        mediaNotificationMonitor.stop()
         for task in switchTasks.values { task.cancel() }
         switchTasks.removeAll()
         for tap in taps.values {
@@ -635,6 +701,18 @@ final class AudioEngine {
         // slips past the callback check, this prevents data corruption.
         if shouldSuppressDeviceNotifications {
             logger.warning("routeAllApps(\(deviceUID)) blocked — recreation active or grace period")
+            return
+        }
+
+        // Early exit: if all in-memory routings already point at this device
+        // AND all persisted routings match, skip the entire operation.
+        // This prevents unnecessary settings writes from no-op device changes
+        // (e.g., spurious notifications that slip past the grace period).
+        let allMemoryMatch = appDeviceRouting.values.allSatisfy { $0 == deviceUID }
+        let persistedSnapshot = settingsManager.snapshotDeviceRoutings()
+        let allPersistedMatch = persistedSnapshot.isEmpty || persistedSnapshot.values.allSatisfy { $0 == deviceUID }
+        if allMemoryMatch && allPersistedMatch && !appDeviceRouting.isEmpty {
+            logger.debug("routeAllApps(\(deviceUID)) skipped — all routings already match")
             return
         }
 
@@ -803,8 +881,8 @@ final class AudioEngine {
                     // handler may have already confirmed and upgraded taps inline.
                     if needsPermissionConfirmation && !self.permissionConfirmed && Self.shouldConfirmPermission(from: d) {
                         self.permissionConfirmed = true
-                        self.logger.info("[PERMISSION] System audio permission confirmed — recreating taps with .mutedWhenTapped")
-                        self.recreateAllTaps()
+                        self.logger.info("[PERMISSION] System audio permission confirmed — upgrading taps to .mutedWhenTapped")
+                        self.upgradeTapsToMutedWhenTapped()
                         return
                     }
 
@@ -841,6 +919,7 @@ final class AudioEngine {
         // MainActor work (e.g., debounced device-change notifications) from firing
         // routeAllApps between this call and the Task body executing.
         isRecreatingTaps = true
+        snapshotRouting()
         Task { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (pid, tap) in taps {
@@ -853,8 +932,29 @@ final class AudioEngine {
             appliedPIDs.removeAll()
             lastHealthSnapshots.removeAll()
             applyPersistedSettings()
+            restoreRouting()
             isRecreatingTaps = false
             recreationEndedAt = Date()
+        }
+    }
+
+    /// Upgrades all active taps to `.mutedWhenTapped` in place using live reconfiguration.
+    /// No taps are destroyed — avoids audio gap and spurious device-change notifications.
+    /// Falls back to `recreateAllTaps()` if any tap fails the live update.
+    private func upgradeTapsToMutedWhenTapped() {
+        var allSucceeded = true
+        for (pid, tap) in taps {
+            let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+            if tap.updateMuteBehavior(to: .mutedWhenTapped) {
+                logger.info("[PERMISSION] Upgraded \(appName) to .mutedWhenTapped (live)")
+            } else {
+                logger.warning("[PERMISSION] Live upgrade failed for \(appName)")
+                allSucceeded = false
+            }
+        }
+        if !allSucceeded {
+            logger.warning("[PERMISSION] Falling back to recreateAllTaps()")
+            recreateAllTaps()
         }
     }
 
@@ -973,6 +1073,7 @@ final class AudioEngine {
             pidsToKeep.insert(cachedID)
         }
         lastAudibleAtByPID = lastAudibleAtByPID.filter { pidsToKeep.contains($0.key) }
+        pauseStateByPID = pauseStateByPID.filter { pidsToKeep.contains($0.key) }
         defer { previousActiveAppIDs = activeIDs }
 
         guard !activeApps.isEmpty else {

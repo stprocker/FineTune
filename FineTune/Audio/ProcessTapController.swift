@@ -199,7 +199,7 @@ final class ProcessTapController {
     /// When true, taps use `.mutedWhenTapped` to silence original audio (normal operation).
     /// When false, taps use `.unmuted` so original audio still plays (safe for first launch
     /// before system audio permission is confirmed — prevents silence if the app is killed).
-    private let muteOriginal: Bool
+    private(set) var muteOriginal: Bool
 
     // MARK: - Injectable Timing (for deterministic tests)
 
@@ -229,6 +229,64 @@ final class ProcessTapController {
         self.muteOriginal = muteOriginal
         self.queue = queue ?? DispatchQueue(label: "ProcessTapController", qos: .userInitiated)
         self.logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "ProcessTapController(\(app.name))")
+    }
+
+    // MARK: - Live Tap Reconfiguration
+
+    /// Updates the tap's `muteBehavior` in place without destroying/recreating the tap.
+    /// Uses `AudioObjectSetPropertyData(kAudioTapPropertyDescription)` to write the updated
+    /// `CATapDescription` to the live tap object — validated by TapAPITestRunner test A.3.
+    ///
+    /// - Returns: `true` if the live update succeeded, `false` otherwise.
+    func updateMuteBehavior(to newBehavior: CATapMuteBehavior) -> Bool {
+        guard activated,
+              primaryResources.tapID.isValid,
+              let tapDesc = primaryResources.tapDescription else {
+            return false
+        }
+
+        let oldBehavior = tapDesc.muteBehavior
+        tapDesc.muteBehavior = newBehavior
+
+        var descAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioTapPropertyDescription,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var writeRef: Unmanaged<CATapDescription>? = Unmanaged.passUnretained(tapDesc)
+        let writeSize = UInt32(MemoryLayout<Unmanaged<CATapDescription>?>.size)
+        let err = AudioObjectSetPropertyData(primaryResources.tapID, &descAddr, 0, nil, writeSize, &writeRef)
+
+        if err == noErr {
+            muteOriginal = (newBehavior == .mutedWhenTapped)
+            return true
+        } else {
+            // Revert on failure
+            tapDesc.muteBehavior = oldBehavior
+            logger.error("updateMuteBehavior failed: \(err)")
+            return false
+        }
+    }
+
+    // MARK: - Tap Description Factory
+
+    /// Creates a `CATapDescription` for the given output device and stream index.
+    /// On macOS 26+, uses `bundleIDs` and `isProcessRestoreEnabled` when the app has a bundle ID.
+    /// Falls back to PID-only on macOS 15 or for apps without bundle IDs.
+    private func makeTapDescription(for outputUID: String, streamIndex: Int) -> CATapDescription {
+        let processNumber = NSNumber(value: app.objectID)
+        let tapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamIndex)
+        tapDesc.uuid = UUID()
+        tapDesc.isPrivate = true
+        tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
+
+        if #available(macOS 26.0, *), let bundleID = app.bundleID {
+            tapDesc.bundleIDs = [bundleID]
+            tapDesc.isProcessRestoreEnabled = true
+            logger.info("Creating bundle-ID tap: \(bundleID) (processRestore=true)")
+        }
+
+        return tapDesc
     }
 
     // MARK: - Tap/Device Format Helpers
@@ -307,11 +365,7 @@ final class ProcessTapController {
         logger.debug("Target device stream format: \(self.describeASBD(streamInfo.streamFormat))")
 
         // Create process tap that matches the target device stream format.
-        let processNumber = NSNumber(value: app.objectID)
-        let tapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamInfo.streamIndex)
-        tapDesc.uuid = UUID()
-        tapDesc.isPrivate = true
-        tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
+        let tapDesc = makeTapDescription(for: outputUID, streamIndex: streamInfo.streamIndex)
         self.primaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
@@ -612,11 +666,7 @@ final class ProcessTapController {
         }
 
         // Create new process tap for the same app, matching target device stream format
-        let processNumber = NSNumber(value: app.objectID)
-        let tapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamInfo.streamIndex)
-        tapDesc.uuid = UUID()
-        tapDesc.isPrivate = true
-        tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
+        let tapDesc = makeTapDescription(for: outputUID, streamIndex: streamInfo.streamIndex)
         secondaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
@@ -930,11 +980,7 @@ final class ProcessTapController {
         }
 
         // STEP 1: Create NEW tap (process will be muted by BOTH old and new taps)
-        let processNumber = NSNumber(value: app.objectID)
-        let newTapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamInfo.streamIndex)
-        newTapDesc.uuid = UUID()
-        newTapDesc.isPrivate = true
-        newTapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
+        let newTapDesc = makeTapDescription(for: outputUID, streamIndex: streamInfo.streamIndex)
 
         var newTapID: AudioObjectID = .unknown
         var err = AudioHardwareCreateProcessTap(newTapDesc, &newTapID)

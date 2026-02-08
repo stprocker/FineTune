@@ -9,7 +9,8 @@
 
   A. Executive Summary
 
-    1. FineTune is a per-application audio control utility for macOS.
+    1. FineTune is a per-application audio control utility for macOS. CURRENT VERSION IS
+       TAHOE (Mac OS 26) ONLY. 
     2. It enables granular control over volume levels for individual running apps,
        routing specific apps to different output devices, and applying 10-band EQ settings.
     3. It runs as a menu bar application with a "Glassmorphic" native macOS UI.

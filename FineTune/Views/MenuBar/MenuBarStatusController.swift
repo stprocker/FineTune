@@ -93,10 +93,25 @@ final class MenuBarStatusController: NSObject {
 
     private func showContextMenu(from button: NSStatusBarButton) {
         let menu = NSMenu()
+        let testItem = NSMenuItem(title: "Run API Tests", action: #selector(runAPITests), keyEquivalent: "")
+        testItem.target = self
+        menu.addItem(testItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit FineTune", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
         button.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    @objc private func runAPITests() {
+        NSSound.beep()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let runner = TapAPITestRunner()
+            runner.run()
+            DispatchQueue.main.async {
+                NSSound.beep() // second beep = done
+            }
+        }
     }
 
     // MARK: - Panel management

@@ -67,6 +67,21 @@ final class SettingsManager {
         if changed { scheduleSave() }
     }
 
+    /// Returns a snapshot (copy) of all persisted device routings.
+    /// Used before tap recreation to preserve routing state.
+    func snapshotDeviceRoutings() -> [String: String] {
+        settings.appDeviceRouting
+    }
+
+    /// Overwrites all persisted device routings from a snapshot and schedules save.
+    /// Used after tap recreation to restore routing that may have been corrupted
+    /// by spurious default-device-change notifications during aggregate teardown.
+    func restoreDeviceRoutings(_ snapshot: [String: String]) {
+        guard settings.appDeviceRouting != snapshot else { return }
+        settings.appDeviceRouting = snapshot
+        scheduleSave()
+    }
+
     func hasCustomSettings(for identifier: String) -> Bool {
         settings.appDeviceRouting[identifier] != nil
             || settings.appVolumes[identifier] != nil
