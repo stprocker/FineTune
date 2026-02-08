@@ -1022,15 +1022,7 @@ final class AudioEngine {
         guard taps[app.id] == nil else { return }
         onTapCreationAttemptForTests?(app, deviceUID)
 
-        // On first launch (before permission is confirmed), use .unmuted so the app being
-        // killed during the system permission dialog doesn't leave audio permanently muted.
-        // After permission is confirmed, use .mutedWhenTapped for proper per-app control.
-        let shouldMute = permissionConfirmed
-        if !shouldMute {
-            logger.info("[PERMISSION] Creating tap for \(app.name) with .unmuted (permission not yet confirmed)")
-        }
-
-        let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor, muteOriginal: shouldMute)
+        let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor)
         tap.volume = volumeState.getVolume(for: app.id)
         tap.isMuted = volumeState.getMute(for: app.id)
 

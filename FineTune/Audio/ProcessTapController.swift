@@ -274,43 +274,16 @@ final class ProcessTapController {
 
     // MARK: - Tap Description Factory
 
-    /// Creates a `CATapDescription` for the given output device and stream index.
-    /// On macOS 26+, uses `bundleIDs` and `isProcessRestoreEnabled` when the app has a bundle ID.
-    /// Falls back to PID-only on macOS 15 or for apps without bundle IDs.
-    private func makeTapDescription(for outputUID: String, streamIndex: Int) -> CATapDescription {
-        let processNumber = NSNumber(value: app.objectID)
-        let tapDesc = CATapDescription(__processes: [processNumber], andDeviceUID: outputUID, withStream: streamIndex)
+    /// Creates a `CATapDescription` using stereo mixdown — captures all audio from the process
+    /// regardless of which device it plays through. The aggregate device handles routing to output.
+    private func makeTapDescription() -> CATapDescription {
+        let tapDesc = CATapDescription(stereoMixdownOfProcesses: [app.objectID])
         tapDesc.uuid = UUID()
-        tapDesc.isPrivate = true
         tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
-
-        // DISABLED: bundle-ID taps produce zero callbacks on macOS 26 (Tahoe).
-        // Both bundleIDs alone and bundleIDs+isProcessRestoreEnabled result in
-        // an aggregate device whose IO proc never fires. PID-only taps work.
-        // Re-enable when Apple fixes CATapDescription.bundleIDs in a future macOS update.
-        //
-        // if #available(macOS 26.0, *), let bundleID = app.bundleID,
-        //    !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps"),
-        //    !UserDefaults.standard.bool(forKey: "FineTuneDisableBundleIDTaps") {
-        //     tapDesc.bundleIDs = [bundleID]
-        //     tapDesc.isProcessRestoreEnabled = true
-        //     logger.info("Creating bundle-ID tap: \(bundleID) (processRestore=true)")
-        // }
-
         return tapDesc
     }
 
     // MARK: - Tap/Device Format Helpers
-
-    /// Resolves output stream info using the shared extension.
-    /// Wrapper to add logging on failure.
-    private func resolveOutputStreamInfo(for deviceUID: String) -> OutputStreamInfo? {
-        guard let info = AudioObjectID.resolveOutputStreamInfo(for: deviceUID, using: deviceMonitor) else {
-            logger.error("Failed to resolve output stream for device UID: \(deviceUID)")
-            return nil
-        }
-        return info
-    }
 
     /// Creates a TapFormat from an ASBD (delegated to TapFormat constructor)
     private func makeTapFormat(from asbd: AudioStreamBasicDescription, fallbackSampleRate: Double) -> TapFormat {
@@ -368,15 +341,8 @@ final class ProcessTapController {
         let outputUID = targetDeviceUID
         currentDeviceUID = outputUID
 
-        guard let streamInfo = resolveOutputStreamInfo(for: outputUID) else {
-            throw NSError(domain: "ProcessTapController", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Failed to resolve output stream for device \(outputUID)"])
-        }
-
-        logger.debug("Target device stream format: \(self.describeASBD(streamInfo.streamFormat))")
-
-        // Create process tap that matches the target device stream format.
-        let tapDesc = makeTapDescription(for: outputUID, streamIndex: streamInfo.streamIndex)
+        // Create process tap using stereo mixdown — captures all audio from the process
+        let tapDesc = makeTapDescription()
         self.primaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
@@ -387,19 +353,15 @@ final class ProcessTapController {
 
         primaryResources.tapID = tapID
         logger.debug("Created process tap #\(tapID)")
-        let fallbackSampleRate = streamInfo.streamFormat.mSampleRate > 0
-        ? streamInfo.streamFormat.mSampleRate
-        : (try? streamInfo.deviceID.readNominalSampleRate()) ?? 48000
-        updatePrimaryFormat(from: tapID, fallbackSampleRate: fallbackSampleRate)
 
-        // Create aggregate device
-        let aggregateUID = UUID().uuidString
+        // Create aggregate device (matches original: stacked + clock device)
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "FineTune-\(app.id)",
-            kAudioAggregateDeviceUIDKey: aggregateUID,
+            kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceClockDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceIsStackedKey: true,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: [
                 [kAudioSubDeviceUIDKey: outputUID]
@@ -421,42 +383,29 @@ final class ProcessTapController {
 
         logger.debug("Created aggregate device #\(self.primaryResources.aggregateDeviceID)")
 
-        // Use OUTPUT DEVICE sample rate for the aggregate, not the tap's rate.
-        // Process taps may report the app's internal rate (e.g., Chromium uses 24000 Hz)
-        // which the output device may not support (e.g., AirPods require 48000 Hz).
-        // CoreAudio's drift compensation on the tap sub-device handles resampling.
-        let deviceSampleRate = fallbackSampleRate
-        let tapSampleRate = primaryFormat?.sampleRate ?? fallbackSampleRate
-        if tapSampleRate != deviceSampleRate {
-            logger.info("Tap sample rate (\(tapSampleRate) Hz) differs from device (\(deviceSampleRate) Hz) — using device rate for aggregate")
-        }
-        if AudioDeviceID(primaryResources.aggregateDeviceID).setNominalSampleRate(deviceSampleRate) {
-            logger.debug("Aggregate sample rate set to \(deviceSampleRate) Hz (tap: \(self.describeASBD(self.primaryFormat?.asbd ?? AudioStreamBasicDescription())))")
+        // Read sample rate from aggregate device
+        let sampleRate: Float64
+        if let deviceSampleRate = try? primaryResources.aggregateDeviceID.readNominalSampleRate() {
+            sampleRate = deviceSampleRate
         } else {
-            logger.warning("Failed to set aggregate sample rate to \(deviceSampleRate) Hz")
+            sampleRate = 48000
+            logger.warning("Failed to read sample rate, using default: \(sampleRate) Hz")
         }
+
+        // Read tap format for converter setup
+        updatePrimaryFormat(from: tapID, fallbackSampleRate: sampleRate)
 
         destroyConverter(&primaryConverter)
         if let format = primaryFormat {
-            logger.debug("Primary tap format summary: \(self.describeASBD(format.asbd))")
             primaryConverter = configureConverter(for: format, deviceID: AudioDeviceID(primaryResources.aggregateDeviceID))
-            if primaryConverter != nil {
-                logger.debug("Primary converter enabled (input: \(self.describeASBD(format.asbd)) -> proc: 2ch float -> output: \(self.describeASBD(format.asbd)))")
-            } else {
-                logger.debug("Primary converter not required (format already safe)")
-            }
         }
 
-        if let format = primaryFormat, !format.isFloat32 {
-            logger.warning("Non-float tap format detected, conversion required: \(self.describeASBD(format.asbd))")
-        }
-
-        // Compute ramp coefficient from device sample rate (aggregate callback rate)
-        rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: deviceSampleRate, rampTime: VolumeRamper.defaultRampTime)
-        logger.debug("Configured for sample rate: \(deviceSampleRate) Hz, Ramp: \(self.rampCoefficient)")
+        // Compute ramp coefficient from device sample rate
+        rampCoefficient = VolumeRamper.computeCoefficient(sampleRate: sampleRate, rampTime: VolumeRamper.defaultRampTime)
+        logger.debug("Configured for sample rate: \(sampleRate) Hz, Ramp: \(self.rampCoefficient)")
 
         // Initialize EQ processor with device sample rate
-        eqProcessor = EQProcessor(sampleRate: deviceSampleRate)
+        eqProcessor = EQProcessor(sampleRate: sampleRate)
 
         // Create IO proc with gain processing
         err = AudioDeviceCreateIOProcIDWithBlock(&primaryResources.deviceProcID, primaryResources.aggregateDeviceID, queue) { [weak self] inNow, inInputData, inInputTime, outOutputData, inOutputTime in
@@ -671,13 +620,8 @@ final class ProcessTapController {
 
     /// Creates a secondary tap + aggregate for crossfade.
     private func createSecondaryTap(for outputUID: String) throws {
-        guard let streamInfo = resolveOutputStreamInfo(for: outputUID) else {
-            throw NSError(domain: "ProcessTapController", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Failed to resolve output stream for device \(outputUID)"])
-        }
-
-        // Create new process tap for the same app, matching target device stream format
-        let tapDesc = makeTapDescription(for: outputUID, streamIndex: streamInfo.streamIndex)
+        // Create new process tap using stereo mixdown (matches activate())
+        let tapDesc = makeTapDescription()
         secondaryResources.tapDescription = tapDesc
 
         var tapID: AudioObjectID = .unknown
@@ -687,20 +631,17 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create secondary tap: \(err)"])
         }
         secondaryResources.tapID = tapID
-        let fallbackSampleRate = streamInfo.streamFormat.mSampleRate > 0
-        ? streamInfo.streamFormat.mSampleRate
-        : (try? streamInfo.deviceID.readNominalSampleRate()) ?? 48000
-        updateSecondaryFormat(from: tapID, fallbackSampleRate: fallbackSampleRate)
         logger.debug("[CROSSFADE] Created secondary tap #\(tapID)")
 
-        // Create aggregate device for new output
+        // Create aggregate device for new output (matches activate(): stacked + clock device)
         let aggregateUID = UUID().uuidString
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "FineTune-\(app.id)-secondary",
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceClockDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceIsStackedKey: true,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: [
                 [kAudioSubDeviceUIDKey: outputUID]
@@ -723,11 +664,16 @@ final class ProcessTapController {
         }
         logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryResources.aggregateDeviceID)")
 
-        // Use OUTPUT DEVICE sample rate for the aggregate (same fix as activate())
-        let deviceSampleRate = fallbackSampleRate
-        if AudioDeviceID(secondaryResources.aggregateDeviceID).setNominalSampleRate(deviceSampleRate) {
-            logger.debug("[CROSSFADE] Secondary aggregate sample rate set to \(deviceSampleRate) Hz (tap: \(self.describeASBD(self.secondaryFormat?.asbd ?? AudioStreamBasicDescription())))")
+        // Read sample rate from aggregate device (matches activate())
+        let deviceSampleRate: Float64
+        if let aggSampleRate = try? secondaryResources.aggregateDeviceID.readNominalSampleRate() {
+            deviceSampleRate = aggSampleRate
+        } else {
+            deviceSampleRate = 48000
+            logger.warning("[CROSSFADE] Failed to read secondary aggregate sample rate, using default: 48000 Hz")
         }
+
+        updateSecondaryFormat(from: tapID, fallbackSampleRate: deviceSampleRate)
 
         destroyConverter(&secondaryConverter)
         if let format = secondaryFormat {
@@ -985,13 +931,8 @@ final class ProcessTapController {
         // Use device UID directly (always explicit)
         let outputUID = newDeviceUID
 
-        guard let streamInfo = resolveOutputStreamInfo(for: outputUID) else {
-            throw NSError(domain: "ProcessTapController", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Failed to resolve output stream for device \(outputUID)"])
-        }
-
-        // STEP 1: Create NEW tap (process will be muted by BOTH old and new taps)
-        let newTapDesc = makeTapDescription(for: outputUID, streamIndex: streamInfo.streamIndex)
+        // STEP 1: Create NEW tap using stereo mixdown (matches activate())
+        let newTapDesc = makeTapDescription()
 
         var newTapID: AudioObjectID = .unknown
         var err = AudioHardwareCreateProcessTap(newTapDesc, &newTapID)
@@ -1000,14 +941,15 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create new tap: \(err)"])
         }
 
-        // STEP 2: Create new aggregate with the new tap
+        // STEP 2: Create new aggregate with the new tap (matches activate(): stacked + clock device)
         let aggregateUID = UUID().uuidString
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "FineTune-\(app.id)",
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceClockDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceIsStackedKey: true,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: [
                 [kAudioSubDeviceUIDKey: outputUID]
@@ -1029,10 +971,13 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create aggregate: \(err)"])
         }
 
-        let fallbackSampleRate = streamInfo.streamFormat.mSampleRate > 0
-        ? streamInfo.streamFormat.mSampleRate
-        : (try? streamInfo.deviceID.readNominalSampleRate()) ?? 48000
-        _ = AudioDeviceID(newAggregateID).setNominalSampleRate(fallbackSampleRate)
+        // Read sample rate from aggregate device (matches activate())
+        let fallbackSampleRate: Float64
+        if let aggSampleRate = try? newAggregateID.readNominalSampleRate() {
+            fallbackSampleRate = aggSampleRate
+        } else {
+            fallbackSampleRate = 48000
+        }
 
         // STEP 3: Create and start IO proc for new aggregate
         var newDeviceProcID: AudioDeviceIOProcID?
