@@ -315,6 +315,18 @@ final class ProcessTapController {
     /// Does NOT set `isProcessRestoreEnabled` — that flag causes dead aggregate output where
     /// the IOProc writes to valid buffers but audio never reaches hardware.
     /// See: docs/known_issues/bundle-id-tap-silent-output-macos26.md
+    /// Whether this tap uses bundle-ID targeting (macOS 26+).
+    /// When true, crossfade is skipped to avoid dual-tap bundle-ID conflict
+    /// where CoreAudio stops delivering audio to the surviving tap.
+    private var usesBundleIDTaps: Bool {
+        if #available(macOS 26.0, *), app.bundleID != nil,
+           !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps"),
+           !UserDefaults.standard.bool(forKey: "FineTuneDisableBundleIDTaps") {
+            return true
+        }
+        return false
+    }
+
     private func makeTapDescription() -> CATapDescription {
         let tapDesc = CATapDescription(stereoMixdownOfProcesses: [app.objectID])
         tapDesc.uuid = UUID()
@@ -550,24 +562,32 @@ final class ProcessTapController {
         // Use device UID directly (always explicit)
         let newOutputUID = newDeviceUID
 
-        do {
-            // Try crossfade approach
-            try await performCrossfadeSwitch(to: newOutputUID)
-        } catch {
-            // Always clean up secondary tap resources on crossfade failure
-            cleanupSecondaryTap()
-
-            // If cancelled by a newer switch, don't attempt destructive fallback —
-            // the newer switch will handle routing to the correct device.
-            if Task.isCancelled {
-                let phaseDesc: String = switch self.crossfadeState.phase { case .idle: "idle"; case .warmingUp: "warmingUp"; case .crossfading: "crossfading" }
-                logger.info("[SWITCH] Cancelled during crossfade for \(self.app.name), aborting (currentDeviceUID=\(self.currentDeviceUID ?? "nil"), targetDeviceUID=\(self.targetDeviceUID), crossfadePhase=\(phaseDesc))")
-                throw CancellationError()
-            }
-
-            // Fall back to destroy/recreate if crossfade fails
-            logger.warning("[SWITCH] Crossfade failed: \(error.localizedDescription), using fallback")
+        if usesBundleIDTaps {
+            // Bundle-ID taps: skip crossfade to avoid dual-tap conflict.
+            // Two taps with identical bundleIDs cause CoreAudio to stop delivering
+            // audio to the surviving tap after the other is destroyed.
+            logger.info("[SWITCH] Using destructive switch (bundle-ID taps active)")
             try await performDestructiveDeviceSwitch(to: newDeviceUID)
+        } else {
+            do {
+                // PID-only taps: use crossfade for seamless transition
+                try await performCrossfadeSwitch(to: newOutputUID)
+            } catch {
+                // Always clean up secondary tap resources on crossfade failure
+                cleanupSecondaryTap()
+
+                // If cancelled by a newer switch, don't attempt destructive fallback —
+                // the newer switch will handle routing to the correct device.
+                if Task.isCancelled {
+                    let phaseDesc: String = switch self.crossfadeState.phase { case .idle: "idle"; case .warmingUp: "warmingUp"; case .crossfading: "crossfading" }
+                    logger.info("[SWITCH] Cancelled during crossfade for \(self.app.name), aborting (currentDeviceUID=\(self.currentDeviceUID ?? "nil"), targetDeviceUID=\(self.targetDeviceUID), crossfadePhase=\(phaseDesc))")
+                    throw CancellationError()
+                }
+
+                // Fall back to destroy/recreate if crossfade fails
+                logger.warning("[SWITCH] Crossfade failed: \(error.localizedDescription), using fallback")
+                try await performDestructiveDeviceSwitch(to: newDeviceUID)
+            }
         }
 
         // Final cancellation check before committing state
