@@ -995,35 +995,29 @@ final class AudioEngine {
                 continue
             }
 
-            // Load saved device routing, or assign to current macOS default
+            // Always route to the current macOS system default on startup.
+            // Persisted device routing reflects "the last device used" which may be stale
+            // (e.g., AirPods were default last session, now speakers are default).
+            // Users expect apps to follow the system default when FineTune launches.
             let deviceUID: String
-            if let savedDeviceUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier),
-               deviceMonitor.device(for: savedDeviceUID) != nil {
-                // Saved device exists, use it
-                deviceUID = savedDeviceUID
-                logger.debug("Applying saved device routing to \(app.name): \(deviceUID)")
-            } else {
-                // New app or saved device no longer exists: assign to current macOS default output device
-                // Validate the default isn't a virtual device (e.g., SRAudioDriver) — fall back to first real device
-                do {
-                    let defaultUID = try defaultOutputDeviceUIDProvider()
-                    if deviceMonitor.device(for: defaultUID) != nil {
-                        // Default device is in our filtered (non-virtual) list
-                        deviceUID = defaultUID
-                    } else if let firstReal = deviceMonitor.outputDevices.first?.uid {
-                        // Default is virtual/aggregate — use first real device
-                        logger.info("Default device \(defaultUID) is virtual/filtered, using \(firstReal) for \(app.name)")
-                        deviceUID = firstReal
-                    } else {
-                        // No real devices available at all
-                        deviceUID = defaultUID
-                    }
-                    settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
-                    logger.debug("App \(app.name) assigned to device: \(deviceUID)")
-                } catch {
-                    logger.error("Failed to get default device for \(app.name): \(error.localizedDescription)")
-                    continue
+            do {
+                let defaultUID = try defaultOutputDeviceUIDProvider()
+                if deviceMonitor.device(for: defaultUID) != nil {
+                    // Default device is in our filtered (non-virtual) list
+                    deviceUID = defaultUID
+                } else if let firstReal = deviceMonitor.outputDevices.first?.uid {
+                    // Default is virtual/aggregate — use first real device
+                    logger.info("Default device \(defaultUID) is virtual/filtered, using \(firstReal) for \(app.name)")
+                    deviceUID = firstReal
+                } else {
+                    // No real devices available at all
+                    deviceUID = defaultUID
                 }
+                settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
+                logger.debug("App \(app.name) assigned to system default: \(deviceUID)")
+            } catch {
+                logger.error("Failed to get default device for \(app.name): \(error.localizedDescription)")
+                continue
             }
             appDeviceRouting[app.id] = deviceUID
 
