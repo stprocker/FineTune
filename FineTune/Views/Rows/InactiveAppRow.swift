@@ -25,6 +25,10 @@ struct InactiveAppRow: View {
     let onEQChange: (EQSettings) -> Void
     let isEQExpanded: Bool
     let onEQToggle: () -> Void
+    let deviceSelectionMode: DeviceSelectionMode
+    let selectedDeviceUIDs: Set<String>
+    let onModeChange: (DeviceSelectionMode) -> Void
+    let onDevicesSelected: (Set<String>) -> Void
 
     @State private var sliderValue: Double
     @State private var isEditing = false
@@ -67,7 +71,11 @@ struct InactiveAppRow: View {
         eqSettings: EQSettings = EQSettings(),
         onEQChange: @escaping (EQSettings) -> Void = { _ in },
         isEQExpanded: Bool = false,
-        onEQToggle: @escaping () -> Void = {}
+        onEQToggle: @escaping () -> Void = {},
+        deviceSelectionMode: DeviceSelectionMode = .single,
+        selectedDeviceUIDs: Set<String> = [],
+        onModeChange: @escaping (DeviceSelectionMode) -> Void = { _ in },
+        onDevicesSelected: @escaping (Set<String>) -> Void = { _ in }
     ) {
         self.appInfo = appInfo
         self.icon = icon
@@ -83,6 +91,10 @@ struct InactiveAppRow: View {
         self.onEQChange = onEQChange
         self.isEQExpanded = isEQExpanded
         self.onEQToggle = onEQToggle
+        self.deviceSelectionMode = deviceSelectionMode
+        self.selectedDeviceUIDs = selectedDeviceUIDs
+        self.onModeChange = onModeChange
+        self.onDevicesSelected = onDevicesSelected
         // Convert linear gain to slider position
         self._sliderValue = State(initialValue: VolumeMapping.gainToSlider(volume))
         // Initialize local EQ state for reactive UI updates
@@ -173,22 +185,16 @@ struct InactiveAppRow: View {
                     // VU Meter (always level 0 for inactive apps)
                     VUMeter(level: 0, isMuted: showMutedIcon)
 
-                    // Device picker
-                    // NOTE: Per-app device routing disabled on macOS 26 (Tahoe).
-                    if #available(macOS 26, *) {
-                        HStack(spacing: DesignTokens.Spacing.xs) {
-                            DeviceIconView(icon: selectedDevice?.icon, size: 16)
-                            Text(selectedDevice?.name ?? "Default")
-                                .lineLimit(1)
-                        }
-                        .frame(width: 128, alignment: .leading)
-                    } else {
-                        DevicePicker(
-                            devices: devices,
-                            selectedDeviceUID: selectedDeviceUID,
-                            onDeviceSelected: onDeviceSelected
-                        )
-                    }
+                    // Device picker (single or multi mode)
+                    DevicePicker(
+                        devices: devices,
+                        selectedDeviceUID: selectedDeviceUID,
+                        selectedDeviceUIDs: selectedDeviceUIDs,
+                        mode: deviceSelectionMode,
+                        onDeviceSelected: onDeviceSelected,
+                        onDevicesSelected: onDevicesSelected,
+                        onModeChange: onModeChange
+                    )
 
                     // EQ button at end of row (animates to X when expanded)
                     AppRowEQToggle(isExpanded: isEQExpanded, onToggle: onEQToggle)

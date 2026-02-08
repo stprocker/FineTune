@@ -101,6 +101,20 @@ struct SettingsView: View {
                 isOn: $settings.lockInputDevice
             )
 
+            SettingsToggleRow(
+                icon: "arrow.counterclockwise",
+                title: "Remember Volume & Mute",
+                description: "Restore per-app volume and mute states after relaunch",
+                isOn: $settings.rememberVolumeMute
+            )
+
+            SettingsToggleRow(
+                icon: "slider.vertical.3",
+                title: "Remember EQ",
+                description: "Restore per-app equalizer presets after relaunch",
+                isOn: $settings.rememberEQ
+            )
+
             // Sound Effects device selection
             SoundEffectsDeviceRow(
                 devices: outputDevices,

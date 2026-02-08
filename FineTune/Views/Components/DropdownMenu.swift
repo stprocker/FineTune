@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Shared trigger button used by both DropdownMenu and GroupedDropdownMenu.
 /// Extracts ~40 lines of identical trigger button code into one component.
-private struct DropdownTriggerButton<Label: View>: View {
+struct DropdownTriggerButton<Label: View>: View {
     @Binding var isExpanded: Bool
     let width: CGFloat
     @ViewBuilder let label: () -> Label

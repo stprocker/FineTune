@@ -52,6 +52,10 @@ struct AppSettings: Codable, Equatable {
     // Input Device Lock
     var lockInputDevice: Bool = true
 
+    // Persistence
+    var rememberVolumeMute: Bool = true
+    var rememberEQ: Bool = true
+
     // Notifications
     var showDeviceDisconnectAlerts: Bool = true
 

@@ -617,6 +617,26 @@ final class AudioEngine {
         settingsManager.setDeviceRouting(for: identifier, deviceUID: deviceUID)
     }
 
+    /// Get device selection mode for an inactive app by persistence identifier.
+    func getDeviceSelectionModeForInactive(identifier: String) -> DeviceSelectionMode {
+        settingsManager.getDeviceSelectionMode(for: identifier) ?? .single
+    }
+
+    /// Set device selection mode for an inactive app by persistence identifier.
+    func setDeviceSelectionModeForInactive(identifier: String, to mode: DeviceSelectionMode) {
+        settingsManager.setDeviceSelectionMode(for: identifier, to: mode)
+    }
+
+    /// Get selected device UIDs for an inactive app by persistence identifier.
+    func getSelectedDeviceUIDsForInactive(identifier: String) -> Set<String> {
+        settingsManager.getSelectedDeviceUIDs(for: identifier) ?? []
+    }
+
+    /// Set selected device UIDs for an inactive app by persistence identifier.
+    func setSelectedDeviceUIDsForInactive(identifier: String, to uids: Set<String>) {
+        settingsManager.setSelectedDeviceUIDs(for: identifier, to: uids)
+    }
+
     func isPausedDisplayApp(_ app: AudioApp) -> Bool {
         if apps.isEmpty && lastDisplayedApp?.id == app.id {
             return true
@@ -806,12 +826,58 @@ final class AudioEngine {
     func setEQSettings(_ settings: EQSettings, for app: AudioApp) {
         guard let tap = taps[app.id] else { return }
         tap.updateEQSettings(settings)
-        settingsManager.setEQSettings(settings, for: app.persistenceIdentifier)
+        if settingsManager.appSettings.rememberEQ {
+            settingsManager.setEQSettings(settings, for: app.persistenceIdentifier)
+        }
     }
 
     /// Get EQ settings for an app
     func getEQSettings(for app: AudioApp) -> EQSettings {
         return settingsManager.getEQSettings(for: app.persistenceIdentifier)
+    }
+
+    // MARK: - Multi-Device Mode
+
+    /// Sets the device selection mode (single/multi) for an app.
+    func setDeviceSelectionMode(for app: AudioApp, to mode: DeviceSelectionMode) {
+        volumeState.setDeviceSelectionMode(for: app.id, to: mode, identifier: app.persistenceIdentifier)
+        Task { await updateTapForCurrentMode(for: app) }
+    }
+
+    /// Sets the selected device UIDs for multi-mode routing.
+    func setSelectedDeviceUIDs(for app: AudioApp, to uids: Set<String>) {
+        volumeState.setSelectedDeviceUIDs(for: app.id, to: uids, identifier: app.persistenceIdentifier)
+        guard volumeState.getDeviceSelectionMode(for: app.id) == .multi else { return }
+        Task { await updateTapForCurrentMode(for: app) }
+    }
+
+    /// Gets the current device selection mode for an app.
+    func getDeviceSelectionMode(for app: AudioApp) -> DeviceSelectionMode {
+        volumeState.getDeviceSelectionMode(for: app.id)
+    }
+
+    /// Gets the selected device UIDs for multi-mode.
+    func getSelectedDeviceUIDs(for app: AudioApp) -> Set<String> {
+        volumeState.getSelectedDeviceUIDs(for: app.id)
+    }
+
+    /// Resolves the current mode + device UIDs and reconfigures the tap.
+    private func updateTapForCurrentMode(for app: AudioApp) async {
+        let mode = volumeState.getDeviceSelectionMode(for: app.id)
+        let deviceUIDs: [String]
+        switch mode {
+        case .single:
+            deviceUIDs = [appDeviceRouting[app.id] ?? (try? defaultOutputDeviceUIDProvider()) ?? ""]
+        case .multi:
+            let uids = volumeState.getSelectedDeviceUIDs(for: app.id)
+                .filter { deviceMonitor.device(for: $0) != nil }
+                .sorted()
+            guard !uids.isEmpty else { return }
+            deviceUIDs = uids
+        }
+        if let tap = taps[app.id] {
+            try? await tap.updateDevices(to: deviceUIDs)
+        }
     }
 
     // MARK: - Routing
@@ -1056,11 +1122,17 @@ final class AudioEngine {
 
     // MARK: - Tap Management
 
+    /// Convenience wrapper for single-device tap creation.
     private func ensureTapExists(for app: AudioApp, deviceUID: String) {
-        guard taps[app.id] == nil else { return }
+        ensureTapExists(for: app, deviceUIDs: [deviceUID])
+    }
+
+    private func ensureTapExists(for app: AudioApp, deviceUIDs: [String]) {
+        guard taps[app.id] == nil, !deviceUIDs.isEmpty else { return }
+        let deviceUID = deviceUIDs[0]  // Primary UID for volume/mute lookups
         onTapCreationAttemptForTests?(app, deviceUID)
 
-        let tap = ProcessTapController(app: app, targetDeviceUID: deviceUID, deviceMonitor: deviceMonitor)
+        let tap = ProcessTapController(app: app, targetDeviceUIDs: deviceUIDs, deviceMonitor: deviceMonitor)
         tap.volume = volumeState.getVolume(for: app.id)
         tap.isMuted = volumeState.getMute(for: app.id)
 
@@ -1155,7 +1227,9 @@ final class AudioEngine {
             }
 
             // Load and apply persisted EQ settings
-            let eqSettings = settingsManager.getEQSettings(for: app.persistenceIdentifier)
+            let eqSettings = settingsManager.appSettings.rememberEQ
+                ? settingsManager.getEQSettings(for: app.persistenceIdentifier)
+                : EQSettings.flat
             tap.updateEQSettings(eqSettings)
 
             logger.debug("Created tap for \(app.name)")
@@ -1233,8 +1307,25 @@ final class AudioEngine {
 
         var affectedApps: [AudioApp] = []
         var tapsToSwitch: [(pid: pid_t, tap: ProcessTapController)] = []
+        var multiDeviceUpdates: [(pid: pid_t, tap: ProcessTapController, remaining: [String])] = []
 
         for app in apps {
+            // Multi-mode: remove disconnected device from the set, keep remaining
+            if volumeState.getDeviceSelectionMode(for: app.id) == .multi,
+               let tap = taps[app.id] {
+                let remaining = tap.currentDeviceUIDs.filter { $0 != deviceUID }
+                if !remaining.isEmpty && tap.currentDeviceUIDs.contains(deviceUID) {
+                    affectedApps.append(app)
+                    multiDeviceUpdates.append((pid: app.id, tap: tap, remaining: remaining))
+                    // Update persisted UIDs to remove disconnected device
+                    var uids = volumeState.getSelectedDeviceUIDs(for: app.id)
+                    uids.remove(deviceUID)
+                    volumeState.setSelectedDeviceUIDs(for: app.id, to: uids, identifier: app.persistenceIdentifier)
+                    continue
+                }
+                // If no remaining devices, fall through to single-device fallback below
+            }
+
             if appDeviceRouting[app.id] == deviceUID {
                 affectedApps.append(app)
 
@@ -1254,7 +1345,19 @@ final class AudioEngine {
             }
         }
 
-        // Switch taps directly (bypassing setDevice which would persist)
+        // Multi-device updates: remove disconnected device, keep remaining
+        for (pid, tap, remaining) in multiDeviceUpdates {
+            switchTasks[pid] = Task {
+                do {
+                    try await tap.updateDevices(to: remaining)
+                } catch {
+                    self.logger.error("Failed to update multi-device set for PID \(pid): \(error.localizedDescription)")
+                }
+                self.switchTasks.removeValue(forKey: pid)
+            }
+        }
+
+        // Switch single-mode taps directly (bypassing setDevice which would persist)
         if !tapsToSwitch.isEmpty {
             for (pid, tap) in tapsToSwitch {
                 switchTasks[pid] = Task {
@@ -1287,10 +1390,28 @@ final class AudioEngine {
     private func handleDeviceConnected(_ deviceUID: String, name deviceName: String) {
         var affectedApps: [AudioApp] = []
         var tapsToSwitch: [(pid: pid_t, tap: ProcessTapController)] = []
+        var multiDeviceUpdates: [(pid: pid_t, tap: ProcessTapController, updated: [String])] = []
 
         for app in apps {
             // Skip apps that are persisted as following default — they chose default intentionally
             guard !settingsManager.isFollowingDefault(for: app.persistenceIdentifier) else { continue }
+
+            // Multi-mode: add reconnected device back if it was in the persisted selection
+            if volumeState.getDeviceSelectionMode(for: app.id) == .multi,
+               let tap = taps[app.id] {
+                let persistedUIDs = settingsManager.getSelectedDeviceUIDs(for: app.persistenceIdentifier) ?? []
+                if persistedUIDs.contains(deviceUID) && !tap.currentDeviceUIDs.contains(deviceUID) {
+                    var uids = volumeState.getSelectedDeviceUIDs(for: app.id)
+                    uids.insert(deviceUID)
+                    volumeState.setSelectedDeviceUIDs(for: app.id, to: uids, identifier: app.persistenceIdentifier)
+                    let updated = uids.filter { deviceMonitor.device(for: $0) != nil }.sorted()
+                    if !updated.isEmpty {
+                        affectedApps.append(app)
+                        multiDeviceUpdates.append((pid: app.id, tap: tap, updated: updated))
+                        continue
+                    }
+                }
+            }
 
             // Check if this app's PERSISTED routing matches the reconnected device
             let persistedUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier)
@@ -1308,7 +1429,21 @@ final class AudioEngine {
             }
         }
 
-        // Switch taps back to the reconnected device
+        // Multi-device updates: add reconnected device back
+        for (pid, tap, updated) in multiDeviceUpdates {
+            switchTasks[pid]?.cancel()
+            switchTasks[pid] = Task {
+                do {
+                    try await tap.updateDevices(to: updated)
+                    self.logger.debug("Added reconnected device \(deviceName) back to PID \(pid) multi-set")
+                } catch {
+                    self.logger.error("Failed to add reconnected device to PID \(pid): \(error.localizedDescription)")
+                }
+                self.switchTasks.removeValue(forKey: pid)
+            }
+        }
+
+        // Switch single-mode taps back to the reconnected device
         if !tapsToSwitch.isEmpty {
             for (pid, tap) in tapsToSwitch {
                 switchTasks[pid]?.cancel()

@@ -39,15 +39,20 @@ final class VolumeState {
                 state.persistenceIdentifier = identifier
             }
             states[pid] = state
-            settingsManager?.setVolume(for: state.persistenceIdentifier, to: volume)
+            if settingsManager?.appSettings.rememberVolumeMute == true {
+                settingsManager?.setVolume(for: state.persistenceIdentifier, to: volume)
+            }
         } else if let identifier = identifier {
             states[pid] = AppAudioState(volume: volume, muted: false, persistenceIdentifier: identifier)
-            settingsManager?.setVolume(for: identifier, to: volume)
+            if settingsManager?.appSettings.rememberVolumeMute == true {
+                settingsManager?.setVolume(for: identifier, to: volume)
+            }
         }
     }
 
     func loadSavedVolume(for pid: pid_t, identifier: String) -> Float? {
         ensureState(for: pid, identifier: identifier)
+        guard settingsManager?.appSettings.rememberVolumeMute != false else { return nil }
         if let saved = settingsManager?.getVolume(for: identifier) {
             states[pid]?.volume = saved
             return saved
@@ -68,16 +73,21 @@ final class VolumeState {
                 state.persistenceIdentifier = identifier
             }
             states[pid] = state
-            settingsManager?.setMute(for: state.persistenceIdentifier, to: muted)
+            if settingsManager?.appSettings.rememberVolumeMute == true {
+                settingsManager?.setMute(for: state.persistenceIdentifier, to: muted)
+            }
         } else if let identifier = identifier {
             let defaultVolume = settingsManager?.appSettings.defaultNewAppVolume ?? 1.0
             states[pid] = AppAudioState(volume: defaultVolume, muted: muted, persistenceIdentifier: identifier)
-            settingsManager?.setMute(for: identifier, to: muted)
+            if settingsManager?.appSettings.rememberVolumeMute == true {
+                settingsManager?.setMute(for: identifier, to: muted)
+            }
         }
     }
 
     func loadSavedMute(for pid: pid_t, identifier: String) -> Bool? {
         ensureState(for: pid, identifier: identifier)
+        guard settingsManager?.appSettings.rememberVolumeMute != false else { return nil }
         if let saved = settingsManager?.getMute(for: identifier) {
             states[pid]?.muted = saved
             return saved

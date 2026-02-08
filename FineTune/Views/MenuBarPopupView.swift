@@ -406,6 +406,14 @@ struct MenuBarPopupView: View {
                         scrollProxy.scrollTo(scrollTarget, anchor: .top)
                     }
                 }
+            },
+            deviceSelectionMode: audioEngine.getDeviceSelectionMode(for: app),
+            selectedDeviceUIDs: audioEngine.getSelectedDeviceUIDs(for: app),
+            onModeChange: { mode in
+                audioEngine.setDeviceSelectionMode(for: app, to: mode)
+            },
+            onDevicesSelected: { uids in
+                audioEngine.setSelectedDeviceUIDs(for: app, to: uids)
             }
         )
         .id(displayableApp.id)
@@ -449,6 +457,14 @@ struct MenuBarPopupView: View {
                         scrollProxy.scrollTo(scrollTarget, anchor: .top)
                     }
                 }
+            },
+            deviceSelectionMode: audioEngine.getDeviceSelectionModeForInactive(identifier: identifier),
+            selectedDeviceUIDs: audioEngine.getSelectedDeviceUIDsForInactive(identifier: identifier),
+            onModeChange: { mode in
+                audioEngine.setDeviceSelectionModeForInactive(identifier: identifier, to: mode)
+            },
+            onDevicesSelected: { uids in
+                audioEngine.setSelectedDeviceUIDsForInactive(identifier: identifier, to: uids)
             }
         )
         .id(displayableApp.id)

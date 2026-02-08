@@ -3,7 +3,7 @@ import Foundation
 
 /// Configuration for crossfade behavior.
 public enum CrossfadeConfig {
-    public static let defaultDuration: TimeInterval = 0.050  // 50ms
+    public static let defaultDuration: TimeInterval = 0.200  // 200ms
 
     public static var duration: TimeInterval {
         let custom = UserDefaults.standard.double(forKey: "FineTuneCrossfadeDuration")

@@ -46,6 +46,9 @@ final class ProcessTapController {
     // Device volume compensation scalar (applied during/after crossfade)
     // Computed as: sourceDeviceVolume / destinationDeviceVolume
     private nonisolated(unsafe) var _deviceVolumeCompensation: Float = 1.0
+    // Target for compensation ramp: 1.0 after promotion (ramps back to unity),
+    // set to computed ratio during crossfade setup
+    private nonisolated(unsafe) var _targetCompensation: Float = 1.0
 
     // Peak audio level for VU meter display (0-1 range)
     // Written by audio callback, read by UI for visualization
@@ -194,9 +197,22 @@ final class ProcessTapController {
         eqProcessor?.updateSettings(settings)
     }
 
-    // Target device UID (always explicit)
-    private var targetDeviceUID: String
-    private(set) var currentDeviceUID: String?
+    // Target device UIDs (ordered; first = clock source for aggregate)
+    private var targetDeviceUIDs: [String]
+    private(set) var currentDeviceUIDs: [String]
+
+    // Convenience accessors for single-device callers
+    private var targetDeviceUID: String { targetDeviceUIDs[0] }
+    private(set) var currentDeviceUID: String? {
+        get { currentDeviceUIDs.first }
+        set {
+            if let uid = newValue {
+                currentDeviceUIDs = [uid]
+            } else {
+                currentDeviceUIDs = []
+            }
+        }
+    }
 
     // Core Audio resources (encapsulated for safe cleanup)
     private var primaryResources = TapResources()
@@ -232,13 +248,19 @@ final class ProcessTapController {
     var destructiveSwitchPostSilenceMs: UInt64 = 150
     var destructiveSwitchFadeInMs: UInt64 = 100
 
-    init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true, queue: DispatchQueue? = nil) {
+    init(app: AudioApp, targetDeviceUIDs: [String], deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true, queue: DispatchQueue? = nil) {
+        precondition(!targetDeviceUIDs.isEmpty, "targetDeviceUIDs must not be empty")
         self.app = app
-        self.targetDeviceUID = targetDeviceUID
+        self.targetDeviceUIDs = targetDeviceUIDs
+        self.currentDeviceUIDs = []
         self.deviceMonitor = deviceMonitor
         self.muteOriginal = muteOriginal
         self.queue = queue ?? DispatchQueue(label: "ProcessTapController", qos: .userInitiated)
         self.logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "ProcessTapController(\(app.name))")
+    }
+
+    convenience init(app: AudioApp, targetDeviceUID: String, deviceMonitor: AudioDeviceMonitor? = nil, muteOriginal: Bool = true, queue: DispatchQueue? = nil) {
+        self.init(app: app, targetDeviceUIDs: [targetDeviceUID], deviceMonitor: deviceMonitor, muteOriginal: muteOriginal, queue: queue)
     }
 
     // MARK: - Live Tap Reconfiguration
@@ -287,6 +309,34 @@ final class ProcessTapController {
         tapDesc.uuid = UUID()
         tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
         return tapDesc
+    }
+
+    // MARK: - Aggregate Description Factory
+
+    /// Builds the aggregate device description dictionary for one or more output devices.
+    /// First UID is the clock source; subsequent devices get drift compensation.
+    private func buildAggregateDescription(outputUIDs: [String], tapUUID: UUID, name: String) -> [String: Any] {
+        var subDevices: [[String: Any]] = []
+        for (index, uid) in outputUIDs.enumerated() {
+            subDevices.append([
+                kAudioSubDeviceUIDKey: uid,
+                kAudioSubDeviceDriftCompensationKey: index > 0  // first = clock source, rest drift-compensated
+            ])
+        }
+        let clockUID = outputUIDs[0]
+        return [
+            kAudioAggregateDeviceNameKey: name,
+            kAudioAggregateDeviceUIDKey: UUID().uuidString,
+            kAudioAggregateDeviceMainSubDeviceKey: clockUID,
+            kAudioAggregateDeviceClockDeviceKey: clockUID,
+            kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceIsStackedKey: true,
+            kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceSubDeviceListKey: subDevices,
+            kAudioAggregateDeviceTapListKey: [
+                [kAudioSubTapDriftCompensationKey: true, kAudioSubTapUIDKey: tapUUID.uuidString]
+            ]
+        ]
     }
 
     // MARK: - Tap/Device Format Helpers
@@ -343,9 +393,8 @@ final class ProcessTapController {
 
         logger.debug("Activating tap for \(self.app.name)")
 
-        // Use target device UID directly (always explicit)
-        let outputUID = targetDeviceUID
-        currentDeviceUID = outputUID
+        // Use target device UIDs directly (always explicit)
+        currentDeviceUIDs = targetDeviceUIDs
 
         // Create process tap using stereo mixdown — captures all audio from the process
         let tapDesc = makeTapDescription()
@@ -360,25 +409,12 @@ final class ProcessTapController {
         primaryResources.tapID = tapID
         logger.debug("Created process tap #\(tapID)")
 
-        // Create aggregate device (matches original: stacked + clock device)
-        let description: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "FineTune-\(app.id)",
-            kAudioAggregateDeviceUIDKey: UUID().uuidString,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
-            kAudioAggregateDeviceClockDeviceKey: outputUID,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: true,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [kAudioSubDeviceUIDKey: outputUID]
-            ],
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapUIDKey: tapDesc.uuid.uuidString
-                ]
-            ]
-        ]
+        // Create aggregate device (stacked + clock device, supports multiple output UIDs)
+        let description = buildAggregateDescription(
+            outputUIDs: targetDeviceUIDs,
+            tapUUID: tapDesc.uuid,
+            name: "FineTune-\(app.id)"
+        )
 
         primaryResources.aggregateDeviceID = .unknown
         err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &primaryResources.aggregateDeviceID)
@@ -445,26 +481,46 @@ final class ProcessTapController {
         }
     }
 
+    // MARK: - Multi-Device Updates
+
+    /// Switches to a new set of output devices. Uses crossfade for seamless transition.
+    /// If the new set differs from the current set, performs a crossfade switch.
+    func updateDevices(to newDeviceUIDs: [String]) async throws {
+        precondition(!newDeviceUIDs.isEmpty, "newDeviceUIDs must not be empty")
+        guard activated else {
+            targetDeviceUIDs = newDeviceUIDs
+            return
+        }
+        guard newDeviceUIDs.sorted() != currentDeviceUIDs.sorted() else { return }
+
+        targetDeviceUIDs = newDeviceUIDs
+        // Perform the switch via the existing crossfade path — the aggregate description
+        // is built from targetDeviceUIDs so the new aggregate gets all the devices.
+        try await switchDevice(to: newDeviceUIDs[0])
+        // After switch completes, ensure state reflects all devices
+        currentDeviceUIDs = newDeviceUIDs
+    }
+
     // MARK: - Crossfade
 
     /// Switches the output device using dual-tap crossfade for seamless transition.
     /// Creates a second tap+aggregate for the new device, crossfades, then destroys the old one.
     func switchDevice(to newDeviceUID: String) async throws {
         guard activated else {
-            targetDeviceUID = newDeviceUID
+            targetDeviceUIDs = [newDeviceUID]
             logger.debug("[SWITCH] Not activated, just updating target to \(newDeviceUID)")
             return
         }
 
         // Snapshot state for diagnostics before the guard narrows optionality
         let diagCurrentUID = currentDeviceUID ?? "nil"
-        let diagTargetUID = targetDeviceUID
+        let diagTargetUID = newDeviceUID
 
         // Skip if already on the target device (can happen when a cancelled switch
         // leaves us on the original device and the new switch targets the same device)
         guard currentDeviceUID != newDeviceUID else {
             logger.debug("[SWITCH] Already on target device \(newDeviceUID), skipping (currentDeviceUID=\(diagCurrentUID), targetDeviceUID=\(diagTargetUID))")
-            targetDeviceUID = newDeviceUID
+            if targetDeviceUIDs.count <= 1 { targetDeviceUIDs = [newDeviceUID] }
             return
         }
 
@@ -499,8 +555,12 @@ final class ProcessTapController {
         // Final cancellation check before committing state
         try Task.checkCancellation()
 
-        targetDeviceUID = newDeviceUID
-        currentDeviceUID = newOutputUID
+        // Only overwrite targetDeviceUIDs if this was a single-device switch (not from updateDevices)
+        if targetDeviceUIDs.count <= 1 { targetDeviceUIDs = [newDeviceUID] }
+        // currentDeviceUIDs reflects what's now in the aggregate
+        if currentDeviceUIDs.count <= 1 || !currentDeviceUIDs.contains(newOutputUID) {
+            currentDeviceUIDs = targetDeviceUIDs
+        }
 
         let endTime = CFAbsoluteTimeGetCurrent()
         logger.info("[SWITCH] === END === Total time: \((endTime - startTime) * 1000)ms")
@@ -545,14 +605,16 @@ final class ProcessTapController {
 
         // Compute volume compensation: adjust so perceived loudness stays constant
         // Fresh ratio computed at each switch — no cumulative attenuation
+        // Wider clamp [0.05, 4.0] is safe because compensation ramps back to 1.0
+        // after promotion (only active during the ~200ms crossfade window).
+        // The soft limiter in GainProcessor handles any peaks > 1.0.
         if sourceVolume > 0.01 && destVolume > 0.01 {
             _deviceVolumeCompensation = sourceVolume / destVolume
-            // Clamp to reasonable range: max 2x avoids clipping/garbling when
-            // device volumes differ significantly (e.g., 62% speakers → 6% AirPods)
-            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 2.0)
+            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.05), 4.0)
         } else {
             _deviceVolumeCompensation = 1.0
         }
+        _targetCompensation = _deviceVolumeCompensation
         logger.info("[CROSSFADE] Volume compensation: source=\(sourceVolume), dest=\(destVolume), ratio=\(self._deviceVolumeCompensation)")
 
         logger.info("[CROSSFADE] Step 2: Preparing crossfade state (warmingUp)")
@@ -646,26 +708,12 @@ final class ProcessTapController {
         secondaryResources.tapID = tapID
         logger.debug("[CROSSFADE] Created secondary tap #\(tapID)")
 
-        // Create aggregate device for new output (matches activate(): stacked + clock device)
-        let aggregateUID = UUID().uuidString
-        let description: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "FineTune-\(app.id)-secondary",
-            kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
-            kAudioAggregateDeviceClockDeviceKey: outputUID,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: true,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [kAudioSubDeviceUIDKey: outputUID]
-            ],
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapUIDKey: tapDesc.uuid.uuidString
-                ]
-            ]
-        ]
+        // Create aggregate device for new output (stacked + clock device, supports multiple output UIDs)
+        let description = buildAggregateDescription(
+            outputUIDs: targetDeviceUIDs,
+            tapUUID: tapDesc.uuid,
+            name: "FineTune-\(app.id)-secondary"
+        )
 
         err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &secondaryResources.aggregateDeviceID)
         guard err == noErr else {
@@ -810,6 +858,11 @@ final class ProcessTapController {
         // Keep _secondaryCurrentVolume intact for in-flight callbacks
         _primaryCurrentVolume = _secondaryCurrentVolume
 
+        // Signal compensation ramp-back to unity: the new device should play at its
+        // natural volume level. The processAudio callback will smoothly ramp
+        // _deviceVolumeCompensation from its current crossfade value toward 1.0.
+        _targetCompensation = 1.0
+
         // Transfer peak level from secondary to primary
         _peakLevel = _secondaryPeakLevel
 
@@ -911,12 +964,11 @@ final class ProcessTapController {
         // Fresh ratio computed at each switch — no cumulative attenuation
         if sourceVolume > 0.01 && destVolume > 0.01 {
             _deviceVolumeCompensation = sourceVolume / destVolume
-            // Clamp to reasonable range: max 2x avoids clipping/garbling when
-            // device volumes differ significantly (e.g., 62% speakers → 6% AirPods)
-            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.1), 2.0)
+            _deviceVolumeCompensation = min(max(_deviceVolumeCompensation, 0.05), 4.0)
         } else {
             _deviceVolumeCompensation = 1.0
         }
+        _targetCompensation = 1.0  // Ramp back to unity after destructive switch
         logger.info("[SWITCH-DESTROY] Volume compensation: source=\(sourceVolume), dest=\(destVolume), ratio=\(self._deviceVolumeCompensation)")
 
         _forceSilence = true
@@ -983,26 +1035,12 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create new tap: \(err)"])
         }
 
-        // STEP 2: Create new aggregate with the new tap (matches activate(): stacked + clock device)
-        let aggregateUID = UUID().uuidString
-        let description: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "FineTune-\(app.id)",
-            kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
-            kAudioAggregateDeviceClockDeviceKey: outputUID,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: true,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [kAudioSubDeviceUIDKey: outputUID]
-            ],
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapUIDKey: newTapDesc.uuid.uuidString
-                ]
-            ]
-        ]
+        // STEP 2: Create new aggregate with the new tap (stacked + clock device, supports multiple output UIDs)
+        let description = buildAggregateDescription(
+            outputUIDs: [outputUID],
+            tapUUID: newTapDesc.uuid,
+            name: "FineTune-\(app.id)"
+        )
 
         var newAggregateID: AudioObjectID = .unknown
         err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
@@ -1066,8 +1104,8 @@ final class ProcessTapController {
         primaryResources.tapDescription = newTapDesc
         primaryResources.aggregateDeviceID = newAggregateID
         primaryResources.deviceProcID = newDeviceProcID
-        targetDeviceUID = newDeviceUID
-        currentDeviceUID = outputUID
+        targetDeviceUIDs = [newDeviceUID]
+        currentDeviceUIDs = [outputUID]
 
         updatePrimaryFormat(from: newTapID, fallbackSampleRate: fallbackSampleRate)
         destroyConverter(&primaryConverter)
@@ -1172,6 +1210,14 @@ final class ProcessTapController {
 
         // During crossfade, primary tap fades OUT using equal-power curve (delegated to CrossfadeState)
         let crossfadeMultiplier = crossfadeState.primaryMultiplier
+
+        // Ramp _deviceVolumeCompensation toward _targetCompensation each callback.
+        // During crossfade: both are the same value (set in performCrossfadeSwitch).
+        // After promotion: _targetCompensation is 1.0, so this smoothly returns
+        // compensation to unity over ~30ms (reuses existing ramp coefficient).
+        if !crossfadeState.isActive {
+            _deviceVolumeCompensation += (_targetCompensation - _deviceVolumeCompensation) * rampCoefficient
+        }
 
         if let converter = primaryConverter {
             _diagConverterUsed += 1
