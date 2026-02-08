@@ -80,6 +80,7 @@ final class AudioEngine {
         var callbackCount: UInt64 = 0
         var outputWritten: UInt64 = 0
         var emptyInput: UInt64 = 0
+        var inputHasData: UInt64 = 0
     }
     private var lastHealthSnapshots: [pid_t: TapHealthSnapshot] = [:]
     /// Routing snapshot taken before recreation events.
@@ -399,9 +400,11 @@ final class AudioEngine {
         }
     }
 
-    /// Detects broken taps and recreates them. Two failure modes are detected:
+    /// Detects broken taps and recreates them. Three failure modes are detected:
     /// 1. **Stalled**: callback count not changing (IO proc stopped running)
     /// 2. **Broken**: callbacks running but empty input / no output (reporter disconnected)
+    /// 3. **Input frozen after crossfade**: callbacks running, output written, but input stopped
+    ///    after a recent crossfade (bundle-ID tap disconnection on macOS 26)
     /// This handles "Reporter disconnected" / IO overload scenarios where CoreAudio's
     /// process tap loses its connection after permission changes or coreaudiod issues.
     private func checkTapHealth() {
@@ -413,7 +416,8 @@ final class AudioEngine {
             lastHealthSnapshots[pid] = TapHealthSnapshot(
                 callbackCount: d.callbackCount,
                 outputWritten: d.outputWritten,
-                emptyInput: d.emptyInput
+                emptyInput: d.emptyInput,
+                inputHasData: d.inputHasData
             )
 
             // Skip if we're in the middle of switching devices
@@ -446,6 +450,24 @@ final class AudioEngine {
             if callbackDelta > 50 && outputDelta == 0 && emptyDelta > callbackDelta / 2 {
                 pidsToRecreate.append((pid, "broken (callbacks=+\(callbackDelta) output=+0 empty=+\(emptyDelta))"))
                 continue
+            }
+
+            // Case 3: Input frozen after crossfade — callbacks running, output written,
+            // but no new audio input received. Detects bundle-ID tap disconnection on
+            // macOS 26 where two taps claim the same bundleID during crossfade and
+            // CoreAudio stops delivering audio to the surviving tap after the other
+            // is destroyed.
+            //
+            // Scoped to 10 seconds after crossfade completion to avoid false positives
+            // for legitimately paused apps. After that window, if the tap is truly
+            // disconnected, the app will appear paused anyway.
+            let inputDelta = d.inputHasData - prev.inputHasData
+            if callbackDelta > 50 && inputDelta == 0 && prev.inputHasData > 0 && !d.crossfadeActive {
+                if let lastCrossfade = tap.lastCrossfadeCompletedAt,
+                   Date().timeIntervalSince(lastCrossfade) < 10 {
+                    pidsToRecreate.append((pid, "input frozen after crossfade (callbacks=+\(callbackDelta) input stuck at \(d.inputHasData))"))
+                    continue
+                }
             }
         }
 

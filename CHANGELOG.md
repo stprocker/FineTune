@@ -2,6 +2,36 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Multi-Device Audio Routing + Permission UX Fix
+
+Implemented full multi-device audio routing (per-app audio to multiple output devices simultaneously via stacked aggregate devices), re-enabled DevicePicker on macOS 26, and added proactive permission checking to prevent disruptive system dialogs.
+Full details: `docs/ai-chat-history/2026-02-08-multi-device-routing-and-permission-ux.md`
+
+#### Added
+- **Multi-device aggregate support in `ProcessTapController`** — `targetDeviceUIDs: [String]` replaces single device UID. First device is clock source, subsequent devices get drift compensation. `buildAggregateDescription()` helper replaces 3 inline aggregate dictionary copies. `updateDevices(to:)` method for live device set changes.
+- **Mode-aware routing in `AudioEngine`** — `setDeviceSelectionMode()`, `setSelectedDeviceUIDs()`, `getDeviceSelectionMode()`, `getSelectedDeviceUIDs()`, `updateTapForCurrentMode()`. Multi-device disconnect removes one device from set (remaining keep playing). Reconnect adds device back if in persisted selection.
+- **DevicePicker Single/Multi mode toggle** — segmented control at top of dropdown. Multi mode: checkboxes, dropdown stays open, "N devices" trigger text, can't deselect last device. Single mode: standard checkmark select, closes on tap.
+- **Proactive audio permission check** — `CGPreflightScreenCaptureAccess()` called before `AudioEngine` creation. If permission missing (and onboarding completed), shows `NSAlert` with "Open System Settings" button linking to Privacy & Security → Screen & System Audio Recording. Prevents CoreAudio from triggering the disruptive system permission dialog mid-interaction.
+- **Menu bar debug logging** — `[MENUBAR]` tagged logs in `MenuBarStatusController`: status item creation, icon application, button/window state, 3-second delayed health check for post-layout verification.
+
+#### Changed
+- **DevicePicker re-enabled on macOS 26** — removed `#available(macOS 26, *)` guards from `AppRow` and `InactiveAppRow` that disabled the device picker. The aggregate-based routing approach works fine on macOS 26 (guard was from an earlier device-specific `CATapDescription` constructor approach).
+- **`DropdownTriggerButton`** access changed from `private` to `internal` in `DropdownMenu.swift` so `DevicePicker` can reuse it.
+- **`AppRow` and `InactiveAppRow`** — 4 new properties each: `deviceSelectionMode`, `selectedDeviceUIDs`, `onModeChange`, `onDevicesSelected` (all with defaults for backward compatibility).
+- **`MenuBarPopupView`** — wired up mode change and multi-device selection callbacks for both active and inactive app rows.
+- **`FineTuneApp.swift`** — permission check runs before engine creation; `ScreenCaptureKit` import added.
+
+#### Fixed
+- **DevicePicker type error** — `DeviceIcon` (nonexistent type) replaced with `NSImage?` in `triggerIcon` computed property.
+- **System permission dialog appearing mid-interaction** — now caught by proactive `CGPreflightScreenCaptureAccess()` check before engine starts, with user-friendly alert directing to System Settings.
+
+#### Known Issues
+- **Multi-device routing is compile-verified + Xcode build verified** — not yet runtime-tested with actual multi-device playback
+- **Codesign error with stale `PlugIns/FineTuneTests.xctest`** — intermittent; clean build (`Cmd+Shift+K`) resolves it
+- **`CGPreflightScreenCaptureAccess()` behavior on macOS 26** — passive check confirmed not to trigger system dialog, but needs broader testing
+- **Test C (bundle-ID experiment)** — `tapDesc.bundleIDs = [bundleID]` without `isProcessRestoreEnabled` has not been tested yet. Orthogonal to multi-device routing.
+- **Pre-existing test failures** — 19 tests fail with "0 unexpected" (CrossfadeState duration values: tests expect 50ms, code uses 200ms). Unrelated to multi-device changes.
+
 ### Safety & Reliability Fixes
 
 Six safety and reliability fixes addressing hearing safety, resource lifecycle, startup ordering, and data integrity.

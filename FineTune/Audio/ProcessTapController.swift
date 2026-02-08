@@ -222,6 +222,11 @@ final class ProcessTapController {
     // Crossfade state machine (RT-safe, lock-free access from audio callbacks)
     private nonisolated(unsafe) var crossfadeState = CrossfadeState()
 
+    /// Timestamp of last crossfade promotion. Used by health check to scope
+    /// "input frozen" detection to a window after crossfade (avoids false positives
+    /// for paused apps). Set in promoteSecondaryToPrimary().
+    private(set) var lastCrossfadeCompletedAt: Date?
+
     /// When true, taps use `.mutedWhenTapped` to silence original audio (normal operation).
     /// When false, taps use `.unmuted` so original audio still plays (safe for first launch
     /// before system audio permission is confirmed — prevents silence if the app is killed).
@@ -304,10 +309,23 @@ final class ProcessTapController {
 
     /// Creates a `CATapDescription` using stereo mixdown — captures all audio from the process
     /// regardless of which device it plays through. The aggregate device handles routing to output.
+    ///
+    /// On macOS 26+, sets `bundleIDs` for bundle-ID targeting. Required because Chromium-based
+    /// browsers route audio through renderer subprocesses that PID-based taps can't see.
+    /// Does NOT set `isProcessRestoreEnabled` — that flag causes dead aggregate output where
+    /// the IOProc writes to valid buffers but audio never reaches hardware.
+    /// See: docs/known_issues/bundle-id-tap-silent-output-macos26.md
     private func makeTapDescription() -> CATapDescription {
         let tapDesc = CATapDescription(stereoMixdownOfProcesses: [app.objectID])
         tapDesc.uuid = UUID()
         tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
+        if #available(macOS 26.0, *), let bundleID = app.bundleID,
+           !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps"),
+           !UserDefaults.standard.bool(forKey: "FineTuneDisableBundleIDTaps") {
+            tapDesc.bundleIDs = [bundleID]
+            // Do NOT set isProcessRestoreEnabled — it causes dead aggregate output on macOS 26.
+            // FineTune's AudioProcessMonitor handles process lifecycle independently.
+        }
         return tapDesc
     }
 
@@ -886,6 +904,11 @@ final class ProcessTapController {
 
         // Reset secondary counters for next crossfade
         resetSecondaryDiagnostics()
+
+        // Record crossfade completion time for health check scoping.
+        // Must be set BEFORE crossfadeState.complete() so the health check sees the
+        // timestamp even if it runs between these two lines.
+        lastCrossfadeCompletedAt = Date()
 
         // Reset crossfade state for next switch (includes isActive=false + OSMemoryBarrier)
         // CRITICAL: This must happen AFTER all state is transferred so audio callback
@@ -1655,7 +1678,7 @@ final class ProcessTapController {
         if #available(macOS 26.0, *), let bundleID = app.bundleID,
            !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps"),
            !UserDefaults.standard.bool(forKey: "FineTuneDisableBundleIDTaps") {
-            return TapDescriptionFlags(usesBundleIDs: true, isProcessRestoreEnabled: true, bundleID: bundleID)
+            return TapDescriptionFlags(usesBundleIDs: true, isProcessRestoreEnabled: false, bundleID: bundleID)
         }
         return TapDescriptionFlags(usesBundleIDs: false, isProcessRestoreEnabled: false, bundleID: nil)
     }
