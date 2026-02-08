@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var audioEngine: AudioEngine?
     private var settings: SettingsManager?
     private var signalSources: [any DispatchSourceSignal] = []
+    private var onboardingController: OnboardingWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("[APPDELEGATE] applicationDidFinishLaunching fired")
@@ -32,9 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CrashGuard.install()
 
         let settings = SettingsManager()
-        let engine = AudioEngine(settingsManager: settings)
         self.settings = settings
-        self.audioEngine = engine
 
         installSignalHandlers()
 
@@ -45,8 +44,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Create and start menu bar status item
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+
+        let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
+
+        if !settings.appSettings.onboardingCompleted && !skipOnboarding {
+            logger.info("[APPDELEGATE] Showing onboarding window")
+            let controller = OnboardingWindowController { [weak self] in
+                guard let self, let settings = self.settings else { return }
+                var appSettings = settings.appSettings
+                appSettings.onboardingCompleted = true
+                settings.updateAppSettings(appSettings)
+                self.onboardingController = nil
+                logger.info("[APPDELEGATE] Onboarding completed")
+                self.createAndStartAudioEngine(settings: settings)
+            }
+            self.onboardingController = controller
+            controller.show()
+        } else {
+            createAndStartAudioEngine(settings: settings)
+        }
+    }
+
+    private func createAndStartAudioEngine(settings: SettingsManager) {
+        let engine = AudioEngine(settingsManager: settings)
+        self.audioEngine = engine
+
         let controller = MenuBarStatusController(audioEngine: engine)
         controller.start()
         self.menuBarController = controller

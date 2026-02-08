@@ -54,6 +54,9 @@ struct AppSettings: Codable, Equatable {
 
     // Notifications
     var showDeviceDisconnectAlerts: Bool = true
+
+    // Onboarding
+    var onboardingCompleted: Bool = false
 }
 
 // MARK: - Settings Manager
