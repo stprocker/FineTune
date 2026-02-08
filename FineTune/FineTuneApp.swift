@@ -1,6 +1,7 @@
 // FineTune/FineTuneApp.swift
 import SwiftUI
 import UserNotifications
+import ScreenCaptureKit
 import os
 
 private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "App")
@@ -67,6 +68,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createAndStartAudioEngine(settings: SettingsManager) {
+        // Check permission BEFORE creating the engine (engine init triggers tap creation)
+        let hasAccess = CGPreflightScreenCaptureAccess()
+        logger.info("[APPDELEGATE] Screen capture permission: \(hasAccess)")
+
+        if !hasAccess && settings.appSettings.onboardingCompleted {
+            // User completed onboarding but permission is missing — show our alert
+            // instead of letting CoreAudio trigger the system dialog
+            let alert = NSAlert()
+            alert.messageText = "Audio Permission Required"
+            alert.informativeText = "FineTune needs the \"Screen & System Audio Recording\" permission to capture and control per-app audio.\n\nPlease enable it in System Settings → Privacy & Security → Screen & System Audio Recording, then relaunch FineTune."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Continue Anyway")
+
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
+
         let engine = AudioEngine(settingsManager: settings)
         self.audioEngine = engine
 

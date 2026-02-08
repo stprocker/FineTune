@@ -23,28 +23,48 @@ final class MenuBarStatusController: NSObject {
         guard statusItem == nil else { return }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        logger.info("[MENUBAR] statusItem created, isVisible=\(item.isVisible), length=\(item.length)")
         guard let button = item.button else {
-            logger.error("Failed to create status bar button")
+            logger.error("[MENUBAR] Failed to create status bar button")
             NSStatusBar.system.removeStatusItem(item)
             return
         }
+        logger.info("[MENUBAR] button exists, frame=\(NSStringFromRect(button.frame)), window=\(String(describing: button.window))")
 
         // Read icon style from settings (defaults to .default if not set)
         let iconStyle = audioEngine.settingsManager.appSettings.menuBarIconStyle
+        logger.info("[MENUBAR] iconStyle=\(iconStyle.rawValue), iconName=\(iconStyle.iconName), isSystemSymbol=\(iconStyle.isSystemSymbol)")
         applyIcon(style: iconStyle, to: button)
+        logger.info("[MENUBAR] after applyIcon: button.image=\(String(describing: button.image)), size=\(String(describing: button.image?.size))")
 
         button.target = self
         button.action = #selector(statusBarButtonClicked(_:))
         button.sendAction(on: [.leftMouseDown, .rightMouseDown])
 
         statusItem = item
-        logger.info("Menu bar status item created")
+        item.isVisible = true
+        logger.info("[MENUBAR] Menu bar status item created, isVisible=\(item.isVisible)")
 
         // macOS 26: Control Center scene reconnections can reset button action/target.
         // Periodically verify and re-wire the button to ensure clicks keep working.
         buttonHealthTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.ensureButtonWired()
+            }
+        }
+
+        // Delayed health check — verify the icon is still alive after system settles
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self else { return }
+            if let si = self.statusItem {
+                let visible = si.isVisible
+                let hasButton = si.button != nil
+                let hasImage = si.button?.image != nil
+                let hasWindow = si.button?.window != nil
+                let imgSize = si.button?.image?.size ?? .zero
+                self.logger.info("[MENUBAR] Health check: visible=\(visible), hasButton=\(hasButton), hasImage=\(hasImage), hasWindow=\(hasWindow), imgSize=\(imgSize.width)x\(imgSize.height)")
+            } else {
+                self.logger.error("[MENUBAR] Health check: statusItem is nil!")
             }
         }
     }
@@ -86,19 +106,21 @@ final class MenuBarStatusController: NSObject {
             if let image = NSImage(systemSymbolName: style.iconName, accessibilityDescription: "FineTune") {
                 image.isTemplate = true
                 button.image = image
+                logger.info("[MENUBAR] Applied SF Symbol '\(style.iconName)', size=\(image.size.width)x\(image.size.height)")
             } else {
                 // Fallback if symbol name is invalid
                 button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
-                logger.error("Invalid SF Symbol name '\(style.iconName)'; using fallback")
+                logger.error("[MENUBAR] Invalid SF Symbol name '\(style.iconName)'; using fallback")
             }
         } else {
             // Asset catalog icon (the .default case uses "MenuBarIcon" asset)
             if let image = NSImage(named: style.iconName) {
                 image.isTemplate = true
                 button.image = image
+                logger.info("[MENUBAR] Applied asset '\(style.iconName)', size=\(image.size.width)x\(image.size.height)")
             } else {
                 button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
-                logger.error("Asset '\(style.iconName)' missing; using fallback symbol")
+                logger.error("[MENUBAR] Asset '\(style.iconName)' MISSING; using fallback symbol")
             }
         }
     }
