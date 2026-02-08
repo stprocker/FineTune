@@ -5,6 +5,7 @@ import CoreAudio
 /// Main settings panel with all app-wide configuration options
 struct SettingsView: View {
     @Binding var settings: AppSettings
+    @ObservedObject var updateManager: UpdateManager
     let onResetAll: () -> Void
 
     // System sounds control (passed in from parent since DeviceVolumeMonitor
@@ -57,6 +58,15 @@ struct SettingsView: View {
                 selection: $settings.menuBarIconStyle,
                 appliedStyle: currentIconStyle,
                 onIconChanged: onIconChanged
+            )
+
+            SettingsUpdateRow(
+                automaticallyChecks: Binding(
+                    get: { updateManager.automaticallyChecksForUpdates },
+                    set: { updateManager.automaticallyChecksForUpdates = $0 }
+                ),
+                lastCheckDate: updateManager.lastUpdateCheckDate,
+                onCheckNow: { updateManager.checkForUpdates() }
             )
         }
     }
