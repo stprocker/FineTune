@@ -5,15 +5,20 @@ import os
 
 /// Monitors distributed notifications from media apps for instant play/pause detection.
 ///
-/// Currently supports Spotify via `com.spotify.client.PlaybackStateChanged`.
-/// This provides near-zero-latency state changes compared to VU-level detection
-/// which has inherent lag from the 0.5-1.5s silence grace period.
+/// Supports Spotify and Apple Music via their respective `DistributedNotificationCenter`
+/// notifications. This provides near-zero-latency state changes compared to VU-level
+/// detection which has inherent lag from the 0.5-1.5s silence grace period.
 ///
-/// Other apps rely on the VU-level path in AudioEngine.
+/// Other apps (browsers, VLC, etc.) rely on the VU-level path in AudioEngine.
 @MainActor
 final class MediaNotificationMonitor {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "MediaNotificationMonitor")
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+
+    private static let monitoredApps: [(notificationName: String, bundleID: String, stateKey: String, playingValue: String)] = [
+        ("com.spotify.client.PlaybackStateChanged", "com.spotify.client", "Player State", "Playing"),
+        ("com.apple.Music.playerInfo", "com.apple.Music", "Player State", "Playing"),
+    ]
 
     /// Callback fired when a monitored app changes playback state.
     /// - Parameters:
@@ -22,54 +27,56 @@ final class MediaNotificationMonitor {
     var onPlaybackStateChanged: ((_ pid: pid_t, _ isPlaying: Bool) -> Void)?
 
     func start() {
-        guard observer == nil else { return }
+        guard observers.isEmpty else { return }
 
-        // Spotify posts com.spotify.client.PlaybackStateChanged on DistributedNotificationCenter
-        // userInfo contains "Player State" key with values: "Playing", "Paused", "Stopped"
-        observer = DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("com.spotify.client.PlaybackStateChanged"),
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                self?.handleSpotifyNotification(notification)
+        for app in Self.monitoredApps {
+            let observer = DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name(app.notificationName),
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    self?.handlePlaybackNotification(notification, bundleID: app.bundleID, stateKey: app.stateKey, playingValue: app.playingValue)
+                }
             }
+            observers.append(observer)
         }
 
-        logger.info("Started monitoring Spotify playback notifications")
+        let appNames = Self.monitoredApps.map(\.bundleID).joined(separator: ", ")
+        logger.info("Started monitoring playback notifications for: \(appNames)")
     }
 
     func stop() {
-        if let observer {
+        guard !observers.isEmpty else { return }
+        for observer in observers {
             DistributedNotificationCenter.default().removeObserver(observer)
-            self.observer = nil
-            logger.info("Stopped monitoring playback notifications")
         }
+        observers.removeAll()
+        logger.info("Stopped monitoring playback notifications")
     }
 
-    private func handleSpotifyNotification(_ notification: Notification) {
+    private func handlePlaybackNotification(_ notification: Notification, bundleID: String, stateKey: String, playingValue: String) {
         guard let userInfo = notification.userInfo,
-              let playerState = userInfo["Player State"] as? String else {
-            logger.debug("Spotify notification missing Player State")
+              let playerState = userInfo[stateKey] as? String else {
+            logger.debug("Notification from \(bundleID) missing \(stateKey)")
             return
         }
 
-        // Resolve Spotify's PID from running applications
-        let spotifyApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client")
-        guard let spotifyApp = spotifyApps.first else {
-            logger.debug("Spotify notification received but app not found in running apps")
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        guard let app = apps.first else {
+            logger.debug("Notification from \(bundleID) but app not found in running apps")
             return
         }
 
-        let pid = spotifyApp.processIdentifier
-        let isPlaying = (playerState == "Playing")
+        let pid = app.processIdentifier
+        let isPlaying = (playerState == playingValue)
 
-        logger.debug("Spotify state: \(playerState) (PID: \(pid))")
+        logger.debug("\(bundleID) state: \(playerState) (PID: \(pid))")
         onPlaybackStateChanged?(pid, isPlaying)
     }
 
     deinit {
-        if let observer {
+        for observer in observers {
             DistributedNotificationCenter.default().removeObserver(observer)
         }
     }

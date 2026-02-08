@@ -15,6 +15,8 @@ struct TapDiagnostics {
     let emptyInput: UInt64
     let lastInputPeak: Float
     let lastOutputPeak: Float
+    let outputBufCount: UInt32
+    let outputBuf0ByteSize: UInt32
     let formatChannels: UInt32
     let formatIsFloat: Bool
     let formatIsInterleaved: Bool

@@ -408,6 +408,7 @@ final class AudioEngine {
             direct=\(d.directFloat) passthru=\(d.nonFloatPassthrough) \
             inPeak=\(String(format: "%.3f", d.lastInputPeak)) \
             outPeak=\(String(format: "%.3f", d.lastOutputPeak)) \
+            outBuf=\(d.outputBufCount)x\(d.outputBuf0ByteSize)B \
             vol=\(String(format: "%.2f", d.volume)) curVol=\(String(format: "%.2f", d.primaryCurrentVolume)) \
             xfade=\(d.crossfadeActive) \
             fmt=\(d.formatChannels)ch/\(d.formatIsFloat ? "f32" : "int")/\

@@ -76,6 +76,8 @@ final class ProcessTapController {
     private nonisolated(unsafe) var _diagEmptyInput: UInt64 = 0  // Callbacks with zero-length or nil input buffers
     private nonisolated(unsafe) var _diagLastInputPeak: Float = 0
     private nonisolated(unsafe) var _diagLastOutputPeak: Float = 0
+    private nonisolated(unsafe) var _diagOutputBufCount: UInt32 = 0
+    private nonisolated(unsafe) var _diagOutputBuf0ByteSize: UInt32 = 0
     private nonisolated(unsafe) var _diagFormatChannels: UInt32 = 0
     private nonisolated(unsafe) var _diagFormatIsFloat: Bool = false
     private nonisolated(unsafe) var _diagFormatIsInterleaved: Bool = false
@@ -129,6 +131,8 @@ final class ProcessTapController {
             emptyInput: _diagEmptyInput,
             lastInputPeak: _diagLastInputPeak,
             lastOutputPeak: _diagLastOutputPeak,
+            outputBufCount: _diagOutputBufCount,
+            outputBuf0ByteSize: _diagOutputBuf0ByteSize,
             formatChannels: _diagFormatChannels,
             formatIsFloat: _diagFormatIsFloat,
             formatIsInterleaved: _diagFormatIsInterleaved,
@@ -280,7 +284,8 @@ final class ProcessTapController {
         tapDesc.isPrivate = true
         tapDesc.muteBehavior = muteOriginal ? .mutedWhenTapped : .unmuted
 
-        if #available(macOS 26.0, *), let bundleID = app.bundleID {
+        if #available(macOS 26.0, *), let bundleID = app.bundleID,
+           !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps") {
             tapDesc.bundleIDs = [bundleID]
             tapDesc.isProcessRestoreEnabled = true
             logger.info("Creating bundle-ID tap: \(bundleID) (processRestore=true)")
@@ -1103,6 +1108,12 @@ final class ProcessTapController {
         let outputBuffers = UnsafeMutableAudioBufferListPointer(outputBufferList)
         _diagCallbackCount += 1
 
+        // Record output buffer metadata for diagnosing dead-output-path issues
+        _diagOutputBufCount = UInt32(outputBuffers.count)
+        if outputBuffers.count > 0 {
+            _diagOutputBuf0ByteSize = outputBuffers[0].mDataByteSize
+        }
+
         // Check silence flag first (atomic Bool read)
         // When silencing for device switch, output zeros to prevent clicks
         if _forceSilence {
@@ -1182,7 +1193,8 @@ final class ProcessTapController {
             )
             if processed {
                 _diagOutputWritten += 1
-                _diagLastOutputPeak = computeOutputPeak(outputBuffers)
+                let outPeak = computeOutputPeak(outputBuffers)
+                if outPeak > 0 { _diagLastOutputPeak = outPeak }
                 _primaryCurrentVolume = currentVol
                 return
             }
@@ -1236,7 +1248,8 @@ final class ProcessTapController {
         }
 
         _diagOutputWritten += 1
-        _diagLastOutputPeak = computeOutputPeak(outputBuffers)
+        let outPeak = computeOutputPeak(outputBuffers)
+        if outPeak > 0 { _diagLastOutputPeak = outPeak }
 
         // Store for next callback
         _primaryCurrentVolume = currentVol
@@ -1344,7 +1357,8 @@ final class ProcessTapController {
             )
             if processed {
                 _diagSecondaryOutputWritten += 1
-                _diagSecondaryLastOutputPeak = computeOutputPeak(outputBuffers)
+                let outPeak = computeOutputPeak(outputBuffers)
+                if outPeak > 0 { _diagSecondaryLastOutputPeak = outPeak }
                 _secondaryCurrentVolume = currentVol
                 return
             }
@@ -1396,7 +1410,8 @@ final class ProcessTapController {
         }
 
         _diagSecondaryOutputWritten += 1
-        _diagSecondaryLastOutputPeak = computeOutputPeak(outputBuffers)
+        let secOutPeak = computeOutputPeak(outputBuffers)
+        if secOutPeak > 0 { _diagSecondaryLastOutputPeak = secOutPeak }
 
         // Store for next callback
         _secondaryCurrentVolume = currentVol
