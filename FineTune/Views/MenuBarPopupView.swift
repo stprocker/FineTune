@@ -42,13 +42,19 @@ struct MenuBarPopupView: View {
                     onResetAll: {
                         audioEngine.settingsManager.resetAllSettings()
                         viewModel.localAppSettings = audioEngine.settingsManager.appSettings
+                        // Sync Core Audio: system sounds should follow default after reset
+                        deviceVolumeMonitor.setSystemFollowDefault()
                     },
                     outputDevices: audioEngine.outputDevices,
-                    systemDeviceUID: deviceVolumeMonitor.defaultDeviceUID,
+                    systemDeviceUID: deviceVolumeMonitor.systemDeviceUID,
                     defaultDeviceUID: deviceVolumeMonitor.defaultDeviceUID,
-                    isSystemFollowingDefault: true,
-                    onSystemDeviceSelected: { _ in },
-                    onSystemFollowDefault: { },
+                    isSystemFollowingDefault: deviceVolumeMonitor.isSystemFollowingDefault,
+                    onSystemDeviceSelected: { deviceID in
+                        deviceVolumeMonitor.setSystemDeviceExplicit(deviceID)
+                    },
+                    onSystemFollowDefault: {
+                        deviceVolumeMonitor.setSystemFollowDefault()
+                    },
                     currentIconStyle: audioEngine.settingsManager.appSettings.menuBarIconStyle,
                     onIconChanged: viewModel.onIconChanged
                 )

@@ -23,6 +23,15 @@ final class DeviceVolumeMonitor {
     /// The current default output device UID (cached to avoid redundant Core Audio calls)
     private(set) var defaultDeviceUID: String?
 
+    /// The current system output device ID (for alerts, notifications, system sounds)
+    private(set) var systemDeviceID: AudioDeviceID = .unknown
+
+    /// The current system output device UID (cached)
+    private(set) var systemDeviceUID: String?
+
+    /// Whether system sounds follow the default output device
+    private(set) var isSystemFollowingDefault: Bool = true
+
     /// Called when any device's volume changes (deviceID, newVolume)
     var onVolumeChanged: ((AudioDeviceID, Float) -> Void)?
 
@@ -92,6 +101,7 @@ final class DeviceVolumeMonitor {
     /// Mute listeners for each tracked output device
     private var muteListeners: [AudioDeviceID: AudioObjectPropertyListenerBlock] = [:]
     private var defaultDeviceListenerBlock: AudioObjectPropertyListenerBlock?
+    private var systemDeviceListenerBlock: AudioObjectPropertyListenerBlock?
     private var serviceRestartListenerBlock: AudioObjectPropertyListenerBlock?
 
     /// Volume listeners for each tracked input device
@@ -102,6 +112,7 @@ final class DeviceVolumeMonitor {
 
     /// Debounce tasks to coalesce rapid listener callbacks
     private var defaultDeviceDebounceTask: Task<Void, Never>?
+    private var systemDeviceDebounceTask: Task<Void, Never>?
     private var volumeDebounceTasks: [AudioDeviceID: Task<Void, Never>] = [:]
     private var muteDebounceTasks: [AudioDeviceID: Task<Void, Never>] = [:]
 
@@ -114,6 +125,12 @@ final class DeviceVolumeMonitor {
 
     private var defaultDeviceAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
+    private var systemDeviceAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain
     )
@@ -157,9 +174,12 @@ final class DeviceVolumeMonitor {
     init(deviceMonitor: AudioDeviceMonitor, settingsManager: SettingsManager) {
         self.deviceMonitor = deviceMonitor
         self.settingsManager = settingsManager
+        // Load persisted "follow default" state for system sounds
+        self.isSystemFollowingDefault = settingsManager.isSystemSoundsFollowingDefault
         // Read default device synchronously so UI has correct value before first render
         refreshDefaultDevice()
         refreshDefaultInputDevice()
+        refreshSystemDevice()
     }
 
     func start() {
@@ -186,6 +206,25 @@ final class DeviceVolumeMonitor {
         }
         defaultDeviceListenerBlock = AudioObjectID.system.addPropertyListener(
             address: &defaultDeviceAddress, queue: coreAudioListenerQueue, block: defaultBlock
+        )
+
+        // Read initial system device and validate state
+        refreshSystemDevice()
+        validateSystemSoundState()
+
+        // Listen for system output device changes (with debouncing)
+        let systemBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.systemDeviceDebounceTask?.cancel()
+                self?.systemDeviceDebounceTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(self?.defaultDeviceDebounceMs ?? 300))
+                    guard !Task.isCancelled else { return }
+                    self?.handleSystemDeviceChanged()
+                }
+            }
+        }
+        systemDeviceListenerBlock = AudioObjectID.system.addPropertyListener(
+            address: &systemDeviceAddress, queue: coreAudioListenerQueue, block: systemBlock
         )
 
         // Listen for coreaudiod restart to recover from daemon crashes
@@ -232,6 +271,8 @@ final class DeviceVolumeMonitor {
         // Cancel all debounce tasks
         defaultDeviceDebounceTask?.cancel()
         defaultDeviceDebounceTask = nil
+        systemDeviceDebounceTask?.cancel()
+        systemDeviceDebounceTask = nil
         for task in volumeDebounceTasks.values {
             task.cancel()
         }
@@ -245,6 +286,12 @@ final class DeviceVolumeMonitor {
         if let block = defaultDeviceListenerBlock {
             AudioObjectID.system.removePropertyListener(address: &defaultDeviceAddress, queue: coreAudioListenerQueue, block: block)
             defaultDeviceListenerBlock = nil
+        }
+
+        // Remove system device listener
+        if let block = systemDeviceListenerBlock {
+            AudioObjectID.system.removePropertyListener(address: &systemDeviceAddress, queue: coreAudioListenerQueue, block: block)
+            systemDeviceListenerBlock = nil
         }
 
         // Remove service restart listener
@@ -281,6 +328,8 @@ final class DeviceVolumeMonitor {
 
         volumes.removeAll()
         muteStates.removeAll()
+        systemDeviceID = .unknown
+        systemDeviceUID = nil
         inputVolumes.removeAll()
         inputMuteStates.removeAll()
         defaultInputDeviceID = .unknown
@@ -503,6 +552,104 @@ final class DeviceVolumeMonitor {
         if let uid = deviceUID {
             onDefaultDeviceChangedExternally?(uid)
         }
+
+        // Sync system sounds if following default
+        if isSystemFollowingDefault && deviceID.isValid {
+            do {
+                try AudioDeviceID.setSystemOutputDevice(deviceID)
+                refreshSystemDevice()
+            } catch {
+                logger.error("Failed to sync system device after default change: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - System Output Device
+
+    /// Re-reads the system output device from CoreAudio.
+    private func refreshSystemDevice() {
+        do {
+            let newDeviceID = try AudioDeviceID.readDefaultSystemOutputDevice()
+            if newDeviceID.isValid {
+                systemDeviceID = newDeviceID
+                systemDeviceUID = try? newDeviceID.readDeviceUID()
+                logger.debug("System device ID: \(self.systemDeviceID), UID: \(self.systemDeviceUID ?? "nil")")
+            } else {
+                systemDeviceID = .unknown
+                systemDeviceUID = nil
+            }
+        } catch {
+            logger.error("Failed to read system output device: \(error.localizedDescription)")
+        }
+    }
+
+    /// Validates that persisted system sound state matches actual macOS state on startup.
+    private func validateSystemSoundState() {
+        guard defaultDeviceUID != nil, systemDeviceUID != nil else {
+            logger.debug("Cannot validate system sound state: missing device UIDs")
+            return
+        }
+
+        let systemMatchesDefault = (systemDeviceUID == defaultDeviceUID)
+
+        if isSystemFollowingDefault && !systemMatchesDefault {
+            // Persisted says "follow default" but actual state differs - enforce preference
+            if defaultDeviceID.isValid {
+                do {
+                    try AudioDeviceID.setSystemOutputDevice(defaultDeviceID)
+                    refreshSystemDevice()
+                    logger.info("Startup: enforced system sounds to follow default device")
+                } catch {
+                    logger.warning("Startup: failed to enforce system sounds to follow default")
+                }
+            }
+        }
+    }
+
+    /// Handles system output device change notification
+    private func handleSystemDeviceChanged() {
+        logger.debug("System output device changed")
+        refreshSystemDevice()
+
+        // Detect if external change broke "follow default" state
+        if isSystemFollowingDefault {
+            let stillFollowing = (systemDeviceUID == defaultDeviceUID)
+            if !stillFollowing {
+                isSystemFollowingDefault = false
+                settingsManager.setSystemSoundsFollowDefault(false)
+                logger.info("System device changed externally, no longer following default")
+            }
+        }
+    }
+
+    /// Sets system sounds to follow the default output device
+    func setSystemFollowDefault() {
+        isSystemFollowingDefault = true
+        settingsManager.setSystemSoundsFollowDefault(true)
+
+        // Immediately sync to current default
+        if defaultDeviceID.isValid {
+            do {
+                try AudioDeviceID.setSystemOutputDevice(defaultDeviceID)
+                refreshSystemDevice()
+            } catch {
+                logger.error("Failed to sync system device to default: \(error.localizedDescription)")
+            }
+        }
+        logger.debug("System sounds now following default")
+    }
+
+    /// Sets system sounds to an explicit device (stops following default)
+    func setSystemDeviceExplicit(_ deviceID: AudioDeviceID) {
+        isSystemFollowingDefault = false
+        settingsManager.setSystemSoundsFollowDefault(false)
+        do {
+            try AudioDeviceID.setSystemOutputDevice(deviceID)
+            refreshSystemDevice()
+        } catch {
+            logger.error("Failed to set system output device: \(error.localizedDescription)")
+        }
+        logger.debug("System sounds set to explicit device: \(deviceID)")
     }
 
     // MARK: - Input Device Private Methods
@@ -779,6 +926,7 @@ final class DeviceVolumeMonitor {
                 // Re-read all device volumes and mute states
                 self.readAllStates()
                 self.readAllInputStates()
+                self.refreshSystemDevice()
                 self.logger.debug("Recovered from coreaudiod restart")
             }
         }
