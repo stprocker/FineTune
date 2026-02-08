@@ -1389,11 +1389,11 @@ final class AudioEngine {
         let activePIDs = Set(apps.map { $0.id })
         let stalePIDs = Set(taps.keys).subtracting(activePIDs)
 
-        // Cancel in-flight switch tasks for stale PIDs
-        for pid in stalePIDs {
-            switchTasks[pid]?.cancel()
-            switchTasks.removeValue(forKey: pid)
-        }
+        // NOTE: Do NOT cancel in-flight switch tasks here. Processes can momentarily
+        // disappear from the process list during aggregate device creation (crossfade).
+        // Cancelling the switch task immediately causes the crossfade to abort, leaving
+        // audio on the wrong device. Switch tasks are cancelled in the grace period
+        // cleanup below, after we're confident the process is truly gone.
 
         // Cancel cleanup for PIDs that reappeared
         for pid in activePIDs {
@@ -1421,7 +1421,10 @@ final class AudioEngine {
                     return
                 }
 
-                // Now safe to cleanup
+                // Process is confirmed gone — now safe to cancel switch tasks and cleanup
+                self.switchTasks[pid]?.cancel()
+                self.switchTasks.removeValue(forKey: pid)
+
                 if let tap = self.taps.removeValue(forKey: pid) {
                     tap.invalidate()
                     self.logger.info("Cleaned up stale tap for PID \(pid) after grace period")
