@@ -15,7 +15,7 @@ final class TapAPITestRunner: @unchecked Sendable {
     private static var isRunning = false
     static let logFile = URL(fileURLWithPath: "/tmp/TapAPITest.log")
 
-    private func log(_ msg: String) {
+    private nonisolated func log(_ msg: String) {
         let line = msg + "\n"
         NSLog("[TapAPITest] %@", msg)
         if let data = line.data(using: .utf8) {

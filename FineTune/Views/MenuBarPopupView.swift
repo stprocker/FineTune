@@ -7,6 +7,9 @@ struct MenuBarPopupView: View {
     private var audioEngine: AudioEngine { viewModel.audioEngine }
     private var deviceVolumeMonitor: DeviceVolumeMonitor { viewModel.deviceVolumeMonitor }
 
+    /// Namespace for device toggle animation
+    @Namespace private var deviceToggleNamespace
+
     // MARK: - Scroll Thresholds (from DesignTokens)
 
     private var deviceScrollThreshold: Int { DesignTokens.ScrollThresholds.deviceCount }
@@ -16,14 +19,22 @@ struct MenuBarPopupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            // Output Devices section
+            // Header row with device tabs and default device status
+            HStack(alignment: .top) {
+                deviceTabsHeader
+                Spacer()
+                defaultDevicesStatus
+            }
+            .padding(.bottom, DesignTokens.Spacing.xs)
+
+            // Devices section (tabbed: Output / Input)
             devicesSection
 
             Divider()
                 .padding(.vertical, DesignTokens.Spacing.xs)
 
-            // Apps section
-            if audioEngine.displayedApps.isEmpty {
+            // Apps section (active + pinned inactive)
+            if audioEngine.displayableApps.isEmpty {
                 emptyStateView
             } else {
                 appsSection
@@ -58,14 +69,108 @@ struct MenuBarPopupView: View {
         }
     }
 
+    // MARK: - Default Devices Status
+
+    /// Subtle display of both default devices in header
+    private var defaultDevicesStatus: some View {
+        HStack(spacing: DesignTokens.Spacing.xs) {
+            // Output device
+            HStack(spacing: 3) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 9))
+                Text(viewModel.defaultOutputDeviceName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            // Separator
+            Text("\u{00B7}")
+
+            // Input device
+            HStack(spacing: 3) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 9))
+                Text(viewModel.defaultInputDeviceName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(DesignTokens.Colors.textSecondary)
+    }
+
+    // MARK: - Device Toggle
+
+    /// Icon-only pill toggle for switching between Output and Input devices
+    private var deviceTabsHeader: some View {
+        let iconSize: CGFloat = 13
+        let buttonSize: CGFloat = 26
+
+        return HStack(spacing: 2) {
+            // Output (speaker) button
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    viewModel.showingInputDevices = false
+                }
+            } label: {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: iconSize, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(viewModel.showingInputDevices ? DesignTokens.Colors.textTertiary : DesignTokens.Colors.textPrimary)
+                    .frame(width: buttonSize, height: buttonSize)
+                    .background {
+                        if !viewModel.showingInputDevices {
+                            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                                .fill(.white.opacity(0.1))
+                                .matchedGeometryEffect(id: "deviceToggle", in: deviceToggleNamespace)
+                        }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Output Devices")
+
+            // Input (mic) button
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    viewModel.showingInputDevices = true
+                }
+            } label: {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: iconSize, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(viewModel.showingInputDevices ? DesignTokens.Colors.textPrimary : DesignTokens.Colors.textTertiary)
+                    .frame(width: buttonSize, height: buttonSize)
+                    .background {
+                        if viewModel.showingInputDevices {
+                            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                                .fill(.white.opacity(0.1))
+                                .matchedGeometryEffect(id: "deviceToggle", in: deviceToggleNamespace)
+                        }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Input Devices")
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius + 3)
+                .fill(.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius + 3)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                )
+        )
+    }
+
     // MARK: - Subviews
 
     @ViewBuilder
     private var devicesSection: some View {
-        SectionHeader(title: "Output Devices")
-            .padding(.bottom, DesignTokens.Spacing.xs)
+        let devices = viewModel.showingInputDevices ? viewModel.sortedInputDevices : viewModel.sortedDevices
 
-        if viewModel.sortedDevices.count > deviceScrollThreshold {
+        if devices.count > deviceScrollThreshold {
             ScrollView {
                 devicesContent
             }
@@ -78,23 +183,44 @@ struct MenuBarPopupView: View {
 
     private var devicesContent: some View {
         VStack(spacing: DesignTokens.Spacing.xs) {
-            ForEach(viewModel.sortedDevices) { device in
-                DeviceRow(
-                    device: device,
-                    isDefault: device.id == deviceVolumeMonitor.defaultDeviceID,
-                    volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
-                    isMuted: deviceVolumeMonitor.muteStates[device.id] ?? false,
-                    onSetDefault: {
-                        deviceVolumeMonitor.setDefaultDevice(device.id)
-                    },
-                    onVolumeChange: { volume in
-                        deviceVolumeMonitor.setVolume(for: device.id, to: volume)
-                    },
-                    onMuteToggle: {
-                        let currentMute = deviceVolumeMonitor.muteStates[device.id] ?? false
-                        deviceVolumeMonitor.setMute(for: device.id, to: !currentMute)
-                    }
-                )
+            if viewModel.showingInputDevices {
+                ForEach(viewModel.sortedInputDevices) { device in
+                    InputDeviceRow(
+                        device: device,
+                        isDefault: device.id == deviceVolumeMonitor.defaultInputDeviceID,
+                        volume: deviceVolumeMonitor.inputVolumes[device.id] ?? 1.0,
+                        isMuted: deviceVolumeMonitor.inputMuteStates[device.id] ?? false,
+                        onSetDefault: {
+                            audioEngine.setLockedInputDevice(device)
+                        },
+                        onVolumeChange: { volume in
+                            deviceVolumeMonitor.setInputVolume(for: device.id, to: volume)
+                        },
+                        onMuteToggle: {
+                            let currentMute = deviceVolumeMonitor.inputMuteStates[device.id] ?? false
+                            deviceVolumeMonitor.setInputMute(for: device.id, to: !currentMute)
+                        }
+                    )
+                }
+            } else {
+                ForEach(viewModel.sortedDevices) { device in
+                    DeviceRow(
+                        device: device,
+                        isDefault: device.id == deviceVolumeMonitor.defaultDeviceID,
+                        volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
+                        isMuted: deviceVolumeMonitor.muteStates[device.id] ?? false,
+                        onSetDefault: {
+                            deviceVolumeMonitor.setDefaultDevice(device.id)
+                        },
+                        onVolumeChange: { volume in
+                            deviceVolumeMonitor.setVolume(for: device.id, to: volume)
+                        },
+                        onMuteToggle: {
+                            let currentMute = deviceVolumeMonitor.muteStates[device.id] ?? false
+                            deviceVolumeMonitor.setMute(for: device.id, to: !currentMute)
+                        }
+                    )
+                }
             }
         }
     }
@@ -123,7 +249,7 @@ struct MenuBarPopupView: View {
 
         // ScrollViewReader needed for EQ expand scroll-to behavior
         ScrollViewReader { scrollProxy in
-            if audioEngine.displayedApps.count > appScrollThreshold {
+            if audioEngine.displayableApps.count > appScrollThreshold {
                 ScrollView {
                     appsContent(scrollProxy: scrollProxy)
                 }
@@ -137,51 +263,114 @@ struct MenuBarPopupView: View {
 
     private func appsContent(scrollProxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {
-            ForEach(audioEngine.displayedApps) { app in
-                // Use explicit device routing if available, otherwise fall back to first real (non-virtual) device
-                let deviceUID = audioEngine.resolvedDeviceUIDForDisplay(
-                    app: app,
-                    availableDevices: audioEngine.outputDevices,
-                    defaultDeviceUID: deviceVolumeMonitor.defaultDeviceUID
-                )
-                AppRowWithLevelPolling(
-                    app: app,
-                    volume: audioEngine.getVolume(for: app),
-                    isMuted: audioEngine.getMute(for: app),
-                    isPaused: audioEngine.isPausedDisplayApp(app),
-                    devices: audioEngine.outputDevices,
-                    selectedDeviceUID: deviceUID,
-                    getAudioLevel: { audioEngine.getAudioLevel(for: app) },
-                    isPopupVisible: viewModel.isPopupVisible,
-                    onVolumeChange: { volume in
-                        audioEngine.setVolume(for: app, to: volume)
-                    },
-                    onMuteChange: { muted in
-                        audioEngine.setMute(for: app, to: muted)
-                    },
-                    onDeviceSelected: { newDeviceUID in
-                        audioEngine.setDevice(for: app, deviceUID: newDeviceUID)
-                    },
-                    onAppActivate: {
-                        viewModel.activateApp(pid: app.id, bundleID: app.bundleID)
-                    },
-                    eqSettings: audioEngine.getEQSettings(for: app),
-                    onEQChange: { settings in
-                        audioEngine.setEQSettings(settings, for: app)
-                    },
-                    isEQExpanded: viewModel.expandedEQAppID == app.id,
-                    onEQToggle: {
-                        withAnimation(DesignTokens.Animation.eqToggle) {
-                            if let scrollTarget = viewModel.toggleEQ(for: app.id) {
-                                scrollProxy.scrollTo(scrollTarget, anchor: .top)
-                            }
-                        }
-                    }
-                )
-                .id(app.id)
+            ForEach(audioEngine.displayableApps) { displayableApp in
+                switch displayableApp {
+                case .active(let app):
+                    activeAppRow(app: app, displayableApp: displayableApp, scrollProxy: scrollProxy)
+
+                case .pinnedInactive(let info):
+                    inactiveAppRow(info: info, displayableApp: displayableApp, scrollProxy: scrollProxy)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Row for an active app (currently producing audio)
+    @ViewBuilder
+    private func activeAppRow(app: AudioApp, displayableApp: DisplayableApp, scrollProxy: ScrollViewProxy) -> some View {
+        // Use explicit device routing if available, otherwise fall back to first real (non-virtual) device
+        let deviceUID = audioEngine.resolvedDeviceUIDForDisplay(
+            app: app,
+            availableDevices: audioEngine.outputDevices,
+            defaultDeviceUID: deviceVolumeMonitor.defaultDeviceUID
+        )
+        AppRowWithLevelPolling(
+            app: app,
+            volume: audioEngine.getVolume(for: app),
+            isMuted: audioEngine.getMute(for: app),
+            isPaused: audioEngine.isPausedDisplayApp(app),
+            devices: audioEngine.outputDevices,
+            selectedDeviceUID: deviceUID,
+            isPinned: audioEngine.isPinned(app),
+            getAudioLevel: { audioEngine.getAudioLevel(for: app) },
+            isPopupVisible: viewModel.isPopupVisible,
+            onVolumeChange: { volume in
+                audioEngine.setVolume(for: app, to: volume)
+            },
+            onMuteChange: { muted in
+                audioEngine.setMute(for: app, to: muted)
+            },
+            onDeviceSelected: { newDeviceUID in
+                audioEngine.setDevice(for: app, deviceUID: newDeviceUID)
+            },
+            onAppActivate: {
+                viewModel.activateApp(pid: app.id, bundleID: app.bundleID)
+            },
+            onPinToggle: {
+                if audioEngine.isPinned(app) {
+                    audioEngine.unpinApp(app.persistenceIdentifier)
+                } else {
+                    audioEngine.pinApp(app)
+                }
+            },
+            eqSettings: audioEngine.getEQSettings(for: app),
+            onEQChange: { settings in
+                audioEngine.setEQSettings(settings, for: app)
+            },
+            isEQExpanded: viewModel.expandedEQAppID == displayableApp.id,
+            onEQToggle: {
+                withAnimation(DesignTokens.Animation.eqToggle) {
+                    if let scrollTarget = viewModel.toggleEQ(for: displayableApp.id) {
+                        scrollProxy.scrollTo(scrollTarget, anchor: .top)
+                    }
+                }
+            }
+        )
+        .id(displayableApp.id)
+    }
+
+    /// Row for a pinned inactive app (not currently producing audio)
+    @ViewBuilder
+    private func inactiveAppRow(info: PinnedAppInfo, displayableApp: DisplayableApp, scrollProxy: ScrollViewProxy) -> some View {
+        let identifier = info.persistenceIdentifier
+        let selectedDeviceUID = audioEngine.getDeviceRoutingForInactive(identifier: identifier)
+            ?? deviceVolumeMonitor.defaultDeviceUID
+            ?? audioEngine.outputDevices.first?.uid
+            ?? ""
+        InactiveAppRow(
+            appInfo: info,
+            icon: displayableApp.icon,
+            volume: audioEngine.getVolumeForInactive(identifier: identifier),
+            devices: audioEngine.outputDevices,
+            selectedDeviceUID: selectedDeviceUID,
+            isMuted: audioEngine.getMuteForInactive(identifier: identifier),
+            onVolumeChange: { volume in
+                audioEngine.setVolumeForInactive(identifier: identifier, to: volume)
+            },
+            onMuteChange: { muted in
+                audioEngine.setMuteForInactive(identifier: identifier, to: muted)
+            },
+            onDeviceSelected: { newDeviceUID in
+                audioEngine.setDeviceRoutingForInactive(identifier: identifier, deviceUID: newDeviceUID)
+            },
+            onUnpin: {
+                audioEngine.unpinApp(identifier)
+            },
+            eqSettings: audioEngine.getEQSettingsForInactive(identifier: identifier),
+            onEQChange: { settings in
+                audioEngine.setEQSettingsForInactive(settings, identifier: identifier)
+            },
+            isEQExpanded: viewModel.expandedEQAppID == displayableApp.id,
+            onEQToggle: {
+                withAnimation(DesignTokens.Animation.eqToggle) {
+                    if let scrollTarget = viewModel.toggleEQ(for: displayableApp.id) {
+                        scrollProxy.scrollTo(scrollTarget, anchor: .top)
+                    }
+                }
+            }
+        )
+        .id(displayableApp.id)
     }
 
 }

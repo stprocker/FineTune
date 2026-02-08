@@ -68,4 +68,40 @@ extension AudioDeviceID {
         // Fall back to transport type default
         return transport.defaultIconSymbol
     }
+
+    /// Returns an appropriate SF Symbol name for input devices based on device name and transport type.
+    /// Used as fallback when kAudioDevicePropertyIcon is not available.
+    nonisolated func suggestedInputIconSymbol() -> String {
+        let name = (try? readDeviceName()) ?? ""
+        let transport = readTransportType()
+
+        // iPhone (Continuity Camera)
+        if name.contains("iPhone") { return "iphone" }
+
+        // iPad
+        if name.contains("iPad") { return "ipad" }
+
+        // AirPods variants (work as both input/output)
+        if name.contains("AirPods Pro") { return "airpodspro" }
+        if name.contains("AirPods Max") { return "airpodsmax" }
+        if name.contains("AirPods") { return "airpods.gen3" }
+
+        // Beats
+        if name.contains("Beats") { return "beats.headphones" }
+
+        // MacBook built-in
+        if name.contains("MacBook") { return "laptopcomputer" }
+
+        // Transport-based fallbacks
+        switch transport {
+        case .builtIn:
+            return "mic"
+        case .usb:
+            return "cable.connector"
+        case .bluetooth, .bluetoothLE:
+            return "mic"
+        default:
+            return "mic"
+        }
+    }
 }

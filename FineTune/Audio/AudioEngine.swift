@@ -23,6 +23,10 @@ final class AudioEngine {
     private var taps: [pid_t: ProcessTapController] = [:]
     private var appliedPIDs: Set<pid_t> = []
     var appDeviceRouting: [pid_t: String] = [:]  // pid → deviceUID (always explicit)
+    /// Apps temporarily displaced to the default device during disconnect.
+    /// Tracks PIDs so we know which apps were involuntarily moved and should
+    /// be switched back when their preferred device reconnects.
+    private var followsDefault: Set<pid_t> = []
     private var pendingCleanup: [pid_t: Task<Void, Never>] = [:]  // Grace period for stale tap cleanup
     private var switchTasks: [pid_t: Task<Void, Never>] = [:]  // In-flight device switch tasks (prevents concurrent switches)
     private var lastDisplayedApp: AudioApp?
@@ -157,8 +161,23 @@ final class AudioEngine {
         return true
     }
 
+    // MARK: - Input Device Lock State
+
+    /// Track if WE initiated the input change (to avoid revert loop)
+    private var didInitiateInputSwitch = false
+
+    /// Track when an input device was last connected (to distinguish auto-switch from user action)
+    private var lastInputDeviceConnectTime: Date?
+
+    /// Grace period to detect automatic device switching after connection (2 seconds)
+    private let autoSwitchGracePeriod: TimeInterval = 2.0
+
     var outputDevices: [AudioDevice] {
         deviceMonitor.outputDevices
+    }
+
+    var inputDevices: [AudioDevice] {
+        deviceMonitor.inputDevices
     }
 
     // MARK: - Initialization
@@ -177,7 +196,7 @@ final class AudioEngine {
         self.defaultOutputDeviceUIDProvider = defaultOutputDeviceUIDProvider
         self.isProcessRunningProvider = isProcessRunningProvider
         self.volumeState = VolumeState(settingsManager: manager)
-        self.deviceVolumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor)
+        self.deviceVolumeMonitor = DeviceVolumeMonitor(deviceMonitor: deviceMonitor, settingsManager: manager)
 
         // Skip CoreAudio listener registration when launched as an Xcode test host.
         // Each test host instance registers listeners on coreaudiod; concurrent test runs
@@ -230,10 +249,32 @@ final class AudioEngine {
                 self?.handleDeviceDisconnected(deviceUID, name: deviceName)
             }
 
+            deviceMonitor.onDeviceConnected = { [weak self] deviceUID, deviceName in
+                self?.handleDeviceConnected(deviceUID, name: deviceName)
+            }
+
             // Handle coreaudiod restarts (e.g., after granting system audio permission).
             // All AudioObjectIDs (taps, aggregates) become invalid and must be recreated.
             deviceMonitor.onServiceRestarted = { [weak self] in
                 self?.handleServiceRestarted()
+            }
+
+            // Input device connect/disconnect monitoring
+            deviceMonitor.onInputDeviceDisconnected = { [weak self] deviceUID, deviceName in
+                self?.logger.info("Input device disconnected: \(deviceName) (\(deviceUID))")
+                self?.handleInputDeviceDisconnected(deviceUID)
+            }
+
+            deviceMonitor.onInputDeviceConnected = { [weak self] deviceUID, deviceName in
+                self?.logger.info("Input device connected: \(deviceName) (\(deviceUID))")
+                self?.lastInputDeviceConnectTime = Date()
+            }
+
+            // Handle default input device changes (input lock feature)
+            deviceVolumeMonitor.onDefaultInputDeviceChanged = { [weak self] newDefaultInputUID in
+                Task { @MainActor [weak self] in
+                    self?.handleDefaultInputDeviceChanged(newDefaultInputUID)
+                }
             }
 
             // Delay initial tap creation to let apps initialize their audio sessions
@@ -244,6 +285,11 @@ final class AudioEngine {
             try? await Task.sleep(for: startupTapDelay)
             logger.info("[STARTUP] Creating initial taps")
             applyPersistedSettings()
+
+            // Restore locked input device if feature is enabled
+            if manager.appSettings.lockInputDevice {
+                restoreLockedInputDevice()
+            }
 
             // Wire up onAppsChanged AFTER initial tap creation to prevent early bypass
             processMonitor.onAppsChanged = { [weak self] apps in
@@ -466,6 +512,107 @@ final class AudioEngine {
         return []
     }
 
+    // MARK: - Displayable Apps (Active + Pinned Inactive)
+
+    /// Combined list of active apps and pinned inactive apps for UI display.
+    /// Sort order: pinned-active (alphabetical) -> pinned-inactive (alphabetical) -> unpinned-active (alphabetical).
+    var displayableApps: [DisplayableApp] {
+        let activeApps = apps
+        let activeIdentifiers = Set(activeApps.map { $0.persistenceIdentifier })
+
+        // Get pinned apps that are not currently active
+        let pinnedInactiveInfos = settingsManager.getPinnedAppInfo()
+            .filter { !activeIdentifiers.contains($0.persistenceIdentifier) }
+
+        // Pinned active apps (sorted alphabetically)
+        let pinnedActive = activeApps
+            .filter { settingsManager.isPinned($0.persistenceIdentifier) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { DisplayableApp.active($0) }
+
+        // Pinned inactive apps (sorted alphabetically)
+        let pinnedInactive = pinnedInactiveInfos
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            .map { DisplayableApp.pinnedInactive($0) }
+
+        // Unpinned active apps (sorted alphabetically)
+        let unpinnedActive = activeApps
+            .filter { !settingsManager.isPinned($0.persistenceIdentifier) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { DisplayableApp.active($0) }
+
+        return pinnedActive + pinnedInactive + unpinnedActive
+    }
+
+    // MARK: - Pinning
+
+    /// Pin an active app so it remains visible when inactive.
+    func pinApp(_ app: AudioApp) {
+        let info = PinnedAppInfo(
+            persistenceIdentifier: app.persistenceIdentifier,
+            displayName: app.name,
+            bundleID: app.bundleID
+        )
+        settingsManager.pinApp(app.persistenceIdentifier, info: info)
+    }
+
+    /// Unpin an app by its persistence identifier.
+    func unpinApp(_ identifier: String) {
+        settingsManager.unpinApp(identifier)
+    }
+
+    /// Check if an app is pinned.
+    func isPinned(_ app: AudioApp) -> Bool {
+        settingsManager.isPinned(app.persistenceIdentifier)
+    }
+
+    /// Check if an identifier is pinned (for inactive apps).
+    func isPinned(identifier: String) -> Bool {
+        settingsManager.isPinned(identifier)
+    }
+
+    // MARK: - Inactive App Settings (by persistence identifier)
+
+    /// Get volume for an inactive app by persistence identifier.
+    func getVolumeForInactive(identifier: String) -> Float {
+        settingsManager.getVolume(for: identifier) ?? 1.0
+    }
+
+    /// Set volume for an inactive app by persistence identifier.
+    func setVolumeForInactive(identifier: String, to volume: Float) {
+        settingsManager.setVolume(for: identifier, to: volume)
+    }
+
+    /// Get mute state for an inactive app by persistence identifier.
+    func getMuteForInactive(identifier: String) -> Bool {
+        settingsManager.getMute(for: identifier) ?? false
+    }
+
+    /// Set mute state for an inactive app by persistence identifier.
+    func setMuteForInactive(identifier: String, to muted: Bool) {
+        settingsManager.setMute(for: identifier, to: muted)
+    }
+
+    /// Get EQ settings for an inactive app by persistence identifier.
+    func getEQSettingsForInactive(identifier: String) -> EQSettings {
+        settingsManager.getEQSettings(for: identifier)
+    }
+
+    /// Set EQ settings for an inactive app by persistence identifier.
+    func setEQSettingsForInactive(_ settings: EQSettings, identifier: String) {
+        settingsManager.setEQSettings(settings, for: identifier)
+    }
+
+    /// Get device routing for an inactive app by persistence identifier.
+    func getDeviceRoutingForInactive(identifier: String) -> String? {
+        settingsManager.getDeviceRouting(for: identifier)
+    }
+
+    /// Set device routing for an inactive app by persistence identifier.
+    func setDeviceRoutingForInactive(identifier: String, deviceUID: String) {
+        settingsManager.setDeviceRouting(for: identifier, deviceUID: deviceUID)
+    }
+
     func isPausedDisplayApp(_ app: AudioApp) -> Bool {
         if apps.isEmpty && lastDisplayedApp?.id == app.id {
             return true
@@ -662,6 +809,9 @@ final class AudioEngine {
         // so users can retry device selection instead of getting silently blocked.
         let tapExists = taps[app.id] != nil
         guard appDeviceRouting[app.id] != deviceUID || !tapExists else { return }
+
+        // Explicit device selection clears temporary follow-default state
+        followsDefault.remove(app.id)
 
         // Cancel any in-flight switch for this app to prevent concurrent switches.
         // Concurrent switchDevice calls on the same ProcessTapController corrupt
@@ -1033,7 +1183,9 @@ final class AudioEngine {
 
     // MARK: - Device Disconnect
 
-    /// Called when device disappears - routes affected apps through setDevice for serialized switching
+    /// Called when device disappears - switches affected apps to fallback WITHOUT persisting.
+    /// The original device preference is preserved in SettingsManager so that reconnect
+    /// recovery can switch the app back when the device reappears.
     private func handleDeviceDisconnected(_ deviceUID: String, name deviceName: String) {
         // Get fallback device: macOS default output, or first available device
         let fallbackDevice: (uid: String, name: String)
@@ -1050,19 +1202,129 @@ final class AudioEngine {
         }
 
         var affectedApps: [AudioApp] = []
+        var tapsToSwitch: [(pid: pid_t, tap: ProcessTapController)] = []
 
         for app in apps {
             if appDeviceRouting[app.id] == deviceUID {
                 affectedApps.append(app)
-                // Route through setDevice for serialized switch handling.
-                // This cancels any in-flight switch to the now-disconnected device.
-                setDevice(for: app, deviceUID: fallbackDevice.uid)
+
+                // Cancel any in-flight switch to the now-disconnected device
+                switchTasks[app.id]?.cancel()
+                switchTasks.removeValue(forKey: app.id)
+
+                // Update in-memory routing ONLY — do NOT persist the fallback.
+                // This preserves the original device preference in SettingsManager
+                // so handleDeviceConnected can restore it on reconnect.
+                appDeviceRouting[app.id] = fallbackDevice.uid
+                followsDefault.insert(app.id)
+
+                if let tap = taps[app.id] {
+                    tapsToSwitch.append((pid: app.id, tap: tap))
+                }
+            }
+        }
+
+        // Switch taps directly (bypassing setDevice which would persist)
+        if !tapsToSwitch.isEmpty {
+            for (pid, tap) in tapsToSwitch {
+                switchTasks[pid] = Task {
+                    do {
+                        try await tap.switchDevice(to: fallbackDevice.uid)
+                        tap.volume = self.volumeState.getVolume(for: pid)
+                        tap.isMuted = self.volumeState.getMute(for: pid)
+                        if let device = self.deviceMonitor.device(for: fallbackDevice.uid) {
+                            tap.currentDeviceVolume = self.deviceVolumeMonitor.volumes[device.id] ?? 1.0
+                            tap.isDeviceMuted = self.deviceVolumeMonitor.muteStates[device.id] ?? false
+                        }
+                    } catch {
+                        self.logger.error("Failed to switch PID \(pid) to fallback: \(error.localizedDescription)")
+                    }
+                    self.switchTasks.removeValue(forKey: pid)
+                }
             }
         }
 
         if !affectedApps.isEmpty {
             logger.info("\(deviceName) disconnected, \(affectedApps.count) app(s) switched to \(fallbackDevice.name)")
-            showDisconnectNotification(deviceName: deviceName, fallbackName: fallbackDevice.name, affectedApps: affectedApps)
+            if settingsManager.appSettings.showDeviceDisconnectAlerts {
+                showDisconnectNotification(deviceName: deviceName, fallbackName: fallbackDevice.name, affectedApps: affectedApps)
+            }
+        }
+    }
+
+    /// Called when a device reappears - switches apps back to their preferred device
+    /// if their persisted routing matches the reconnected device UID.
+    private func handleDeviceConnected(_ deviceUID: String, name deviceName: String) {
+        var affectedApps: [AudioApp] = []
+        var tapsToSwitch: [(pid: pid_t, tap: ProcessTapController)] = []
+
+        for app in apps {
+            // Skip apps that are persisted as following default — they chose default intentionally
+            guard !settingsManager.isFollowingDefault(for: app.persistenceIdentifier) else { continue }
+
+            // Check if this app's PERSISTED routing matches the reconnected device
+            let persistedUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier)
+            guard persistedUID == deviceUID else { continue }
+
+            // Only switch back if the app is currently on a different device
+            guard appDeviceRouting[app.id] != deviceUID else { continue }
+
+            affectedApps.append(app)
+            appDeviceRouting[app.id] = deviceUID
+            followsDefault.remove(app.id)
+
+            if let tap = taps[app.id] {
+                tapsToSwitch.append((pid: app.id, tap: tap))
+            }
+        }
+
+        // Switch taps back to the reconnected device
+        if !tapsToSwitch.isEmpty {
+            for (pid, tap) in tapsToSwitch {
+                switchTasks[pid]?.cancel()
+                switchTasks[pid] = Task {
+                    do {
+                        try await tap.switchDevice(to: deviceUID)
+                        tap.volume = self.volumeState.getVolume(for: pid)
+                        tap.isMuted = self.volumeState.getMute(for: pid)
+                        if let device = self.deviceMonitor.device(for: deviceUID) {
+                            tap.currentDeviceVolume = self.deviceVolumeMonitor.volumes[device.id] ?? 1.0
+                            tap.isDeviceMuted = self.deviceVolumeMonitor.muteStates[device.id] ?? false
+                        }
+                        self.logger.debug("Switched PID \(pid) back to reconnected device: \(deviceName)")
+                    } catch {
+                        self.logger.error("Failed to switch PID \(pid) back to \(deviceName): \(error.localizedDescription)")
+                    }
+                    self.switchTasks.removeValue(forKey: pid)
+                }
+            }
+        }
+
+        if !affectedApps.isEmpty {
+            logger.info("\(deviceName) reconnected, switched \(affectedApps.count) app(s) back")
+            if settingsManager.appSettings.showDeviceDisconnectAlerts {
+                showReconnectNotification(deviceName: deviceName, affectedApps: affectedApps)
+            }
+        }
+    }
+
+    /// Notification shown when a previously-disconnected device reappears and apps are switched back.
+    private func showReconnectNotification(deviceName: String, affectedApps: [AudioApp]) {
+        let content = UNMutableNotificationContent()
+        content.title = "Audio Device Reconnected"
+        content.body = "\"\(deviceName)\" is back. \(affectedApps.count) app(s) switched back."
+        content.sound = nil
+
+        let request = UNNotificationRequest(
+            identifier: "device-reconnect-\(deviceName)",
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            if let error {
+                self?.logger.error("Failed to show reconnect notification: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -1129,6 +1391,7 @@ final class AudioEngine {
                     self.logger.info("Cleaned up stale tap for PID \(pid) after grace period")
                 }
                 self.appDeviceRouting.removeValue(forKey: pid)
+                self.followsDefault.remove(pid)
                 self.pendingCleanup.removeValue(forKey: pid)
             }
         }
@@ -1136,6 +1399,7 @@ final class AudioEngine {
         // Include pending PIDs in cleanup exclusion to avoid premature state cleanup
         let pidsToKeep = activePIDs.union(Set(pendingCleanup.keys))
         appliedPIDs = appliedPIDs.intersection(pidsToKeep)
+        followsDefault = followsDefault.intersection(pidsToKeep)
         volumeState.cleanup(keeping: pidsToKeep)
     }
 
@@ -1200,5 +1464,89 @@ final class AudioEngine {
     @MainActor
     func setPauseEligibilityForTests(_ pids: Set<pid_t>?) {
         pauseEligiblePIDsForTests = pids
+    }
+
+    // MARK: - Input Device Lock
+
+    /// Handles changes to the default input device.
+    /// Uses timing heuristic to distinguish auto-switch (from device connection) vs user action.
+    private func handleDefaultInputDeviceChanged(_ newDefaultInputUID: String) {
+        // If WE initiated this change, just reset flag and return
+        if didInitiateInputSwitch {
+            didInitiateInputSwitch = false
+            return
+        }
+
+        // If lock is disabled, let system control input
+        guard settingsManager.appSettings.lockInputDevice else { return }
+
+        // Check if this change happened right after a device connection
+        let isAutoSwitch = lastInputDeviceConnectTime.map {
+            Date().timeIntervalSince($0) < autoSwitchGracePeriod
+        } ?? false
+
+        if isAutoSwitch {
+            // This is likely an automatic switch triggered by device connection
+            // Restore our locked device
+            logger.info("Auto-switch detected after device connection, restoring locked input device")
+            restoreLockedInputDevice()
+        } else {
+            // This is likely a user-initiated change (System Settings, another app, etc.)
+            // Respect their choice and update our locked device
+            logger.info("User changed input device to: \(newDefaultInputUID) - updating lock")
+            settingsManager.setLockedInputDeviceUID(newDefaultInputUID)
+        }
+    }
+
+    /// Restores the locked input device, or falls back to built-in mic if unavailable.
+    private func restoreLockedInputDevice() {
+        guard let lockedUID = settingsManager.lockedInputDeviceUID,
+              let lockedDevice = deviceMonitor.inputDevice(for: lockedUID) else {
+            // No locked device or it's unavailable - fall back to built-in
+            lockToBuiltInMicrophone()
+            return
+        }
+
+        // Don't restore if already on the locked device
+        guard deviceVolumeMonitor.defaultInputDeviceUID != lockedUID else { return }
+
+        logger.info("Restoring locked input device: \(lockedDevice.name)")
+        didInitiateInputSwitch = true
+        deviceVolumeMonitor.setDefaultInputDevice(lockedDevice.id)
+    }
+
+    /// Locks the input device to the built-in microphone.
+    private func lockToBuiltInMicrophone() {
+        guard let builtInMic = deviceMonitor.inputDevices.first(where: {
+            $0.id.readTransportType() == .builtIn
+        }) else {
+            logger.warning("No built-in microphone found")
+            return
+        }
+
+        setLockedInputDevice(builtInMic)
+    }
+
+    /// Called when user explicitly selects an input device (via FineTune UI).
+    /// Persists the choice and applies the change.
+    func setLockedInputDevice(_ device: AudioDevice) {
+        logger.info("User locked input device to: \(device.name)")
+
+        // Persist the choice
+        settingsManager.setLockedInputDeviceUID(device.uid)
+
+        // Apply the change
+        didInitiateInputSwitch = true
+        deviceVolumeMonitor.setDefaultInputDevice(device.id)
+    }
+
+    /// Handles locked input device disconnect - falls back to built-in mic.
+    private func handleInputDeviceDisconnected(_ deviceUID: String) {
+        // If the locked device disconnected, fall back to built-in mic
+        guard settingsManager.appSettings.lockInputDevice,
+              settingsManager.lockedInputDeviceUID == deviceUID else { return }
+
+        logger.info("Locked input device disconnected, falling back to built-in mic")
+        lockToBuiltInMicrophone()
     }
 }

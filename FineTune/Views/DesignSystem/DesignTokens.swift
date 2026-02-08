@@ -263,6 +263,20 @@ enum DesignTokens {
         /// VU meter bar count
         static let vuMeterBarCount: Int = 8
 
+        // MARK: Settings Row
+
+        /// Settings row icon column width
+        static let settingsIconWidth: CGFloat = 24
+
+        /// Settings slider width
+        static let settingsSliderWidth: CGFloat = 200
+
+        /// Settings percentage text width
+        static let settingsPercentageWidth: CGFloat = 44
+
+        /// Settings picker width
+        static let settingsPickerWidth: CGFloat = 120
+
     }
 
     // MARK: - Scroll Thresholds

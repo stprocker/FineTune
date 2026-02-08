@@ -28,13 +28,9 @@ final class MenuBarStatusController: NSObject {
             return
         }
 
-        if let image = NSImage(named: "MenuBarIcon") {
-            image.isTemplate = true
-            button.image = image
-        } else {
-            button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
-            logger.error("MenuBarIcon asset missing; using fallback symbol")
-        }
+        // Read icon style from settings (defaults to .default if not set)
+        let iconStyle = audioEngine.settingsManager.appSettings.menuBarIconStyle
+        applyIcon(style: iconStyle, to: button)
 
         button.target = self
         button.action = #selector(statusBarButtonClicked(_:))
@@ -70,6 +66,39 @@ final class MenuBarStatusController: NSObject {
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
+        }
+    }
+
+    // MARK: - Icon Management
+
+    /// Updates the menu bar icon to a new style (called live from Settings)
+    func updateIcon(to style: MenuBarIconStyle) {
+        guard let button = statusItem?.button else { return }
+        applyIcon(style: style, to: button)
+        logger.info("Menu bar icon updated to \(style.rawValue)")
+    }
+
+    /// Applies a MenuBarIconStyle to a status bar button
+    private func applyIcon(style: MenuBarIconStyle, to button: NSStatusBarButton) {
+        if style.isSystemSymbol {
+            // SF Symbol icon
+            if let image = NSImage(systemSymbolName: style.iconName, accessibilityDescription: "FineTune") {
+                image.isTemplate = true
+                button.image = image
+            } else {
+                // Fallback if symbol name is invalid
+                button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
+                logger.error("Invalid SF Symbol name '\(style.iconName)'; using fallback")
+            }
+        } else {
+            // Asset catalog icon (the .default case uses "MenuBarIcon" asset)
+            if let image = NSImage(named: style.iconName) {
+                image.isTemplate = true
+                button.image = image
+            } else {
+                button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
+                logger.error("Asset '\(style.iconName)' missing; using fallback symbol")
+            }
         }
     }
 

@@ -1,9 +1,62 @@
 // FineTune/Settings/SettingsManager.swift
 import Foundation
 import os
+import ServiceManagement
 #if canImport(FineTuneCore)
 import FineTuneCore
 #endif
+
+// MARK: - Pinned App Info
+
+struct PinnedAppInfo: Codable, Equatable {
+    let persistenceIdentifier: String
+    let displayName: String
+    let bundleID: String?
+}
+
+// MARK: - App-Wide Settings Enums
+
+enum MenuBarIconStyle: String, Codable, CaseIterable, Identifiable {
+    case `default` = "Default"
+    case speaker = "Speaker"
+    case waveform = "Waveform"
+    case equalizer = "Equalizer"
+
+    var id: String { rawValue }
+
+    var iconName: String {
+        switch self {
+        case .default: return "MenuBarIcon"
+        case .speaker: return "speaker.wave.2.fill"
+        case .waveform: return "waveform"
+        case .equalizer: return "slider.vertical.3"
+        }
+    }
+
+    var isSystemSymbol: Bool {
+        self != .default
+    }
+}
+
+// MARK: - App-Wide Settings Model
+
+struct AppSettings: Codable, Equatable {
+    // General
+    var launchAtLogin: Bool = false
+    var menuBarIconStyle: MenuBarIconStyle = .default
+
+    // Audio
+    var defaultNewAppVolume: Float = 1.0      // 100% (unity gain)
+    var maxVolumeBoost: Float = 2.0           // 200% max
+
+    // Input Device Lock
+    var lockInputDevice: Bool = true
+
+    // Notifications
+    var showDeviceDisconnectAlerts: Bool = true
+}
+
+// MARK: - Settings Manager
 
 @Observable
 @MainActor
@@ -14,11 +67,18 @@ final class SettingsManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "SettingsManager")
 
     struct Settings: Codable {
-        var version: Int = 4
+        var version: Int = 5
         var appVolumes: [String: Float] = [:]
         var appDeviceRouting: [String: String] = [:]  // bundleID → deviceUID
         var appMutes: [String: Bool] = [:]  // bundleID → isMuted
         var appEQSettings: [String: EQSettings] = [:]  // bundleID → EQ settings
+        var appSettings: AppSettings = AppSettings()
+        var systemSoundsFollowsDefault: Bool = true
+        var appDeviceSelectionMode: [String: DeviceSelectionMode] = [:]
+        var appSelectedDeviceUIDs: [String: [String]] = [:]
+        var lockedInputDeviceUID: String? = nil
+        var pinnedApps: Set<String> = []
+        var pinnedAppInfo: [String: PinnedAppInfo] = [:]
     }
 
     init(directory: URL? = nil) {
@@ -28,6 +88,8 @@ final class SettingsManager {
         loadFromDisk()
     }
 
+    // MARK: - Volume
+
     func getVolume(for identifier: String) -> Float? {
         settings.appVolumes[identifier]
     }
@@ -36,6 +98,8 @@ final class SettingsManager {
         settings.appVolumes[identifier] = volume
         scheduleSave()
     }
+
+    // MARK: - Device Routing
 
     func getDeviceRouting(for identifier: String) -> String? {
         settings.appDeviceRouting[identifier]
@@ -52,9 +116,15 @@ final class SettingsManager {
         }
     }
 
-    /// Updates all persisted device routings to the given device.
-    /// Called when the user selects a new output device in the OUTPUT DEVICES section
-    /// so that inactive/paused apps will use the new device when they start playing again.
+    func isFollowingDefault(for identifier: String) -> Bool {
+        settings.appDeviceRouting[identifier] == nil
+    }
+
+    func setFollowDefault(for identifier: String) {
+        settings.appDeviceRouting.removeValue(forKey: identifier)
+        scheduleSave()
+    }
+
     func updateAllDeviceRoutings(to deviceUID: String) {
         guard !settings.appDeviceRouting.isEmpty else { return }
         var changed = false
@@ -67,15 +137,10 @@ final class SettingsManager {
         if changed { scheduleSave() }
     }
 
-    /// Returns a snapshot (copy) of all persisted device routings.
-    /// Used before tap recreation to preserve routing state.
     func snapshotDeviceRoutings() -> [String: String] {
         settings.appDeviceRouting
     }
 
-    /// Overwrites all persisted device routings from a snapshot and schedules save.
-    /// Used after tap recreation to restore routing that may have been corrupted
-    /// by spurious default-device-change notifications during aggregate teardown.
     func restoreDeviceRoutings(_ snapshot: [String: String]) {
         guard settings.appDeviceRouting != snapshot else { return }
         settings.appDeviceRouting = snapshot
@@ -89,6 +154,19 @@ final class SettingsManager {
             || settings.appEQSettings[identifier] != nil
     }
 
+    // MARK: - System Sounds Settings
+
+    var isSystemSoundsFollowingDefault: Bool {
+        settings.systemSoundsFollowsDefault
+    }
+
+    func setSystemSoundsFollowDefault(_ follows: Bool) {
+        settings.systemSoundsFollowsDefault = follows
+        scheduleSave()
+    }
+
+    // MARK: - Mute
+
     func getMute(for identifier: String) -> Bool? {
         settings.appMutes[identifier]
     }
@@ -97,6 +175,8 @@ final class SettingsManager {
         settings.appMutes[identifier] = muted
         scheduleSave()
     }
+
+    // MARK: - EQ
 
     func getEQSettings(for appIdentifier: String) -> EQSettings {
         return settings.appEQSettings[appIdentifier] ?? EQSettings.flat
@@ -107,6 +187,117 @@ final class SettingsManager {
         scheduleSave()
     }
 
+    // MARK: - Device Selection Mode
+
+    func getDeviceSelectionMode(for identifier: String) -> DeviceSelectionMode? {
+        settings.appDeviceSelectionMode[identifier]
+    }
+
+    func setDeviceSelectionMode(for identifier: String, to mode: DeviceSelectionMode) {
+        settings.appDeviceSelectionMode[identifier] = mode
+        scheduleSave()
+    }
+
+    // MARK: - Selected Device UIDs (Multi Mode)
+
+    func getSelectedDeviceUIDs(for identifier: String) -> Set<String>? {
+        guard let uids = settings.appSelectedDeviceUIDs[identifier] else { return nil }
+        return Set(uids)
+    }
+
+    func setSelectedDeviceUIDs(for identifier: String, to uids: Set<String>) {
+        settings.appSelectedDeviceUIDs[identifier] = Array(uids)
+        scheduleSave()
+    }
+
+    // MARK: - Input Device Lock
+
+    var lockedInputDeviceUID: String? {
+        settings.lockedInputDeviceUID
+    }
+
+    func setLockedInputDeviceUID(_ uid: String?) {
+        settings.lockedInputDeviceUID = uid
+        scheduleSave()
+    }
+
+    // MARK: - Pinned Apps
+
+    func pinApp(_ identifier: String, info: PinnedAppInfo) {
+        settings.pinnedApps.insert(identifier)
+        settings.pinnedAppInfo[identifier] = info
+        scheduleSave()
+    }
+
+    func unpinApp(_ identifier: String) {
+        settings.pinnedApps.remove(identifier)
+        settings.pinnedAppInfo.removeValue(forKey: identifier)
+        scheduleSave()
+    }
+
+    func isPinned(_ identifier: String) -> Bool {
+        settings.pinnedApps.contains(identifier)
+    }
+
+    func getPinnedAppInfo() -> [PinnedAppInfo] {
+        settings.pinnedApps.compactMap { settings.pinnedAppInfo[$0] }
+    }
+
+    // MARK: - App-Wide Settings
+
+    var appSettings: AppSettings {
+        settings.appSettings
+    }
+
+    func updateAppSettings(_ newSettings: AppSettings) {
+        if newSettings.launchAtLogin != settings.appSettings.launchAtLogin {
+            setLaunchAtLogin(newSettings.launchAtLogin)
+        }
+        settings.appSettings = newSettings
+        scheduleSave()
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+                logger.info("Registered for launch at login")
+            } else {
+                try SMAppService.mainApp.unregister()
+                logger.info("Unregistered from launch at login")
+            }
+        } catch {
+            logger.error("Failed to set launch at login: \(error.localizedDescription)")
+        }
+    }
+
+    var isLaunchAtLoginEnabled: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    // MARK: - Reset All Settings
+
+    func resetAllSettings() {
+        settings.appVolumes.removeAll()
+        settings.appDeviceRouting.removeAll()
+        settings.appMutes.removeAll()
+        settings.appEQSettings.removeAll()
+        settings.appDeviceSelectionMode.removeAll()
+        settings.appSelectedDeviceUIDs.removeAll()
+        settings.pinnedApps.removeAll()
+        settings.pinnedAppInfo.removeAll()
+        settings.appSettings = AppSettings()
+        settings.systemSoundsFollowsDefault = true
+        settings.lockedInputDeviceUID = nil
+
+        try? SMAppService.mainApp.unregister()
+
+        scheduleSave()
+        logger.info("Reset all settings to defaults")
+    }
+
+    // MARK: - Persistence
+
     private func loadFromDisk() {
         guard FileManager.default.fileExists(atPath: settingsURL.path) else { return }
 
@@ -116,9 +307,8 @@ final class SettingsManager {
             logger.debug("Loaded settings with \(self.settings.appVolumes.count) volumes, \(self.settings.appDeviceRouting.count) device routings, \(self.settings.appMutes.count) mutes, \(self.settings.appEQSettings.count) EQ settings")
         } catch {
             logger.error("Failed to load settings: \(error.localizedDescription)")
-            // Backup corrupted file before resetting
             let backupURL = settingsURL.deletingPathExtension().appendingPathExtension("backup.json")
-            try? FileManager.default.removeItem(at: backupURL)  // Remove old backup if exists
+            try? FileManager.default.removeItem(at: backupURL)
             try? FileManager.default.copyItem(at: settingsURL, to: backupURL)
             logger.warning("Backed up corrupted settings to \(backupURL.lastPathComponent)")
             settings = Settings()
@@ -135,7 +325,6 @@ final class SettingsManager {
     }
 
     /// Immediately writes pending changes to disk.
-    /// Call this on app termination to prevent data loss.
     /// Must be nonisolated to guarantee synchronous execution from termination handlers.
     nonisolated func flushSync() {
         if Thread.isMainThread {

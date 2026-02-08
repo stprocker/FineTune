@@ -14,13 +14,17 @@ final class MenuBarPopupViewModel {
     let deviceVolumeMonitor: DeviceVolumeMonitor
 
     /// Which app has its EQ panel expanded (only one at a time).
-    var expandedEQAppID: pid_t?
+    /// Uses String (DisplayableApp.id / persistenceIdentifier) to work with both active and inactive apps.
+    var expandedEQAppID: String?
 
     /// Debounce EQ toggle to prevent rapid clicks during animation.
     private(set) var isEQAnimating = false
 
     /// Track popup visibility to pause VU meter polling when hidden.
     var isPopupVisible = true
+
+    /// Which device tab is selected (false = output, true = input)
+    var showingInputDevices = false
 
     init(audioEngine: AudioEngine, deviceVolumeMonitor: DeviceVolumeMonitor) {
         self.audioEngine = audioEngine
@@ -31,7 +35,7 @@ final class MenuBarPopupViewModel {
 
     /// Toggles EQ expansion for the given app with animation debounce.
     /// Returns the app ID to scroll to (if expanding), or nil.
-    func toggleEQ(for appID: pid_t) -> pid_t? {
+    func toggleEQ(for appID: String) -> String? {
         guard !isEQAnimating else { return nil }
         isEQAnimating = true
 
@@ -52,7 +56,7 @@ final class MenuBarPopupViewModel {
 
     // MARK: - Device Sorting
 
-    /// Devices sorted with the default device first, then alphabetically.
+    /// Output devices sorted with the default device first, then alphabetically.
     var sortedDevices: [AudioDevice] {
         let devices = audioEngine.outputDevices
         let defaultID = deviceVolumeMonitor.defaultDeviceID
@@ -61,6 +65,37 @@ final class MenuBarPopupViewModel {
             if rhs.id == defaultID { return false }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+    }
+
+    /// Input devices sorted with the default input device first, then alphabetically.
+    var sortedInputDevices: [AudioDevice] {
+        let devices = audioEngine.inputDevices
+        let defaultID = deviceVolumeMonitor.defaultInputDeviceID
+        return devices.sorted { lhs, rhs in
+            if lhs.id == defaultID { return true }
+            if rhs.id == defaultID { return false }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    // MARK: - Default Device Names
+
+    /// Name of the current default output device
+    var defaultOutputDeviceName: String {
+        guard let uid = deviceVolumeMonitor.defaultDeviceUID,
+              let device = sortedDevices.first(where: { $0.uid == uid }) else {
+            return "No Output"
+        }
+        return device.name
+    }
+
+    /// Name of the current default input device
+    var defaultInputDeviceName: String {
+        guard let uid = deviceVolumeMonitor.defaultInputDeviceUID,
+              let device = sortedInputDevices.first(where: { $0.uid == uid }) else {
+            return "No Input"
+        }
+        return device.name
     }
 
     // MARK: - App Activation

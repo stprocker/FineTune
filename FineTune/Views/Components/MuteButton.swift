@@ -7,12 +7,53 @@ struct MuteButton: View {
     let isMuted: Bool
     let action: () -> Void
 
+    var body: some View {
+        BaseMuteButton(
+            isMuted: isMuted,
+            mutedIcon: "speaker.slash.fill",
+            unmutedIcon: "speaker.wave.2.fill",
+            mutedHelp: "Unmute",
+            unmutedHelp: "Mute",
+            action: action
+        )
+    }
+}
+
+/// A mute button for input devices (microphones)
+/// Shows mic when unmuted, mic.slash when muted
+struct InputMuteButton: View {
+    let isMuted: Bool
+    let action: () -> Void
+
+    var body: some View {
+        BaseMuteButton(
+            isMuted: isMuted,
+            mutedIcon: "mic.slash.fill",
+            unmutedIcon: "mic.fill",
+            mutedHelp: "Unmute microphone",
+            unmutedHelp: "Mute microphone",
+            action: action
+        )
+    }
+}
+
+// MARK: - Base Implementation
+
+/// Shared mute button implementation with configurable icons
+private struct BaseMuteButton: View {
+    let isMuted: Bool
+    let mutedIcon: String
+    let unmutedIcon: String
+    let mutedHelp: String
+    let unmutedHelp: String
+    let action: () -> Void
+
     @State private var isPulsing = false
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            Image(systemName: isMuted ? mutedIcon : unmutedIcon)
                 .font(.system(size: 14))
                 .symbolRenderingMode(.hierarchical)  // Vibrancy support
                 .foregroundStyle(buttonColor)
@@ -27,7 +68,7 @@ struct MuteButton: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .help(isMuted ? "Unmute" : "Mute")
+        .help(isMuted ? mutedHelp : unmutedHelp)
         .animation(.spring(response: 0.25, dampingFraction: 0.5), value: isPulsing)
         .animation(DesignTokens.Animation.hover, value: isHovered)
         .onChange(of: isMuted) { _, _ in
@@ -73,6 +114,26 @@ private struct MuteButtonPressStyle: ButtonStyle {
 
             VStack {
                 MuteButton(isMuted: true) {}
+                Text("Muted")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+#Preview("Input Mute Button States") {
+    ComponentPreviewContainer {
+        HStack(spacing: DesignTokens.Spacing.lg) {
+            VStack {
+                InputMuteButton(isMuted: false) {}
+                Text("Unmuted")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack {
+                InputMuteButton(isMuted: true) {}
                 Text("Muted")
                     .font(.caption)
                     .foregroundStyle(.secondary)

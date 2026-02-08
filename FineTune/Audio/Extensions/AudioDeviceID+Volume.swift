@@ -116,3 +116,115 @@ extension AudioDeviceID {
         return err == noErr
     }
 }
+
+// MARK: - Input Device Volume
+
+extension AudioDeviceID {
+    /// Reads the scalar volume (0.0 to 1.0) for the input device (microphone).
+    /// Tries multiple strategies to find the most representative volume:
+    /// 1. Virtual main volume via AudioHardwareService (matches system input slider)
+    /// 2. Master volume scalar (element 0)
+    /// 3. Left channel volume (element 1)
+    /// Returns 1.0 for devices without volume control.
+    nonisolated func readInputVolumeScalar() -> Float {
+        let strategies: [(selector: AudioObjectPropertySelector, element: AudioObjectPropertyElement)] = [
+            (kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyElementMain),
+            (kAudioDevicePropertyVolumeScalar, kAudioObjectPropertyElementMain),
+            (kAudioDevicePropertyVolumeScalar, 1),
+        ]
+
+        for strategy in strategies {
+            var address = AudioObjectPropertyAddress(
+                mSelector: strategy.selector,
+                mScope: kAudioDevicePropertyScopeInput,
+                mElement: strategy.element
+            )
+            if AudioObjectHasProperty(self, &address) {
+                var volume: Float32 = 1.0
+                var size = UInt32(MemoryLayout<Float32>.size)
+                if AudioObjectGetPropertyData(self, &address, 0, nil, &size, &volume) == noErr {
+                    return volume
+                }
+            }
+        }
+
+        // No volume control available
+        return 1.0
+    }
+
+    /// Sets the scalar volume (0.0 to 1.0) for the input device (microphone).
+    /// Uses VirtualMainVolume via AudioHardwareService to match system input slider behavior.
+    /// Returns true if successful, false otherwise.
+    nonisolated func setInputVolumeScalar(_ volume: Float) -> Bool {
+        let clampedVolume = Swift.max(0.0, Swift.min(1.0, volume))
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        guard AudioObjectHasProperty(self, &address) else {
+            return false
+        }
+
+        var isSettable: DarwinBoolean = false
+        let settableStatus = AudioObjectIsPropertySettable(self, &address, &isSettable)
+        guard settableStatus == noErr, isSettable.boolValue else {
+            return false
+        }
+
+        var volumeValue: Float32 = clampedVolume
+        let size = UInt32(MemoryLayout<Float32>.size)
+        let err = AudioObjectSetPropertyData(self, &address, 0, nil, size, &volumeValue)
+        return err == noErr
+    }
+}
+
+// MARK: - Input Device Mute
+
+extension AudioDeviceID {
+    /// Reads the mute state for the input device (microphone).
+    /// Returns true if muted, false if unmuted or if mute is not supported.
+    nonisolated func readInputMuteState() -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        guard AudioObjectHasProperty(self, &address) else {
+            return false
+        }
+
+        var muted: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &muted)
+        return err == noErr && muted != 0
+    }
+
+    /// Sets the mute state for the input device (microphone).
+    /// Returns true if successful, false otherwise.
+    nonisolated func setInputMuteState(_ muted: Bool) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        guard AudioObjectHasProperty(self, &address) else {
+            return false
+        }
+
+        var isSettable: DarwinBoolean = false
+        let settableStatus = AudioObjectIsPropertySettable(self, &address, &isSettable)
+        guard settableStatus == noErr, isSettable.boolValue else {
+            return false
+        }
+
+        var value: UInt32 = muted ? 1 : 0
+        let size = UInt32(MemoryLayout<UInt32>.size)
+        let err = AudioObjectSetPropertyData(self, &address, 0, nil, size, &value)
+        return err == noErr
+    }
+}

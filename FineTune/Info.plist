@@ -8,5 +8,16 @@
 	<true/>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>FineTune needs access to control volume levels for individual applications.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>finetune</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>com.finetuneapp.FineTune</string>
+		</dict>
+	</array>
 </dict>
 </plist>

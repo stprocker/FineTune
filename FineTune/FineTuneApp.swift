@@ -44,6 +44,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("[APPDELEGATE] menuBarController started")
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let audioEngine else {
+            logger.warning("[APPDELEGATE] URL received before audioEngine initialized")
+            return
+        }
+        let urlHandler = URLHandler(audioEngine: audioEngine)
+        for url in urls {
+            urlHandler.handleURL(url)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         logger.info("[APPDELEGATE] applicationWillTerminate")
         menuBarController?.stop()
