@@ -2,6 +2,18 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Device Routing Test Coverage Expansion
+
+Added 43 new tests covering device routing logic that was previously untested. Reviewed external Codex code review, identified gaps in its analysis, and implemented tests for the full `resolvedDeviceUIDForDisplay` priority chain, `shouldConfirmPermission` near-zero volume edge cases, `routeAllApps` state management, `applyPersistedSettings` fallback branches, and `SettingsManager` routing persistence.
+Full details: `docs/ai-chat-history/2026-02-08-device-routing-test-coverage-expansion.md`
+
+#### Added
+- **`testing/tests/DeviceRoutingTests.swift`** (20 tests) — `ResolvedDisplayDeviceTests` covers all 6 priority tiers + edge cases; `PermissionConfirmationVolumeTests` covers the `volume <= 0.01` bypass path; `RouteAllAppsStateTests` covers early exit, bulk persisted update, and no-active-apps behavior; `ApplyPersistedSettingsFallbackTests` covers no-real-devices fallback, provider-throws skip, and `appliedPIDs` deduplication
+- **`testing/tests/SettingsManagerRoutingTests.swift`** (22 tests) — CRUD operations, multi-app independence, `updateAllDeviceRoutings` bulk update, snapshot/restore round-trip, `hasCustomSettings`, `isFollowingDefault`, and disk persistence round-trip via `flushSync()`
+
+#### Changed
+- **`Package.swift`** — Added `DeviceRoutingTests.swift` and `SettingsManagerRoutingTests.swift` to `FineTuneIntegrationTests` target sources
+
 ### Cut the Fat: Dead Code Removal & Internal Deduplication
 
 Comprehensive internal cleanup — no behavior or appearance changes. Removed dead files, eliminated code duplication across DeviceVolumeMonitor, AudioEngine, and VolumeState, and added error logging for Sparkle startup.
