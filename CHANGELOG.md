@@ -2,6 +2,29 @@
 
 ## [Unreleased] - 2026-02-08
 
+### macOS 26 Bundle-ID Crossfade Fix + Dead-Tap Loop Prevention
+
+Fixed bundle-ID process tap disconnection during device switching on macOS 26, and prevented infinite health check recreation loops for apps that never produce audio.
+Full details: `docs/ai-chat-history/2026-02-08-macos26-bundleid-crossfade-fix-and-research.md`
+
+#### Added
+- **`usesBundleIDTaps` computed property** in `ProcessTapController` — detects when macOS 26 bundle-ID targeting is active (mirrors `makeTapDescription()` logic). Used to route device switches away from crossfade.
+- **Dead-tap recreation limit** in `AudioEngine` — `deadTapRecreationCount` tracks consecutive dead-tap recreations per PID. After 3 failed attempts (app never produces audio), stops recreating and logs warning. Counter resets when tap produces audio. Applied to both slow (`checkTapHealth`) and fast (post-creation timer) health checks.
+- **Comprehensive ARK/AudioServerPlugin research** — documented Rogue Amoeba's hybrid architecture (process taps + AudioServerPlugin), open-source alternatives (BlackHole, Background Music, libASPL), and feasibility assessment for FineTune.
+
+#### Changed
+- **`switchDevice()` routing** — bundle-ID taps now skip crossfade and go directly to `performDestructiveDeviceSwitch()`. Eliminates the dual-tap bundle-ID conflict where two taps with identical `bundleIDs` cause CoreAudio to stop delivering audio to the surviving tap. PID-only taps still use crossfade with destructive fallback.
+
+#### Fixed
+- **Bundle-ID tap disconnection after crossfade** (macOS 26) — during crossfade, `createSecondaryTap()` created a second process tap with identical `bundleIDs`, confusing CoreAudio's tap routing. After primary destruction, surviving secondary lost audio input. Fix: bypass crossfade entirely for bundle-ID taps, accept ~200ms silence gap.
+- **Infinite tap recreation loop** (CoreSpeech and similar) — apps that never produce audio (e.g., `com.apple.CoreSpeech`) triggered endless health check recreations, burning through 20+ tap/aggregate device IDs and potentially destabilizing `coreaudiod`. Fix: max 3 recreation attempts per PID before giving up.
+
+#### Known Issues
+- **~200ms silence during bundle-ID device switch** — expected trade-off for reliability. Tunable via `destructiveSwitchPreSilenceMs`/`destructiveSwitchPostSilenceMs`/`destructiveSwitchFadeInMs`.
+- **Crossfade still broken for bundle-ID taps** — bypassed (not fixed). Dual-tap conflict remains in crossfade code but is now unreachable for bundle-ID taps.
+- **Dual-tap overlap in destructive switch** — `performDeviceSwitch()` creates new tap before destroying old (~10-20ms overlap). Works in testing but theoretically risky for bundle-ID taps.
+- **Live tap `deviceUID` change not implemented** — `kAudioTapPropertyDescription` is confirmed settable (proven by `updateMuteBehavior()`). TapExperiment Test D exists. Would eliminate dual taps entirely. Estimated 4-8 hours.
+
 ### Multi-Device Audio Routing + Permission UX Fix
 
 Implemented full multi-device audio routing (per-app audio to multiple output devices simultaneously via stacked aggregate devices), re-enabled DevicePicker on macOS 26, and added proactive permission checking to prevent disruptive system dialogs.

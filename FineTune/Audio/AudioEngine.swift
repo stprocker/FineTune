@@ -83,6 +83,10 @@ final class AudioEngine {
         var inputHasData: UInt64 = 0
     }
     private var lastHealthSnapshots: [pid_t: TapHealthSnapshot] = [:]
+    /// Consecutive dead-tap recreation attempts per PID. Reset when a tap produces audio.
+    /// Prevents infinite recreation loops for apps that never produce audio (e.g., CoreSpeech).
+    private var deadTapRecreationCount: [pid_t: Int] = [:]
+    private let maxDeadTapRecreations = 3
     /// Routing snapshot taken before recreation events.
     /// Restored after recreation to prevent spurious notifications from corrupting persisted routing.
     private var routingSnapshot: (memory: [pid_t: String], persisted: [String: String])?
@@ -420,6 +424,11 @@ final class AudioEngine {
                 inputHasData: d.inputHasData
             )
 
+            // Reset dead-tap counter once a tap produces audio
+            if d.callbackCount > 0 {
+                self.deadTapRecreationCount.removeValue(forKey: pid)
+            }
+
             // Skip if we're in the middle of switching devices
             guard switchTasks[pid] == nil else { continue }
 
@@ -475,6 +484,22 @@ final class AudioEngine {
             guard let app = apps.first(where: { $0.id == pid }),
                   let deviceUID = appDeviceRouting[pid] else { continue }
 
+            // Guard against infinite recreation for apps that never produce audio
+            if reason.hasPrefix("dead") {
+                let count = (self.deadTapRecreationCount[pid] ?? 0) + 1
+                self.deadTapRecreationCount[pid] = count
+                if count > self.maxDeadTapRecreations {
+                    if count == self.maxDeadTapRecreations + 1 {
+                        self.logger.warning("[HEALTH] \(app.name) tap dead after \(self.maxDeadTapRecreations) recreation attempts — giving up (app may not produce audio)")
+                    }
+                    self.taps[pid]?.invalidate()
+                    self.taps.removeValue(forKey: pid)
+                    self.appliedPIDs.remove(pid)
+                    self.lastHealthSnapshots.removeValue(forKey: pid)
+                    continue
+                }
+            }
+
             logger.warning("[HEALTH] \(app.name) tap \(reason), recreating")
 
             taps[pid]?.invalidate()
@@ -500,6 +525,7 @@ final class AudioEngine {
         // Clean up tracking for removed taps
         let activePIDs = Set(taps.keys)
         lastHealthSnapshots = lastHealthSnapshots.filter { activePIDs.contains($0.key) }
+        self.deadTapRecreationCount = self.deadTapRecreationCount.filter { activePIDs.contains($0.key) }
     }
 
     private func logDiagnostics() {
@@ -1214,6 +1240,20 @@ final class AudioEngine {
                     if checkNum == checkIntervals.count - 1 && d.callbackCount == 0 {
                         guard let app = self.apps.first(where: { $0.id == pid }) else { return }
                         let currentDeviceUID = self.appDeviceRouting[pid]
+
+                        // Guard against infinite recreation for apps that never produce audio
+                        let count = (self.deadTapRecreationCount[pid] ?? 0) + 1
+                        self.deadTapRecreationCount[pid] = count
+                        if count > self.maxDeadTapRecreations {
+                            if count == self.maxDeadTapRecreations + 1 {
+                                self.logger.warning("[HEALTH-FAST] \(appName) tap dead after \(self.maxDeadTapRecreations) recreation attempts — giving up (app may not produce audio)")
+                            }
+                            tap.invalidate()
+                            self.taps.removeValue(forKey: pid)
+                            self.appliedPIDs.remove(pid)
+                            self.lastHealthSnapshots.removeValue(forKey: pid)
+                            return
+                        }
 
                         // Try system default device as fallback
                         let fallbackUID: String?
