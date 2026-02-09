@@ -19,7 +19,12 @@ final class UpdateManager: NSObject, ObservableObject {
         super.init()
 
         // Start updater to enable manual checks, but don't trigger auto-check UI
-        try? updaterController.updater.start()
+        do {
+            try updaterController.updater.start()
+        } catch {
+            // Log but don't crash — manual update checks still work without auto-start
+            NSLog("[UpdateManager] Sparkle updater.start() failed: %@", error.localizedDescription)
+        }
 
         // Observe when updates can be checked
         updaterController.updater.publisher(for: \.canCheckForUpdates)

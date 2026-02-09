@@ -373,11 +373,10 @@ final class AudioEngine {
         lastHealthSnapshots.removeAll()
 
         // Wait for coreaudiod to stabilize, then recreate all taps.
-        // If permission was already confirmed in a previous cycle, taps are created
-        // directly with .mutedWhenTapped — no extra .unmuted→confirm→recreate cycle.
-        // On first launch (permission not yet confirmed), creates .unmuted taps,
-        // then probes for audio data inline to confirm permission and upgrade
-        // to .mutedWhenTapped in one consolidated flow (avoids double recreation).
+        // Always re-verifies permission after restart because permission can be
+        // revoked externally (System Settings, tccutil reset) which triggers a
+        // coreaudiod restart. If permission was lost, downgrades to .unmuted so
+        // audio passes through unprocessed rather than silence.
         serviceRestartTask = Task { @MainActor [weak self] in
             self?.logger.info("[SERVICE-RESTART] Waiting for coreaudiod to stabilize...")
             try? await Task.sleep(for: self?.serviceRestartDelay ?? .milliseconds(1500))
@@ -385,23 +384,50 @@ final class AudioEngine {
             self.logger.info("[SERVICE-RESTART] Recreating taps (permissionConfirmed=\(self.permissionConfirmed))")
             self.applyPersistedSettings()
 
-            // If permission wasn't yet confirmed, probe for audio data now to avoid
-            // the fast health check triggering a redundant recreateAllTaps() cycle.
-            if !self.permissionConfirmed {
-                try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled else { return }
-                let confirmed = self.taps.values.contains { Self.shouldConfirmPermission(from: $0.diagnostics) }
-                if confirmed {
+            // Probe for audio data after recreation to verify permission is still granted.
+            // Covers both first-launch (not yet confirmed) and mid-session revocation.
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            let confirmed = self.taps.values.contains { Self.shouldConfirmPermission(from: $0.diagnostics) }
+            if confirmed {
+                if !self.permissionConfirmed {
                     self.permissionConfirmed = true
                     self.logger.info("[SERVICE-RESTART] Permission confirmed inline — upgrading to .mutedWhenTapped")
                     self.upgradeTapsToMutedWhenTapped()
                 }
+            } else if self.permissionConfirmed {
+                self.permissionConfirmed = false
+                self.logger.warning("[SERVICE-RESTART] Permission not re-confirmed after restart — downgrading to .unmuted")
+                self.recreateAllTaps()
             }
 
             self.restoreRouting()
             self.isRecreatingTaps = false
             self.recreationEndedAt = Date()
         }
+    }
+
+    /// Tears down a tap for the given PID: invalidates it, removes from tracking dictionaries.
+    private func teardownTap(for pid: pid_t) {
+        taps[pid]?.invalidate()
+        taps.removeValue(forKey: pid)
+        appliedPIDs.remove(pid)
+        lastHealthSnapshots.removeValue(forKey: pid)
+    }
+
+    /// Returns true if this PID has exceeded max recreation attempts and should be abandoned.
+    /// Increments the counter and handles cleanup + logging when limit is reached.
+    private func shouldAbandonRecreation(for pid: pid_t, appName: String) -> Bool {
+        let count = (deadTapRecreationCount[pid] ?? 0) + 1
+        deadTapRecreationCount[pid] = count
+        if count > maxDeadTapRecreations {
+            if count == maxDeadTapRecreations + 1 {
+                logger.warning("[HEALTH] \(appName) tap dead after \(self.maxDeadTapRecreations) recreation attempts — giving up")
+            }
+            teardownTap(for: pid)
+            return true
+        }
+        return false
     }
 
     /// Detects broken taps and recreates them. Three failure modes are detected:
@@ -486,26 +512,14 @@ final class AudioEngine {
 
             // Guard against infinite recreation for apps that never produce audio
             if reason.hasPrefix("dead") {
-                let count = (self.deadTapRecreationCount[pid] ?? 0) + 1
-                self.deadTapRecreationCount[pid] = count
-                if count > self.maxDeadTapRecreations {
-                    if count == self.maxDeadTapRecreations + 1 {
-                        self.logger.warning("[HEALTH] \(app.name) tap dead after \(self.maxDeadTapRecreations) recreation attempts — giving up (app may not produce audio)")
-                    }
-                    self.taps[pid]?.invalidate()
-                    self.taps.removeValue(forKey: pid)
-                    self.appliedPIDs.remove(pid)
-                    self.lastHealthSnapshots.removeValue(forKey: pid)
+                if shouldAbandonRecreation(for: pid, appName: app.name) {
                     continue
                 }
             }
 
             logger.warning("[HEALTH] \(app.name) tap \(reason), recreating")
 
-            taps[pid]?.invalidate()
-            taps.removeValue(forKey: pid)
-            appliedPIDs.remove(pid)
-            lastHealthSnapshots.removeValue(forKey: pid)
+            teardownTap(for: pid)
 
             // If tap is dead (zero callbacks), it may be targeting the wrong device.
             // Try the system default device as fallback before recreating on the same device.
@@ -554,14 +568,6 @@ final class AudioEngine {
 
     var apps: [AudioApp] {
         processMonitor.activeApps
-    }
-
-    /// Apps shown in the UI: active apps when playing, otherwise a single
-    /// cached app row from the most recently active app (shown as paused).
-    var displayedApps: [AudioApp] {
-        if !apps.isEmpty { return apps }
-        if let lastDisplayedApp { return [lastDisplayedApp] }
-        return []
     }
 
     // MARK: - Displayable Apps (Active + Pinned Inactive)
@@ -1051,13 +1057,12 @@ final class AudioEngine {
         // inactive/paused apps will use the new device when they start playing again.
         settingsManager.updateAllDeviceRoutings(to: deviceUID)
 
-        // Update in-memory routing for displayed-but-not-active apps
-        // (e.g., paused app shown via lastDisplayedApp cache)
+        // Update in-memory routing for the cached paused app (if any)
         if apps.isEmpty {
-            for app in displayedApps {
-                appDeviceRouting[app.id] = deviceUID
+            if let lastApp = lastDisplayedApp {
+                appDeviceRouting[lastApp.id] = deviceUID
             }
-            logger.debug("No active apps to route — updated \(self.displayedApps.count) displayed app(s)")
+            logger.debug("No active apps to route — updated cached paused app")
             return
         }
 
@@ -1226,10 +1231,7 @@ final class AudioEngine {
                         guard let app = self.apps.first(where: { $0.id == pid }),
                               let deviceUID = self.appDeviceRouting[pid] else { return }
                         self.logger.warning("[HEALTH-FAST] \(appName) tap broken (callbacks=\(d.callbackCount) output=0), recreating")
-                        tap.invalidate()
-                        self.taps.removeValue(forKey: pid)
-                        self.appliedPIDs.remove(pid)
-                        self.lastHealthSnapshots.removeValue(forKey: pid)
+                        self.teardownTap(for: pid)
                         self.ensureTapExists(for: app, deviceUID: deviceUID)
                         return
                     }
@@ -1242,16 +1244,7 @@ final class AudioEngine {
                         let currentDeviceUID = self.appDeviceRouting[pid]
 
                         // Guard against infinite recreation for apps that never produce audio
-                        let count = (self.deadTapRecreationCount[pid] ?? 0) + 1
-                        self.deadTapRecreationCount[pid] = count
-                        if count > self.maxDeadTapRecreations {
-                            if count == self.maxDeadTapRecreations + 1 {
-                                self.logger.warning("[HEALTH-FAST] \(appName) tap dead after \(self.maxDeadTapRecreations) recreation attempts — giving up (app may not produce audio)")
-                            }
-                            tap.invalidate()
-                            self.taps.removeValue(forKey: pid)
-                            self.appliedPIDs.remove(pid)
-                            self.lastHealthSnapshots.removeValue(forKey: pid)
+                        if self.shouldAbandonRecreation(for: pid, appName: appName) {
                             return
                         }
 
@@ -1266,19 +1259,13 @@ final class AudioEngine {
 
                         if let fallbackUID {
                             self.logger.warning("[HEALTH-FAST] \(appName) tap dead (callbacks=0 after \(checkIntervals.count) checks), rerouting to system default \(fallbackUID)")
-                            tap.invalidate()
-                            self.taps.removeValue(forKey: pid)
-                            self.appliedPIDs.remove(pid)
-                            self.lastHealthSnapshots.removeValue(forKey: pid)
+                            self.teardownTap(for: pid)
                             self.appDeviceRouting[pid] = fallbackUID
                             self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: fallbackUID)
                             self.ensureTapExists(for: app, deviceUID: fallbackUID)
                         } else {
                             self.logger.warning("[HEALTH-FAST] \(appName) tap dead (callbacks=0), already on default device — recreating in place")
-                            tap.invalidate()
-                            self.taps.removeValue(forKey: pid)
-                            self.appliedPIDs.remove(pid)
-                            self.lastHealthSnapshots.removeValue(forKey: pid)
+                            self.teardownTap(for: pid)
                             if let deviceUID = currentDeviceUID {
                                 self.ensureTapExists(for: app, deviceUID: deviceUID)
                             }

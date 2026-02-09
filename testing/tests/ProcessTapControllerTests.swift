@@ -174,7 +174,7 @@ final class ProcessTapControllerTests: XCTestCase {
         let flags = controller.testTapDescriptionFlags(for: "test-device-uid")
         if #available(macOS 26.0, *) {
             XCTAssertTrue(flags.usesBundleIDs, "Should use bundleIDs on macOS 26+")
-            XCTAssertTrue(flags.isProcessRestoreEnabled, "Should enable processRestore on macOS 26+")
+            XCTAssertFalse(flags.isProcessRestoreEnabled, "isProcessRestoreEnabled causes dead aggregate output on macOS 26")
             XCTAssertEqual(flags.bundleID, "com.apple.Safari")
         } else {
             XCTAssertFalse(flags.usesBundleIDs, "Should not use bundleIDs before macOS 26")

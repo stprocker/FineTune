@@ -3,9 +3,6 @@ import AppKit
 import AudioToolbox
 import os
 
-// Use shared CoreAudio listener queue
-private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
-
 @Observable
 @MainActor
 final class AudioProcessMonitor {
@@ -99,14 +96,14 @@ final class AudioProcessMonitor {
 
         logger.debug("Starting audio process monitor")
 
-        // Set up listener first - fires on coreAudioListenerQueue
+        // Set up listener first - fires on CoreAudioQueues.listenerQueue
         let listBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task.detached { [weak self] in
                 await self?.refreshAsync()
             }
         }
         processListListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &processListAddress, queue: coreAudioListenerQueue, block: listBlock
+            address: &processListAddress, queue: CoreAudioQueues.listenerQueue, block: listBlock
         )
 
         // Initial refresh
@@ -128,7 +125,7 @@ final class AudioProcessMonitor {
 
         // Remove process list listener
         if let block = processListListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &processListAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &processListAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             processListListenerBlock = nil
         }
 
@@ -277,7 +274,7 @@ final class AudioProcessMonitor {
             }
         }
 
-        if objectID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
+        if objectID.addPropertyListener(address: &address, queue: CoreAudioQueues.listenerQueue, block: block) != nil {
             processListenerBlocks[objectID] = block
         }
     }
@@ -291,7 +288,7 @@ final class AudioProcessMonitor {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        objectID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
+        objectID.removePropertyListener(address: &address, queue: CoreAudioQueues.listenerQueue, block: block)
     }
 
     private func removeAllProcessListeners() {

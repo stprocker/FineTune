@@ -2,6 +2,24 @@
 
 ## [Unreleased] - 2026-02-08
 
+### Cut the Fat: Dead Code Removal & Internal Deduplication
+
+Comprehensive internal cleanup — no behavior or appearance changes. Removed dead files, eliminated code duplication across DeviceVolumeMonitor, AudioEngine, and VolumeState, and added error logging for Sparkle startup.
+Full details: `docs/ai-chat-history/2026-02-08-cut-the-fat-dead-code-cleanup.md`
+
+#### Removed
+- **`SystemSoundsDeviceChanges.swift`** — 200-line commented-out integration guide; all code already lives in DeviceVolumeMonitor.swift
+- **`INTEGRATION_PLAN.md`** — stale planning doc from completed feature integration
+- **`coreAudioListenerQueue` module-level aliases** — removed from DeviceVolumeMonitor, AudioDeviceMonitor, and AudioProcessMonitor; replaced with direct `CoreAudioQueues.listenerQueue` usage
+- **`displayedApps` computed property** — removed from AudioEngine; `routeAllApps()` now uses `lastDisplayedApp` directly; tests updated to use `apps` + `isPausedDisplayApp`
+
+#### Added
+- **`teardownTap(for:)` helper** in AudioEngine — consolidates 4-line tap invalidation pattern used in 6+ places
+- **`shouldAbandonRecreation(for:appName:)` helper** in AudioEngine — consolidates dead-tap recreation guard from `checkTapHealth()` and `ensureTapExists()`
+- **`DeviceScope` enum + parameterized methods** in DeviceVolumeMonitor — merged duplicate input/output listener management into scope-parameterized `addListener`, `removeListener`, `refreshListeners`, and `readAllStates` methods (~120 lines of duplication eliminated)
+- **`modifyState(for:identifier:update:persist:)` helper** in VolumeState — consolidated 4 near-identical setter methods (`setVolume`, `setMute`, `setDeviceSelectionMode`, `setSelectedDeviceUIDs`) from ~12 lines each to ~4 lines each
+- **Error logging for Sparkle updater start** in UpdateManager — replaced `try?` with `do/try/catch` + `NSLog`
+
 ### macOS 26 Bundle-ID Crossfade Fix + Dead-Tap Loop Prevention
 
 Fixed bundle-ID process tap disconnection during device switching on macOS 26, and prevented infinite health check recreation loops for apps that never produce audio.
@@ -111,7 +129,7 @@ Full details: `docs/ai-chat-history/2026-02-08-settings-panel-and-system-sounds-
 
 #### Known Issues
 - **All changes are compile-verified only** — settings panel and system sounds device tracking have not been runtime-tested
-- **`SystemSoundsDeviceChanges.swift` is dead code** — 200-line documentation stub should be deleted now that integration is complete
+- ~~**`SystemSoundsDeviceChanges.swift` is dead code**~~ — resolved: deleted in "Cut the Fat" cleanup
 - **Settings panel doesn't auto-close on popup dismiss** — `isSettingsOpen` persists across popup show/hide cycles
 
 ### Crash-Safe Cleanup for Orphaned CoreAudio Resources

@@ -4,9 +4,6 @@ import AudioToolbox
 import Observation
 import os
 
-// Use shared CoreAudio listener queue
-private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
-
 @Observable
 @MainActor
 final class AudioDeviceMonitor {
@@ -84,7 +81,7 @@ final class AudioDeviceMonitor {
             }
         }
         deviceListListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &deviceListAddress, queue: coreAudioListenerQueue, block: deviceListBlock
+            address: &deviceListAddress, queue: CoreAudioQueues.listenerQueue, block: deviceListBlock
         )
 
         let restartBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -93,7 +90,7 @@ final class AudioDeviceMonitor {
             }
         }
         serviceRestartListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: restartBlock
+            address: &serviceRestartAddress, queue: CoreAudioQueues.listenerQueue, block: restartBlock
         )
     }
 
@@ -101,12 +98,12 @@ final class AudioDeviceMonitor {
         logger.debug("Stopping audio device monitor")
 
         if let block = deviceListListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &deviceListAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &deviceListAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             deviceListListenerBlock = nil
         }
 
         if let block = serviceRestartListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &serviceRestartAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             serviceRestartListenerBlock = nil
         }
     }

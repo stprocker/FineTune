@@ -3,9 +3,6 @@ import AppKit
 import AudioToolbox
 import os
 
-// coreAudioListenerQueue is now CoreAudioQueues.listenerQueue in Types/CoreAudioQueues.swift
-private let coreAudioListenerQueue = CoreAudioQueues.listenerQueue
-
 @Observable
 @MainActor
 final class DeviceVolumeMonitor {
@@ -192,7 +189,7 @@ final class DeviceVolumeMonitor {
         refreshDefaultDevice()
 
         // Read volumes for all devices and set up listeners
-        refreshDeviceListeners()
+        refreshListeners(scope: .output)
 
         // Listen for default output device changes (with debouncing)
         let defaultBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -206,7 +203,7 @@ final class DeviceVolumeMonitor {
             }
         }
         defaultDeviceListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &defaultDeviceAddress, queue: coreAudioListenerQueue, block: defaultBlock
+            address: &defaultDeviceAddress, queue: CoreAudioQueues.listenerQueue, block: defaultBlock
         )
 
         // Read initial system device and validate state
@@ -225,7 +222,7 @@ final class DeviceVolumeMonitor {
             }
         }
         systemDeviceListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &systemDeviceAddress, queue: coreAudioListenerQueue, block: systemBlock
+            address: &systemDeviceAddress, queue: CoreAudioQueues.listenerQueue, block: systemBlock
         )
 
         // Listen for coreaudiod restart to recover from daemon crashes
@@ -235,7 +232,7 @@ final class DeviceVolumeMonitor {
             }
         }
         serviceRestartListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: restartBlock
+            address: &serviceRestartAddress, queue: CoreAudioQueues.listenerQueue, block: restartBlock
         )
 
         // Observe device list changes from deviceMonitor using withObservationTracking
@@ -243,7 +240,7 @@ final class DeviceVolumeMonitor {
 
         // Input device monitoring
         refreshDefaultInputDevice()
-        refreshInputDeviceListeners()
+        refreshListeners(scope: .input)
 
         // Listen for default input device changes
         let defaultInputBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -252,7 +249,7 @@ final class DeviceVolumeMonitor {
             }
         }
         defaultInputDeviceListenerBlock = AudioObjectID.system.addPropertyListener(
-            address: &defaultInputDeviceAddress, queue: coreAudioListenerQueue, block: defaultInputBlock
+            address: &defaultInputDeviceAddress, queue: CoreAudioQueues.listenerQueue, block: defaultInputBlock
         )
 
         startObservingInputDeviceList()
@@ -285,46 +282,42 @@ final class DeviceVolumeMonitor {
 
         // Remove default device listener
         if let block = defaultDeviceListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &defaultDeviceAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &defaultDeviceAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             defaultDeviceListenerBlock = nil
         }
 
         // Remove system device listener
         if let block = systemDeviceListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &systemDeviceAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &systemDeviceAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             systemDeviceListenerBlock = nil
         }
 
         // Remove service restart listener
         if let block = serviceRestartListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &serviceRestartAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &serviceRestartAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             serviceRestartListenerBlock = nil
         }
 
         // Remove default input device listener
         if let block = defaultInputDeviceListenerBlock {
-            AudioObjectID.system.removePropertyListener(address: &defaultInputDeviceAddress, queue: coreAudioListenerQueue, block: block)
+            AudioObjectID.system.removePropertyListener(address: &defaultInputDeviceAddress, queue: CoreAudioQueues.listenerQueue, block: block)
             defaultInputDeviceListenerBlock = nil
         }
 
-        // Remove all output volume listeners
+        // Remove all output listeners
         for deviceID in Array(volumeListeners.keys) {
-            removeDeviceListener(.volume, for: deviceID)
+            removeListener(.volume, scope: .output, for: deviceID)
         }
-
-        // Remove all output mute listeners
         for deviceID in Array(muteListeners.keys) {
-            removeDeviceListener(.mute, for: deviceID)
+            removeListener(.mute, scope: .output, for: deviceID)
         }
 
-        // Remove all input volume listeners
+        // Remove all input listeners
         for deviceID in Array(inputVolumeListeners.keys) {
-            removeInputDeviceListener(.volume, for: deviceID)
+            removeListener(.volume, scope: .input, for: deviceID)
         }
-
-        // Remove all input mute listeners
         for deviceID in Array(inputMuteListeners.keys) {
-            removeInputDeviceListener(.mute, for: deviceID)
+            removeListener(.mute, scope: .input, for: deviceID)
         }
 
         volumes.removeAll()
@@ -703,64 +696,49 @@ final class DeviceVolumeMonitor {
         applyDefaultDeviceChange(deviceID: deviceID, deviceUID: deviceUID, isVirtual: isVirtual)
     }
 
-    /// Synchronizes volume and mute listeners with the current device list from deviceMonitor
-    private func refreshDeviceListeners() {
-        let currentDeviceIDs = Set(deviceMonitor.outputDevices.map(\.id))
-        let trackedVolumeIDs = Set(volumeListeners.keys)
-        let trackedMuteIDs = Set(muteListeners.keys)
+    /// Synchronizes volume and mute listeners with the current device list for the given scope.
+    private func refreshListeners(scope: DeviceScope) {
+        let devices: [AudioDevice]
+        let trackedVolumeIDs: Set<AudioDeviceID>
+        let trackedMuteIDs: Set<AudioDeviceID>
+
+        switch scope {
+        case .output:
+            devices = deviceMonitor.outputDevices
+            trackedVolumeIDs = Set(volumeListeners.keys)
+            trackedMuteIDs = Set(muteListeners.keys)
+        case .input:
+            devices = deviceMonitor.inputDevices
+            trackedVolumeIDs = Set(inputVolumeListeners.keys)
+            trackedMuteIDs = Set(inputMuteListeners.keys)
+        }
+
+        let currentDeviceIDs = Set(devices.map(\.id))
 
         // Add listeners for new devices
-        let newDeviceIDs = currentDeviceIDs.subtracting(trackedVolumeIDs)
-        for deviceID in newDeviceIDs {
-            addDeviceListener(.volume, for: deviceID)
-            addDeviceListener(.mute, for: deviceID)
+        for deviceID in currentDeviceIDs.subtracting(trackedVolumeIDs) {
+            addListener(.volume, scope: scope, for: deviceID)
+            addListener(.mute, scope: scope, for: deviceID)
         }
 
         // Remove listeners for stale devices
-        let staleVolumeIDs = trackedVolumeIDs.subtracting(currentDeviceIDs)
-        for deviceID in staleVolumeIDs {
-            removeDeviceListener(.volume, for: deviceID)
-            volumes.removeValue(forKey: deviceID)
+        for deviceID in trackedVolumeIDs.subtracting(currentDeviceIDs) {
+            removeListener(.volume, scope: scope, for: deviceID)
+            switch scope {
+            case .output: volumes.removeValue(forKey: deviceID)
+            case .input:  inputVolumes.removeValue(forKey: deviceID)
+            }
         }
 
-        let staleMuteIDs = trackedMuteIDs.subtracting(currentDeviceIDs)
-        for deviceID in staleMuteIDs {
-            removeDeviceListener(.mute, for: deviceID)
-            muteStates.removeValue(forKey: deviceID)
+        for deviceID in trackedMuteIDs.subtracting(currentDeviceIDs) {
+            removeListener(.mute, scope: scope, for: deviceID)
+            switch scope {
+            case .output: muteStates.removeValue(forKey: deviceID)
+            case .input:  inputMuteStates.removeValue(forKey: deviceID)
+            }
         }
 
-        // Read volumes and mute states for all current devices
-        readAllStates()
-    }
-
-    /// Synchronizes input volume and mute listeners with the current input device list
-    private func refreshInputDeviceListeners() {
-        let currentDeviceIDs = Set(deviceMonitor.inputDevices.map(\.id))
-        let trackedVolumeIDs = Set(inputVolumeListeners.keys)
-        let trackedMuteIDs = Set(inputMuteListeners.keys)
-
-        // Add listeners for new devices
-        let newDeviceIDs = currentDeviceIDs.subtracting(trackedVolumeIDs)
-        for deviceID in newDeviceIDs {
-            addInputDeviceListener(.volume, for: deviceID)
-            addInputDeviceListener(.mute, for: deviceID)
-        }
-
-        // Remove listeners for stale devices
-        let staleVolumeIDs = trackedVolumeIDs.subtracting(currentDeviceIDs)
-        for deviceID in staleVolumeIDs {
-            removeInputDeviceListener(.volume, for: deviceID)
-            inputVolumes.removeValue(forKey: deviceID)
-        }
-
-        let staleMuteIDs = trackedMuteIDs.subtracting(currentDeviceIDs)
-        for deviceID in staleMuteIDs {
-            removeInputDeviceListener(.mute, for: deviceID)
-            inputMuteStates.removeValue(forKey: deviceID)
-        }
-
-        // Read volumes and mute states for all current input devices
-        readAllInputStates()
+        readAllStates(scope: scope)
     }
 
     /// Identifies which device property listener to manage (volume or mute).
@@ -768,77 +746,75 @@ final class DeviceVolumeMonitor {
         case volume, mute
     }
 
-    private func addDeviceListener(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
+    /// Distinguishes output vs input scope for parameterized listener/state methods.
+    private enum DeviceScope {
+        case output, input
+    }
+
+    private func addListener(_ kind: DevicePropertyKind, scope: DeviceScope, for deviceID: AudioDeviceID) {
         guard deviceID.isValid else { return }
-        let listeners = kind == .volume ? volumeListeners : muteListeners
+        let listeners = listenerDict(kind, scope: scope)
         guard listeners[deviceID] == nil else { return }
 
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                self?.handleDevicePropertyChanged(kind, for: deviceID)
+                switch scope {
+                case .output: self?.handleDevicePropertyChanged(kind, for: deviceID)
+                case .input:  self?.handleInputDevicePropertyChanged(kind, for: deviceID)
+                }
             }
         }
 
-        var address = kind == .volume ? volumeAddress : muteAddress
-        if deviceID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
-            switch kind {
-            case .volume: volumeListeners[deviceID] = block
-            case .mute:   muteListeners[deviceID] = block
-            }
+        var address = propertyAddress(kind, scope: scope)
+        if deviceID.addPropertyListener(address: &address, queue: CoreAudioQueues.listenerQueue, block: block) != nil {
+            setListener(block, kind: kind, scope: scope, for: deviceID)
         }
     }
 
-    private func removeDeviceListener(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
-        let block: AudioObjectPropertyListenerBlock?
-        switch kind {
-        case .volume: block = volumeListeners[deviceID]
-        case .mute:   block = muteListeners[deviceID]
-        }
+    private func removeListener(_ kind: DevicePropertyKind, scope: DeviceScope, for deviceID: AudioDeviceID) {
+        let block = listenerDict(kind, scope: scope)[deviceID]
         guard let block else { return }
 
-        var address = kind == .volume ? volumeAddress : muteAddress
-        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
+        var address = propertyAddress(kind, scope: scope)
+        deviceID.removePropertyListener(address: &address, queue: CoreAudioQueues.listenerQueue, block: block)
+        removeListenerEntry(kind, scope: scope, for: deviceID)
+    }
 
-        switch kind {
-        case .volume: volumeListeners.removeValue(forKey: deviceID)
-        case .mute:   muteListeners.removeValue(forKey: deviceID)
+    // MARK: - Scope Accessor Helpers
+
+    private func listenerDict(_ kind: DevicePropertyKind, scope: DeviceScope) -> [AudioDeviceID: AudioObjectPropertyListenerBlock] {
+        switch (kind, scope) {
+        case (.volume, .output): return volumeListeners
+        case (.mute,   .output): return muteListeners
+        case (.volume, .input):  return inputVolumeListeners
+        case (.mute,   .input):  return inputMuteListeners
         }
     }
 
-    private func addInputDeviceListener(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
-        guard deviceID.isValid else { return }
-        let listeners = kind == .volume ? inputVolumeListeners : inputMuteListeners
-        guard listeners[deviceID] == nil else { return }
-
-        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                self?.handleInputDevicePropertyChanged(kind, for: deviceID)
-            }
-        }
-
-        var address = kind == .volume ? inputVolumeAddress : inputMuteAddress
-        if deviceID.addPropertyListener(address: &address, queue: coreAudioListenerQueue, block: block) != nil {
-            switch kind {
-            case .volume: inputVolumeListeners[deviceID] = block
-            case .mute:   inputMuteListeners[deviceID] = block
-            }
+    private func setListener(_ block: @escaping AudioObjectPropertyListenerBlock, kind: DevicePropertyKind, scope: DeviceScope, for deviceID: AudioDeviceID) {
+        switch (kind, scope) {
+        case (.volume, .output): volumeListeners[deviceID] = block
+        case (.mute,   .output): muteListeners[deviceID] = block
+        case (.volume, .input):  inputVolumeListeners[deviceID] = block
+        case (.mute,   .input):  inputMuteListeners[deviceID] = block
         }
     }
 
-    private func removeInputDeviceListener(_ kind: DevicePropertyKind, for deviceID: AudioDeviceID) {
-        let block: AudioObjectPropertyListenerBlock?
-        switch kind {
-        case .volume: block = inputVolumeListeners[deviceID]
-        case .mute:   block = inputMuteListeners[deviceID]
+    private func removeListenerEntry(_ kind: DevicePropertyKind, scope: DeviceScope, for deviceID: AudioDeviceID) {
+        switch (kind, scope) {
+        case (.volume, .output): volumeListeners.removeValue(forKey: deviceID)
+        case (.mute,   .output): muteListeners.removeValue(forKey: deviceID)
+        case (.volume, .input):  inputVolumeListeners.removeValue(forKey: deviceID)
+        case (.mute,   .input):  inputMuteListeners.removeValue(forKey: deviceID)
         }
-        guard let block else { return }
+    }
 
-        var address = kind == .volume ? inputVolumeAddress : inputMuteAddress
-        deviceID.removePropertyListener(address: &address, queue: coreAudioListenerQueue, block: block)
-
-        switch kind {
-        case .volume: inputVolumeListeners.removeValue(forKey: deviceID)
-        case .mute:   inputMuteListeners.removeValue(forKey: deviceID)
+    private func propertyAddress(_ kind: DevicePropertyKind, scope: DeviceScope) -> AudioObjectPropertyAddress {
+        switch (kind, scope) {
+        case (.volume, .output): return volumeAddress
+        case (.mute,   .output): return muteAddress
+        case (.volume, .input):  return inputVolumeAddress
+        case (.mute,   .input):  return inputMuteAddress
         }
     }
 
@@ -930,89 +906,40 @@ final class DeviceVolumeMonitor {
                     self.defaultInputDeviceUID = newInputDeviceUID
                 }
                 // Re-read all device volumes and mute states
-                self.readAllStates()
-                self.readAllInputStates()
+                self.readAllStates(scope: .output)
+                self.readAllStates(scope: .input)
                 self.refreshSystemDevice()
                 self.logger.debug("Recovered from coreaudiod restart")
             }
         }
     }
 
-    /// Reads the current volume and mute state for all tracked output devices.
+    /// Reads the current volume and mute state for all tracked devices in the given scope.
     /// For Bluetooth devices, schedules a delayed re-read because the HAL may report
     /// default volume (1.0) for 50-200ms after the device appears.
-    private func readAllStates() {
-        // Capture device IDs to read
-        let devices = deviceMonitor.outputDevices
-
-        // Do CoreAudio reads on background thread to avoid blocking MainActor
-        Task.detached { [weak self] in
-            var volumeResults: [AudioDeviceID: Float] = [:]
-            var muteResults: [AudioDeviceID: Bool] = [:]
-            var bluetoothDeviceIDs: [AudioDeviceID] = []
-
-            for device in devices {
-                let volume = device.id.readOutputVolumeScalar()
-                let muted = device.id.readMuteState()
-                volumeResults[device.id] = volume
-                muteResults[device.id] = muted
-
-                let transportType = device.id.readTransportType()
-                if transportType == .bluetooth || transportType == .bluetoothLE {
-                    bluetoothDeviceIDs.append(device.id)
-                }
-            }
-
-            let volumeSnapshot = volumeResults
-            let muteSnapshot = muteResults
-
-            // Update state on MainActor
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                for (deviceID, volume) in volumeSnapshot {
-                    self.volumes[deviceID] = volume
-                }
-                for (deviceID, muted) in muteSnapshot {
-                    self.muteStates[deviceID] = muted
-                }
-            }
-
-            // Schedule delayed re-read for Bluetooth devices
-            let btReReadDelay = await MainActor.run { [weak self] in self?.bluetoothReReadDelayMs ?? 200 }
-            for deviceID in bluetoothDeviceIDs {
-                try? await Task.sleep(for: .milliseconds(btReReadDelay))
-
-                // Check if device is still tracked before re-reading
-                let stillTracked = await MainActor.run { [weak self] in
-                    self?.volumes.keys.contains(deviceID) ?? false
-                }
-                guard stillTracked else { continue }
-
-                let confirmedVolume = deviceID.readOutputVolumeScalar()
-                let confirmedMute = deviceID.readMuteState()
-
-                await MainActor.run { [weak self] in
-                    guard let self, self.volumes.keys.contains(deviceID) else { return }
-                    self.volumes[deviceID] = confirmedVolume
-                    self.muteStates[deviceID] = confirmedMute
-                    self.logger.debug("Bluetooth device \(deviceID) re-read volume: \(confirmedVolume), muted: \(confirmedMute)")
-                }
-            }
+    private func readAllStates(scope: DeviceScope) {
+        let devices: [AudioDevice]
+        switch scope {
+        case .output: devices = deviceMonitor.outputDevices
+        case .input:  devices = deviceMonitor.inputDevices
         }
-    }
 
-    /// Reads the current volume and mute state for all tracked input devices
-    private func readAllInputStates() {
-        let devices = deviceMonitor.inputDevices
-
-        Task.detached { [weak self] in
+        Task.detached { [weak self, scope] in
             var volumeResults: [AudioDeviceID: Float] = [:]
             var muteResults: [AudioDeviceID: Bool] = [:]
             var bluetoothDeviceIDs: [AudioDeviceID] = []
 
             for device in devices {
-                let volume = device.id.readInputVolumeScalar()
-                let muted = device.id.readInputMuteState()
+                let volume: Float
+                let muted: Bool
+                switch scope {
+                case .output:
+                    volume = device.id.readOutputVolumeScalar()
+                    muted = device.id.readMuteState()
+                case .input:
+                    volume = device.id.readInputVolumeScalar()
+                    muted = device.id.readInputMuteState()
+                }
                 volumeResults[device.id] = volume
                 muteResults[device.id] = muted
 
@@ -1028,31 +955,58 @@ final class DeviceVolumeMonitor {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 for (deviceID, volume) in volumeSnapshot {
-                    self.inputVolumes[deviceID] = volume
+                    switch scope {
+                    case .output: self.volumes[deviceID] = volume
+                    case .input:  self.inputVolumes[deviceID] = volume
+                    }
                 }
                 for (deviceID, muted) in muteSnapshot {
-                    self.inputMuteStates[deviceID] = muted
+                    switch scope {
+                    case .output: self.muteStates[deviceID] = muted
+                    case .input:  self.inputMuteStates[deviceID] = muted
+                    }
                 }
             }
 
-            // Bluetooth input devices re-read
+            // Bluetooth devices re-read
             let btReReadDelay = await MainActor.run { [weak self] in self?.bluetoothReReadDelayMs ?? 200 }
             for deviceID in bluetoothDeviceIDs {
                 try? await Task.sleep(for: .milliseconds(btReReadDelay))
 
                 let stillTracked = await MainActor.run { [weak self] in
-                    self?.inputVolumes.keys.contains(deviceID) ?? false
+                    guard let self else { return false }
+                    switch scope {
+                    case .output: return self.volumes.keys.contains(deviceID)
+                    case .input:  return self.inputVolumes.keys.contains(deviceID)
+                    }
                 }
                 guard stillTracked else { continue }
 
-                let confirmedVolume = deviceID.readInputVolumeScalar()
-                let confirmedMute = deviceID.readInputMuteState()
+                let confirmedVolume: Float
+                let confirmedMute: Bool
+                switch scope {
+                case .output:
+                    confirmedVolume = deviceID.readOutputVolumeScalar()
+                    confirmedMute = deviceID.readMuteState()
+                case .input:
+                    confirmedVolume = deviceID.readInputVolumeScalar()
+                    confirmedMute = deviceID.readInputMuteState()
+                }
 
+                let scopeLabel = scope == .output ? "" : "input "
                 await MainActor.run { [weak self] in
-                    guard let self, self.inputVolumes.keys.contains(deviceID) else { return }
-                    self.inputVolumes[deviceID] = confirmedVolume
-                    self.inputMuteStates[deviceID] = confirmedMute
-                    self.logger.debug("Bluetooth input device \(deviceID) re-read volume: \(confirmedVolume), muted: \(confirmedMute)")
+                    guard let self else { return }
+                    switch scope {
+                    case .output:
+                        guard self.volumes.keys.contains(deviceID) else { return }
+                        self.volumes[deviceID] = confirmedVolume
+                        self.muteStates[deviceID] = confirmedMute
+                    case .input:
+                        guard self.inputVolumes.keys.contains(deviceID) else { return }
+                        self.inputVolumes[deviceID] = confirmedVolume
+                        self.inputMuteStates[deviceID] = confirmedMute
+                    }
+                    self.logger.debug("Bluetooth \(scopeLabel)device \(deviceID) re-read volume: \(confirmedVolume), muted: \(confirmedMute)")
                 }
             }
         }
@@ -1081,7 +1035,7 @@ final class DeviceVolumeMonitor {
                 guard !Task.isCancelled, let strongSelf = self, strongSelf.isObservingDeviceList else { break }
 
                 strongSelf.logger.debug("Device list changed, refreshing volume listeners")
-                strongSelf.refreshDeviceListeners()
+                strongSelf.refreshListeners(scope: .output)
             }
         }
     }
@@ -1106,7 +1060,7 @@ final class DeviceVolumeMonitor {
                 guard !Task.isCancelled, let strongSelf = self, strongSelf.isObservingInputDeviceList else { break }
 
                 strongSelf.logger.debug("Input device list changed, refreshing input volume listeners")
-                strongSelf.refreshInputDeviceListeners()
+                strongSelf.refreshListeners(scope: .input)
             }
         }
     }
