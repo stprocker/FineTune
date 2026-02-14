@@ -1,5 +1,6 @@
 // FineTune/Audio/ProcessTapController.swift
 import AudioToolbox
+import Accelerate
 import os
 #if canImport(FineTuneCore)
 import FineTuneCore
@@ -1525,18 +1526,18 @@ final class ProcessTapController {
         AudioBufferProcessor.computePeak(inputBuffers: inputBuffers)
     }
 
-    /// Compute peak of output buffers for diagnostics (RT-safe: simple float max)
+    /// Compute peak of output buffers for diagnostics (RT-safe: vDSP SIMD-accelerated)
     @inline(__always)
     private func computeOutputPeak(_ outputBuffers: UnsafeMutableAudioBufferListPointer) -> Float {
         var peak: Float = 0
         for i in 0..<outputBuffers.count {
             guard let data = outputBuffers[i].mData else { continue }
             let samples = data.assumingMemoryBound(to: Float.self)
-            let count = Int(outputBuffers[i].mDataByteSize) / MemoryLayout<Float>.size
-            for j in 0..<count {
-                let abs = samples[j] < 0 ? -samples[j] : samples[j]
-                if abs > peak { peak = abs }
-            }
+            let count = vDSP_Length(outputBuffers[i].mDataByteSize) / vDSP_Length(MemoryLayout<Float>.size)
+            guard count > 0 else { continue }
+            var bufferPeak: Float = 0
+            vDSP_maxmgv(samples, 1, &bufferPeak, count)
+            if bufferPeak > peak { peak = bufferPeak }
         }
         return min(peak, 1.0)
     }

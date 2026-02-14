@@ -143,14 +143,18 @@ final class EQProcessor: @unchecked Sendable {
         let enabled = _isEnabled
         let setup = _eqSetup
 
-        // Bypass: copy input to output
+        // Bypass: copy input to output (skip if already in-place)
         guard enabled, let setup = setup else {
-            memcpy(output, input, frameCount * 2 * MemoryLayout<Float>.size)
+            if input != UnsafePointer(output) {
+                memcpy(output, input, frameCount * 2 * MemoryLayout<Float>.size)
+            }
             return
         }
 
-        // Copy input to output first (in-place processing)
-        memcpy(output, input, frameCount * 2 * MemoryLayout<Float>.size)
+        // Copy input to output first for in-place processing (skip if already same buffer)
+        if input != UnsafePointer(output) {
+            memcpy(output, input, frameCount * 2 * MemoryLayout<Float>.size)
+        }
 
         // Process left channel (stride=2, starts at index 0)
         vDSP_biquad(

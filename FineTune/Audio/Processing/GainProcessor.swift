@@ -133,35 +133,29 @@ public enum GainProcessor {
         shouldLimit: Bool
     ) {
         let channelCount = min(channels, bufferCount)
+        guard channelCount > 0 else { return }
 
-        // Find minimum frame count across all channels
+        // Pre-compute minimum frame count across all channels (avoids per-frame recheck).
         var frameCount = Int.max
         for channel in 0..<channelCount {
-            let inputBuffer = inputBuffers[channel]
-            let sampleCount = Int(inputBuffer.mDataByteSize) / MemoryLayout<Float>.size
+            let sampleCount = Int(inputBuffers[channel].mDataByteSize) / MemoryLayout<Float>.size
             frameCount = min(frameCount, sampleCount)
         }
         guard frameCount != Int.max else { return }
 
-        // Process frame by frame across all channels
+        // Process frame by frame so all channels get identical gain per frame.
         for frame in 0..<frameCount {
             currentVolume += (targetVolume - currentVolume) * rampCoefficient
             let frameGain = currentVolume * crossfadeMultiplier * compensation
 
             for channel in 0..<channelCount {
-                let inputBuffer = inputBuffers[channel]
-                let outputBuffer = outputBuffers[channel]
-                guard let inputData = inputBuffer.mData,
-                      let outputData = outputBuffer.mData else { continue }
-
-                let inputSamples = inputData.assumingMemoryBound(to: Float.self)
-                let outputSamples = outputData.assumingMemoryBound(to: Float.self)
-
-                var sample = inputSamples[frame] * frameGain
-                if shouldLimit {
-                    sample = SoftLimiter.apply(sample)
-                }
-                outputSamples[frame] = sample
+                guard let inputData = inputBuffers[channel].mData,
+                      let outputData = outputBuffers[channel].mData else { continue }
+                let inp = inputData.assumingMemoryBound(to: Float.self)
+                let out = outputData.assumingMemoryBound(to: Float.self)
+                var sample = inp[frame] * frameGain
+                if shouldLimit { sample = SoftLimiter.apply(sample) }
+                out[frame] = sample
             }
         }
     }

@@ -286,7 +286,7 @@ struct AppRow: View {
 
 // MARK: - App Row with Timer-based Level Updates
 
-/// App row that polls audio levels at regular intervals
+/// App row that polls audio levels at regular intervals for VU meter display.
 struct AppRowWithLevelPolling: View {
     let app: AudioApp
     let volume: Float
@@ -313,54 +313,6 @@ struct AppRowWithLevelPolling: View {
 
     @State private var displayLevel: Float = 0
     @State private var levelPollingTask: Task<Void, Never>?
-
-    init(
-        app: AudioApp,
-        volume: Float,
-        isMuted: Bool,
-        isPaused: Bool = false,
-        devices: [AudioDevice],
-        selectedDeviceUID: String,
-        isPinned: Bool = false,
-        getAudioLevel: @escaping () -> Float,
-        isPopupVisible: Bool = true,
-        onVolumeChange: @escaping (Float) -> Void,
-        onMuteChange: @escaping (Bool) -> Void,
-        onDeviceSelected: @escaping (String) -> Void,
-        onAppActivate: @escaping () -> Void = {},
-        onPinToggle: @escaping () -> Void = {},
-        eqSettings: EQSettings = EQSettings(),
-        onEQChange: @escaping (EQSettings) -> Void = { _ in },
-        isEQExpanded: Bool = false,
-        onEQToggle: @escaping () -> Void = {},
-        deviceSelectionMode: DeviceSelectionMode = .single,
-        selectedDeviceUIDs: Set<String> = [],
-        onModeChange: @escaping (DeviceSelectionMode) -> Void = { _ in },
-        onDevicesSelected: @escaping (Set<String>) -> Void = { _ in }
-    ) {
-        self.app = app
-        self.volume = volume
-        self.isMuted = isMuted
-        self.isPaused = isPaused
-        self.devices = devices
-        self.selectedDeviceUID = selectedDeviceUID
-        self.isPinned = isPinned
-        self.getAudioLevel = getAudioLevel
-        self.isPopupVisible = isPopupVisible
-        self.onVolumeChange = onVolumeChange
-        self.onMuteChange = onMuteChange
-        self.onDeviceSelected = onDeviceSelected
-        self.onAppActivate = onAppActivate
-        self.onPinToggle = onPinToggle
-        self.eqSettings = eqSettings
-        self.onEQChange = onEQChange
-        self.isEQExpanded = isEQExpanded
-        self.onEQToggle = onEQToggle
-        self.deviceSelectionMode = deviceSelectionMode
-        self.selectedDeviceUIDs = selectedDeviceUIDs
-        self.onModeChange = onModeChange
-        self.onDevicesSelected = onDevicesSelected
-    }
 
     var body: some View {
         AppRow(
@@ -401,7 +353,7 @@ struct AppRowWithLevelPolling: View {
                 startLevelPolling()
             } else {
                 stopLevelPolling()
-                displayLevel = 0  // Reset meter when hidden
+                displayLevel = 0
             }
         }
         .onChange(of: isPaused) { _, paused in
@@ -415,10 +367,7 @@ struct AppRowWithLevelPolling: View {
     }
 
     private func startLevelPolling() {
-        // Guard against duplicate tasks
         guard levelPollingTask == nil else { return }
-
-        // Capture getAudioLevel to avoid implicit self capture
         let pollLevel = getAudioLevel
         let interval = DesignTokens.Timing.vuMeterUpdateInterval
 

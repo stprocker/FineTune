@@ -2,6 +2,21 @@
 
 ## [Unreleased] - 2026-02-14
 
+### Audio & UI Performance Optimizations
+
+Targeted performance improvements to the audio hot-path, device monitoring, and UI layer. All changes are behavior-preserving — no timing, API, or user-facing changes.
+
+#### Changed
+- **`ProcessTapController.computeOutputPeak`** — replaced scalar loop with `vDSP_maxmgv` (SIMD-accelerated peak detection)
+- **`SoftLimiter.processBuffer`** — added `vDSP_maxmgv` fast-path skip when peak <= threshold (avoids per-sample branching for quiet buffers)
+- **`EQProcessor.process`** — skip `memcpy` when input and output pointers are identical (in-place processing)
+- **`GainProcessor.processNonInterleaved`** — pre-compute frame count once instead of per-channel; process all channels per frame for consistent volume ramping
+- **`AudioEngine.displayableApps`** — converted from computed property to cached stored property with `rebuildDisplayableApps()`, using single-pass partition instead of repeated filter/sort
+- **`AudioDeviceMonitor.DeviceCache`** — consolidated 4 separate `nonisolated(unsafe)` dictionaries into a single immutable class snapshot for truly atomic cross-actor reads (single pointer-width swap)
+- **`VUMeter.VUMeterBar`** — pre-computed `linearThresholds` static array from dB values (avoids `powf` on every render)
+- **`AudioProcessMonitor.refresh`** — diff active apps by PID before assigning to avoid unnecessary `@Observable` notifications
+- **`MenuBarPopupViewModel`** — default device name properties now use direct `first(where:)` lookup instead of sorting the full device list
+
 ### Configurable Startup Routing Policy
 
 Made startup routing behavior configurable so explicit per-app routing can be preserved on launch instead of always being overwritten by the current system default.

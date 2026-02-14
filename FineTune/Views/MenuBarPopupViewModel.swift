@@ -116,19 +116,19 @@ final class MenuBarPopupViewModel {
 
     // MARK: - Default Device Names
 
-    /// Name of the current default output device
+    /// Name of the current default output device (direct lookup, avoids sorting)
     var defaultOutputDeviceName: String {
         guard let uid = deviceVolumeMonitor.defaultDeviceUID,
-              let device = sortedDevices.first(where: { $0.uid == uid }) else {
+              let device = audioEngine.outputDevices.first(where: { $0.uid == uid }) else {
             return "No Output"
         }
         return device.name
     }
 
-    /// Name of the current default input device
+    /// Name of the current default input device (direct lookup, avoids sorting)
     var defaultInputDeviceName: String {
         guard let uid = deviceVolumeMonitor.defaultInputDeviceUID,
-              let device = sortedInputDevices.first(where: { $0.uid == uid }) else {
+              let device = audioEngine.inputDevices.first(where: { $0.uid == uid }) else {
             return "No Input"
         }
         return device.name

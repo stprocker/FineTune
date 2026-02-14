@@ -1,5 +1,6 @@
 // FineTune/Audio/Processing/SoftLimiter.swift
 import Foundation
+import Accelerate
 
 /// RT-safe soft-knee limiter using asymptotic compression.
 /// Prevents harsh clipping when audio is boosted above unity gain.
@@ -47,6 +48,11 @@ public enum SoftLimiter {
     ///   - sampleCount: Total number of samples (frames * channels)
     @inline(__always)
     public static func processBuffer(_ buffer: UnsafeMutablePointer<Float>, sampleCount: Int) {
+        // Fast path: if peak is at or below threshold, no limiting needed
+        var bufferPeak: Float = 0
+        vDSP_maxmgv(buffer, 1, &bufferPeak, vDSP_Length(sampleCount))
+        guard bufferPeak > threshold else { return }
+
         for i in 0..<sampleCount {
             buffer[i] = apply(buffer[i])
         }

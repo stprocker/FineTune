@@ -176,8 +176,12 @@ final class AudioProcessMonitor {
             // Update per-process listeners
             updateProcessListeners(for: processIDs)
 
-            activeApps = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            onAppsChanged?(activeApps)
+            let sorted = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            // Only update if the app list actually changed (avoids unnecessary @Observable notifications)
+            if sorted.map(\.id) != activeApps.map(\.id) {
+                activeApps = sorted
+                onAppsChanged?(activeApps)
+            }
 
         } catch {
             logger.error("Failed to refresh process list: \(error.localizedDescription)")
@@ -238,8 +242,12 @@ final class AudioProcessMonitor {
             }
 
             self.updateProcessListeners(for: processIDs)
-            self.activeApps = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            self.onAppsChanged?(self.activeApps)
+            let sorted = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            // Only update if the app list actually changed (avoids unnecessary @Observable notifications)
+            if sorted.map(\.id) != self.activeApps.map(\.id) {
+                self.activeApps = sorted
+                self.onAppsChanged?(self.activeApps)
+            }
         }
     }
 

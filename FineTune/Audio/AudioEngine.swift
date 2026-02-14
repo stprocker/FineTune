@@ -572,9 +572,13 @@ final class AudioEngine {
 
     // MARK: - Displayable Apps (Active + Pinned Inactive)
 
-    /// Combined list of active apps and pinned inactive apps for UI display.
+    /// Cached list of active apps and pinned inactive apps for UI display.
     /// Sort order: pinned-active (alphabetical) -> pinned-inactive (alphabetical) -> unpinned-active (alphabetical).
-    var displayableApps: [DisplayableApp] {
+    /// Rebuilt via `rebuildDisplayableApps()` when the underlying data changes.
+    private(set) var displayableApps: [DisplayableApp] = []
+
+    /// Rebuilds the cached `displayableApps` array from current state.
+    private func rebuildDisplayableApps() {
         let activeApps = apps
         let activeIdentifiers = Set(activeApps.map { $0.persistenceIdentifier })
 
@@ -582,24 +586,31 @@ final class AudioEngine {
         let pinnedInactiveInfos = settingsManager.getPinnedAppInfo()
             .filter { !activeIdentifiers.contains($0.persistenceIdentifier) }
 
-        // Pinned active apps (sorted alphabetically)
-        let pinnedActive = activeApps
-            .filter { settingsManager.isPinned($0.persistenceIdentifier) }
+        // Single-pass partition into pinned and unpinned
+        var pinnedActiveApps: [AudioApp] = []
+        var unpinnedActiveApps: [AudioApp] = []
+        for app in activeApps {
+            if settingsManager.isPinned(app.persistenceIdentifier) {
+                pinnedActiveApps.append(app)
+            } else {
+                unpinnedActiveApps.append(app)
+            }
+        }
+
+        // Sort each group alphabetically
+        let pinnedActive = pinnedActiveApps
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { DisplayableApp.active($0) }
 
-        // Pinned inactive apps (sorted alphabetically)
         let pinnedInactive = pinnedInactiveInfos
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             .map { DisplayableApp.pinnedInactive($0) }
 
-        // Unpinned active apps (sorted alphabetically)
-        let unpinnedActive = activeApps
-            .filter { !settingsManager.isPinned($0.persistenceIdentifier) }
+        let unpinnedActive = unpinnedActiveApps
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { DisplayableApp.active($0) }
 
-        return pinnedActive + pinnedInactive + unpinnedActive
+        displayableApps = pinnedActive + pinnedInactive + unpinnedActive
     }
 
     // MARK: - Pinning
@@ -612,11 +623,13 @@ final class AudioEngine {
             bundleID: app.bundleID
         )
         settingsManager.pinApp(app.persistenceIdentifier, info: info)
+        rebuildDisplayableApps()
     }
 
     /// Unpin an app by its persistence identifier.
     func unpinApp(_ identifier: String) {
         settingsManager.unpinApp(identifier)
+        rebuildDisplayableApps()
     }
 
     /// Check if an app is pinned.
@@ -1655,7 +1668,10 @@ final class AudioEngine {
         }
         lastAudibleAtByPID = lastAudibleAtByPID.filter { pidsToKeep.contains($0.key) }
         pauseStateByPID = pauseStateByPID.filter { pidsToKeep.contains($0.key) }
-        defer { previousActiveAppIDs = activeIDs }
+        defer {
+            previousActiveAppIDs = activeIDs
+            rebuildDisplayableApps()
+        }
 
         guard !activeApps.isEmpty else {
             guard let cached = lastDisplayedApp else { return }

@@ -11,15 +11,31 @@ final class AudioDeviceMonitor {
 
     private(set) var outputDevices: [AudioDevice] = []
 
-    /// O(1) device lookup by UID (nonisolated for cross-actor reads from ProcessTapController).
-    /// Marked ObservationIgnored so @Observable does not actor-isolate this cache field.
-    @ObservationIgnored
-    nonisolated(unsafe) private(set) var devicesByUID: [String: AudioDevice] = [:] // Cross-actor reads only; updated on MainActor
+    /// Immutable snapshot of device lookup caches.
+    /// Using a final class (reference type) so that `deviceCache = newCache` is a
+    /// single pointer-width write — atomic on ARM64/x86-64. Readers on other
+    /// threads always see either the old or new fully-consistent snapshot, never
+    /// a partial mix. All properties are `let`, so instances are immutable after init.
+    final class DeviceCache: @unchecked Sendable {
+        let devicesByUID: [String: AudioDevice]
+        let devicesByID: [AudioDeviceID: AudioDevice]
+        let inputDevicesByUID: [String: AudioDevice]
+        let inputDevicesByID: [AudioDeviceID: AudioDevice]
 
-    /// O(1) device lookup by AudioDeviceID (nonisolated for cross-actor reads from ProcessTapController).
-    /// Marked ObservationIgnored so @Observable does not actor-isolate this cache field.
+        init(devicesByUID: [String: AudioDevice], devicesByID: [AudioDeviceID: AudioDevice],
+             inputDevicesByUID: [String: AudioDevice], inputDevicesByID: [AudioDeviceID: AudioDevice]) {
+            self.devicesByUID = devicesByUID
+            self.devicesByID = devicesByID
+            self.inputDevicesByUID = inputDevicesByUID
+            self.inputDevicesByID = inputDevicesByID
+        }
+
+        static let empty = DeviceCache(devicesByUID: [:], devicesByID: [:], inputDevicesByUID: [:], inputDevicesByID: [:])
+    }
+
+    /// Atomic snapshot of all device caches. Updated on MainActor; read cross-actor.
     @ObservationIgnored
-    nonisolated(unsafe) private(set) var devicesByID: [AudioDeviceID: AudioDevice] = [:] // Cross-actor reads only; updated on MainActor
+    nonisolated(unsafe) private(set) var deviceCache: DeviceCache = .empty
 
     /// Called immediately when device disappears (passes UID and name)
     var onDeviceDisconnected: ((_ uid: String, _ name: String) -> Void)?
@@ -35,13 +51,7 @@ final class AudioDeviceMonitor {
 
     private(set) var inputDevices: [AudioDevice] = []
 
-    /// O(1) input device lookup by UID
-    @ObservationIgnored
-    nonisolated(unsafe) private(set) var inputDevicesByUID: [String: AudioDevice] = [:]
-
-    /// O(1) input device lookup by AudioDeviceID
-    @ObservationIgnored
-    nonisolated(unsafe) private(set) var inputDevicesByID: [AudioDeviceID: AudioDevice] = [:]
+    // Input device caches are now inside deviceCache (see DeviceCache struct above)
 
     /// Called immediately when input device disappears (passes UID and name)
     var onInputDeviceDisconnected: ((_ uid: String, _ name: String) -> Void)?
@@ -110,28 +120,28 @@ final class AudioDeviceMonitor {
 
     /// O(1) lookup by device UID
     nonisolated func device(for uid: String) -> AudioDevice? {
-        devicesByUID[uid]
+        deviceCache.devicesByUID[uid]
     }
 
     /// O(1) lookup by AudioDeviceID
     nonisolated func device(for id: AudioDeviceID) -> AudioDevice? {
-        devicesByID[id]
+        deviceCache.devicesByID[id]
     }
 
     /// O(1) lookup by input device UID
     nonisolated func inputDevice(for uid: String) -> AudioDevice? {
-        inputDevicesByUID[uid]
+        deviceCache.inputDevicesByUID[uid]
     }
 
     /// O(1) lookup by input AudioDeviceID
     nonisolated func inputDevice(for id: AudioDeviceID) -> AudioDevice? {
-        inputDevicesByID[id]
+        deviceCache.inputDevicesByID[id]
     }
 
     /// Resolves an AudioDeviceID for a UID. Tries cached O(1) lookup first,
     /// falls back to a fresh CoreAudio device list read on cache miss.
     nonisolated func resolveDeviceID(for uid: String) -> AudioDeviceID? {
-        if let cached = devicesByUID[uid] {
+        if let cached = deviceCache.devicesByUID[uid] {
             return cached.id
         }
         // Fallback: device may have disconnected or cache not yet populated
@@ -195,14 +205,18 @@ final class AudioDeviceMonitor {
             // Update output devices
             outputDevices = outputDeviceList.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             knownDeviceUIDs = Set(outputDeviceList.map(\.uid))
-            devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
-            devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
 
             // Update input devices
             inputDevices = inputDeviceList.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             knownInputDeviceUIDs = Set(inputDeviceList.map(\.uid))
-            inputDevicesByUID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0) })
-            inputDevicesByID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
+
+            // Swap all four caches atomically
+            deviceCache = DeviceCache(
+                devicesByUID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) }),
+                devicesByID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) }),
+                inputDevicesByUID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0) }),
+                inputDevicesByID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
+            )
 
         } catch {
             logger.error("Failed to refresh device list: \(error.localizedDescription)")
@@ -235,7 +249,7 @@ final class AudioDeviceMonitor {
         }
         let connectedOutputUIDs = currentOutputUIDs.subtracting(previousOutputUIDs)
         for uid in connectedOutputUIDs {
-            if let device = devicesByUID[uid] {
+            if let device = deviceCache.devicesByUID[uid] {
                 logger.info("Output device connected: \(device.name) (\(uid))")
                 onDeviceConnected?(uid, device.name)
             }
@@ -251,7 +265,7 @@ final class AudioDeviceMonitor {
         }
         let connectedInputUIDs = currentInputUIDs.subtracting(previousInputUIDs)
         for uid in connectedInputUIDs {
-            if let device = inputDevicesByUID[uid] {
+            if let device = deviceCache.inputDevicesByUID[uid] {
                 logger.info("Input device connected: \(device.name) (\(uid))")
                 onInputDeviceConnected?(uid, device.name)
             }
@@ -276,13 +290,17 @@ final class AudioDeviceMonitor {
         let (outputList, inputList) = createAudioDevicesWithInput(from: deviceData)
         outputDevices = outputList.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         knownDeviceUIDs = Set(outputList.map(\.uid))
-        devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
-        devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
 
         inputDevices = inputList.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         knownInputDeviceUIDs = Set(inputList.map(\.uid))
-        inputDevicesByUID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0) })
-        inputDevicesByID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
+
+        // Swap all four caches atomically
+        deviceCache = DeviceCache(
+            devicesByUID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) }),
+            devicesByID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) }),
+            inputDevicesByUID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0) }),
+            inputDevicesByID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
+        )
 
         // Output device disconnect/connect events
         let disconnectedOutputUIDs = previousOutputUIDs.subtracting(knownDeviceUIDs)
@@ -294,7 +312,7 @@ final class AudioDeviceMonitor {
 
         let connectedOutputUIDs = knownDeviceUIDs.subtracting(previousOutputUIDs)
         for uid in connectedOutputUIDs {
-            if let device = devicesByUID[uid] {
+            if let device = deviceCache.devicesByUID[uid] {
                 logger.info("Output device connected after restart: \(device.name) (\(uid))")
                 onDeviceConnected?(uid, device.name)
             }
@@ -310,7 +328,7 @@ final class AudioDeviceMonitor {
 
         let connectedInputUIDs = knownInputDeviceUIDs.subtracting(previousInputUIDs)
         for uid in connectedInputUIDs {
-            if let device = inputDevicesByUID[uid] {
+            if let device = deviceCache.inputDevicesByUID[uid] {
                 logger.info("Input device connected after restart: \(device.name) (\(uid))")
                 onInputDeviceConnected?(uid, device.name)
             }
@@ -336,13 +354,17 @@ final class AudioDeviceMonitor {
         let (outputList, inputList) = createAudioDevicesWithInput(from: deviceData)
         outputDevices = outputList.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         knownDeviceUIDs = Set(outputList.map(\.uid))
-        devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
-        devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
 
         inputDevices = inputList.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         knownInputDeviceUIDs = Set(inputList.map(\.uid))
-        inputDevicesByUID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0) })
-        inputDevicesByID = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
+
+        // Swap all four caches atomically
+        deviceCache = DeviceCache(
+            devicesByUID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) }),
+            devicesByID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) }),
+            inputDevicesByUID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0) }),
+            inputDevicesByID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
+        )
 
         // Notify disconnected output devices
         let disconnectedOutputUIDs = previousOutputUIDs.subtracting(knownDeviceUIDs)
@@ -355,7 +377,7 @@ final class AudioDeviceMonitor {
         // Notify connected output devices
         let connectedOutputUIDs = knownDeviceUIDs.subtracting(previousOutputUIDs)
         for uid in connectedOutputUIDs {
-            if let device = devicesByUID[uid] {
+            if let device = deviceCache.devicesByUID[uid] {
                 logger.info("Output device connected: \(device.name) (\(uid))")
                 onDeviceConnected?(uid, device.name)
             }
@@ -372,7 +394,7 @@ final class AudioDeviceMonitor {
         // Notify connected input devices
         let connectedInputUIDs = knownInputDeviceUIDs.subtracting(previousInputUIDs)
         for uid in connectedInputUIDs {
-            if let device = inputDevicesByUID[uid] {
+            if let device = deviceCache.inputDevicesByUID[uid] {
                 logger.info("Input device connected: \(device.name) (\(uid))")
                 onInputDeviceConnected?(uid, device.name)
             }
@@ -488,8 +510,12 @@ final class AudioDeviceMonitor {
     func setOutputDevicesForTests(_ devices: [AudioDevice]) {
         outputDevices = devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         knownDeviceUIDs = Set(outputDevices.map(\.uid))
-        devicesByUID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) })
-        devicesByID = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) })
+        deviceCache = DeviceCache(
+            devicesByUID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0) }),
+            devicesByID: Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.id, $0) }),
+            inputDevicesByUID: deviceCache.inputDevicesByUID,
+            inputDevicesByID: deviceCache.inputDevicesByID
+        )
     }
 
     deinit {
