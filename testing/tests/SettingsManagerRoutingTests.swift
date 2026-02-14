@@ -227,4 +227,22 @@ final class SettingsManagerRoutingTests: XCTestCase {
         XCTAssertEqual(reloaded.getDeviceRouting(for: "com.chrome"), "airpods",
                        "Multiple app routings should survive save + reload")
     }
+
+    // MARK: - Startup Routing Policy
+
+    func testStartupRoutingPolicyDefaultsToPreserveExplicitRouting() {
+        XCTAssertEqual(settings.appSettings.startupRoutingPolicy, .preserveExplicitRouting,
+                       "Default startup policy should preserve explicit per-app routing")
+    }
+
+    func testStartupRoutingPolicySurvivesSaveAndReload() {
+        var appSettings = settings.appSettings
+        appSettings.startupRoutingPolicy = .followSystemDefault
+        settings.updateAppSettings(appSettings)
+        settings.flushSync()
+
+        let reloaded = SettingsManager(directory: tempDir)
+        XCTAssertEqual(reloaded.appSettings.startupRoutingPolicy, .followSystemDefault,
+                       "Startup routing policy should survive save + reload")
+    }
 }

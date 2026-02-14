@@ -1,0 +1,175 @@
+{"app_name":"remotepairingd","timestamp":"2026-02-02 14:59:02.00 -0500","app_version":"1.0","slice_uuid":"ff77358b-fabf-3f86-8f4a-dc024192bb5d","build_version":"240","platform":1,"bundleID":"com.apple.CoreDevice.remotepairingd","share_with_app_devs":0,"is_first_party":1,"bug_type":"309","os_version":"macOS 26.3 (25D5112c)","roots_installed":0,"name":"remotepairingd","incident_id":"D4232B3E-239D-4603-8AE3-B0E5195DA33B"}
+{
+  "uptime" : 160000,
+  "procRole" : "Unspecified",
+  "version" : 2,
+  "userID" : 501,
+  "deployVersion" : 210,
+  "modelCode" : "Mac16,5",
+  "coalitionID" : 4344,
+  "osVersion" : {
+    "train" : "macOS 26.3",
+    "build" : "25D5112c",
+    "releaseType" : "User"
+  },
+  "captureTime" : "2026-02-02 14:59:01.3016 -0500",
+  "codeSigningMonitor" : 2,
+  "incident" : "D4232B3E-239D-4603-8AE3-B0E5195DA33B",
+  "pid" : 60865,
+  "translated" : false,
+  "cpuType" : "ARM-64",
+  "procLaunch" : "2026-02-02 14:59:01.2463 -0500",
+  "procStartAbsTime" : 3921452099949,
+  "procExitAbsTime" : 3921453417733,
+  "procName" : "remotepairingd",
+  "procPath" : "\/Library\/Apple\/*\/RemotePairing.framework\/Versions\/A\/XPCServices\/remotepairingd.xpc\/Contents\/MacOS\/remotepairingd",
+  "bundleInfo" : {"CFBundleShortVersionString":"1.0","CFBundleVersion":"240","CFBundleIdentifier":"com.apple.CoreDevice.remotepairingd"},
+  "buildInfo" : {"ProjectName":"RemotePairing_host","SourceVersion":"240000000000000","BuildVersion":"4043"},
+  "parentProc" : "launchd",
+  "parentPid" : 1,
+  "coalitionName" : "com.apple.CoreDevice.remotepairingd",
+  "crashReporterKey" : "A901D058-9136-10D8-2464-63175DE43B8E",
+  "appleIntelligenceStatus" : {"state":"available"},
+  "developerMode" : 1,
+  "consecutiveCrashCount" : 53,
+  "throttleTimeout" : 1200,
+  "codeSigningID" : "com.apple.CoreDevice.remotepairingd",
+  "codeSigningTeamID" : "",
+  "codeSigningFlags" : 570522369,
+  "codeSigningValidationCategory" : 1,
+  "codeSigningTrustLevel" : 4294967295,
+  "codeSigningAuxiliaryInfo" : 0,
+  "instructionByteStream" : {"beforePC":"IAAg1MEF+LfpAwC54gMDquMDBKrkAwWq5QMGquYDB6rnAwiqQgMAlA==","atPC":"IAAg1CgAgFKJEoBS6BMAuekHAPlIAIBS6AMAOSAbANAA0D2RIxsA8A=="},
+  "bootSessionUUID" : "0C29B5BE-030F-429A-8CB6-AB55B4B8A93B",
+  "wakeTime" : 13129,
+  "sleepWakeUUID" : "61DA845A-9661-429D-A48E-EB6FF2CAD34C",
+  "sip" : "enabled",
+  "exception" : {"codes":"0x0000000000000001, 0x000000019c1579d4","rawCodes":[1,6913620436],"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},
+  "termination" : {"flags":0,"code":5,"namespace":"SIGNAL","indicator":"Trace\/BPT trap: 5","byProc":"exc handler","byPid":60865},
+  "os_fault" : {"process":"remotepairingd"},
+  "extMods" : {"caller":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"system":{"thread_create":0,"thread_set_state":0,"task_for_pid":3},"targeted":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"warnings":0},
+  "faultingThread" : 0,
+  "threads" : [{"triggered":true,"id":11193061,"threadState":{"x":[{"value":4331038936},{"value":8589934595},{"value":2851},{"value":20},{"value":4331041408},{"value":3},{"value":32},{"value":0},{"value":18446744065119617024},{"value":8589934595},{"value":3},{"value":6},{"value":9259802207160631299},{"value":4501},{"value":88},{"value":128},{"value":10570229804746195040},{"value":15621861207448355},{"value":0},{"value":17293822569102704800},{"value":6161560192},{"value":39141294656},{"value":4331038928},{"value":39137348224},{"value":6917194032,"symbolLocation":11482,"symbol":"(anonymous namespace)::OldDemangler::demangleIdentifier(unsigned int, std::__1::optional<swift::Demangle::__runtime::Node::Kind>)::op_char_table"},{"value":0},{"value":17609215287419370168,"symbolLocation":17609215280506994688,"symbol":"swift_cvw_initWithCopy"},{"value":4306034688},{"value":39137460416}],"flavor":"ARM_THREAD_STATE64","lr":{"value":4690358281331636692},"cpsr":{"value":1610612736},"fp":{"value":6161560128},"sp":{"value":6161560000},"esr":{"value":4060086273,"description":"(Breakpoint) brk 1"},"pc":{"value":6913620436,"matchesCrashFrame":1},"far":{"value":0}},"queue":"com.apple.main-thread","frames":[{"imageOffset":1276372,"symbol":"_assertionFailure(_:_:file:line:flags:)","symbolLocation":176,"imageIndex":5},{"imageOffset":1982348,"symbol":"swift_errorInMain","symbolLocation":604,"imageIndex":5},{"imageOffset":41396,"symbol":"main","symbolLocation":3800,"imageIndex":0},{"imageOffset":36180,"symbol":"start","symbolLocation":7184,"imageIndex":6}]},{"id":11193074,"frames":[],"threadState":{"x":[{"value":6162116608},{"value":3843},{"value":6161580032},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6162116608},"esr":{"value":1442840704,"description":"(Syscall)"},"pc":{"value":6589590420},"far":{"value":0}}}],
+  "usedImages" : [
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4305321984,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.CoreDevice.remotepairingd",
+    "size" : 671744,
+    "uuid" : "ff77358b-fabf-3f86-8f4a-dc024192bb5d",
+    "path" : "\/Library\/Apple\/*\/RemotePairing.framework\/Versions\/A\/XPCServices\/remotepairingd.xpc\/Contents\/MacOS\/remotepairingd",
+    "name" : "remotepairingd",
+    "CFBundleVersion" : "240"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4324392960,
+    "CFBundleShortVersionString" : "1819.80.14",
+    "CFBundleIdentifier" : "com.apple.mobiledevice",
+    "size" : 4440064,
+    "uuid" : "dc8f3e74-71f9-34c1-acaf-24538110e101",
+    "path" : "\/Library\/Apple\/*\/MobileDevice.framework\/Versions\/A\/MobileDevice",
+    "name" : "MobileDevice",
+    "CFBundleVersion" : "1819.80.14"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4308451328,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.Mercury",
+    "size" : 540672,
+    "uuid" : "3e7eb925-f51d-3b8c-91f8-91f6094c5868",
+    "path" : "\/Library\/Apple\/*\/Mercury.framework\/Versions\/A\/Mercury",
+    "name" : "Mercury",
+    "CFBundleVersion" : "67"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4315529216,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.RemotePairing",
+    "size" : 1343488,
+    "uuid" : "02f8672f-3043-3fca-9f8d-0916e6a7cd28",
+    "path" : "\/Library\/Apple\/*\/RemotePairing.framework\/Versions\/A\/RemotePairing",
+    "name" : "RemotePairing",
+    "CFBundleVersion" : "240"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4306763776,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.DeviceInterface",
+    "size" : 704512,
+    "uuid" : "bdefff65-1f4f-3952-801b-79df28de3241",
+    "path" : "\/Library\/Apple\/*\/DeviceInterface.framework\/Versions\/A\/DeviceInterface",
+    "name" : "DeviceInterface",
+    "CFBundleVersion" : "1"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6912344064,
+    "size" : 5826272,
+    "uuid" : "726c66f1-e9bd-31a4-ad39-8ef2f479ebf3",
+    "path" : "\/usr\/lib\/swift\/libswiftCore.dylib",
+    "name" : "libswiftCore.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6585602048,
+    "size" : 653080,
+    "uuid" : "c0e2cc0c-71f1-3a63-9d9f-3afebbcb2b7c",
+    "path" : "\/usr\/lib\/dyld",
+    "name" : "dyld"
+  },
+  {
+    "size" : 0,
+    "source" : "A",
+    "base" : 0,
+    "uuid" : "00000000-0000-0000-0000-000000000000"
+  }
+],
+  "sharedCache" : {
+  "base" : 6584516608,
+  "size" : 5818155008,
+  "uuid" : "cdee601f-d4be-3823-8ef4-d01f0feebf74"
+},
+  "vmSummary" : "ReadOnly portion of Libraries: Total=892.1M resident=0K(0%) swapped_out_or_unallocated=892.1M(100%)\nWritable regions: Total=94.0M written=208K(0%) resident=208K(0%) swapped_out=0K(0%) unallocated=93.8M(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nActivity Tracing                   256K        1 \nKernel Alloc Once                   32K        1 \nMALLOC                            84.9M       12 \nMALLOC guard page                 3664K        4 \nSTACK GUARD                       56.0M        2 \nStack                             8720K        2 \nVM_ALLOCATE                        544K        3 \n__AUTH                            1403K      160 \n__AUTH_CONST                      18.6M      358 \n__CTF                               824        1 \n__DATA                            4451K      318 \n__DATA_CONST                      15.5M      359 \n__DATA_DIRTY                      1385K      299 \n__FONT_DATA                        2352        1 \n__LINKEDIT                       590.4M        6 \n__OBJC_RO                         78.4M        1 \n__OBJC_RW                         2571K        1 \n__TEXT                           301.7M      369 \n__TPRO_CONST                       128K        2 \ndyld private memory                176K        4 \nmapped file                         80K        1 \npage table in kernel               208K        1 \nshared memory                     1168K        7 \n===========                     =======  ======= \nTOTAL                              1.1G     1913 \n",
+  "legacyInfo" : {
+  "threadTriggered" : {
+    "queue" : "com.apple.main-thread"
+  }
+},
+  "logWritingSignature" : "64649d397d5710b78e8396abf4657db170ac423e",
+  "bug_type" : "309",
+  "roots_installed" : 0,
+  "trmStatus" : 1,
+  "trialInfo" : {
+  "rollouts" : [
+    {
+      "rolloutId" : "65a8173205d942272410674b",
+      "factorPackIds" : [
+        "65d39fa4cb0e2417d11ce5f6"
+      ],
+      "deploymentId" : 250000002
+    },
+    {
+      "rolloutId" : "67648e5334a82511f4acf879",
+      "factorPackIds" : [
+
+      ],
+      "deploymentId" : 250000003
+    }
+  ],
+  "experiments" : [
+
+  ]
+}
+}

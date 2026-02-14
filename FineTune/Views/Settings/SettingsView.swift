@@ -115,6 +115,38 @@ struct SettingsView: View {
                 isOn: $settings.rememberEQ
             )
 
+            SettingsRowView(
+                icon: "arrow.triangle.2.circlepath",
+                title: "Startup Routing",
+                description: "How customized apps choose devices when FineTune launches"
+            ) {
+                Menu {
+                    ForEach(StartupRoutingPolicy.allCases) { policy in
+                        Button {
+                            settings.startupRoutingPolicy = policy
+                        } label: {
+                            HStack {
+                                Text(policy.title)
+                                if settings.startupRoutingPolicy == policy {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: DesignTokens.Spacing.xs) {
+                        Text(settings.startupRoutingPolicy.title)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9))
+                    }
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundStyle(DesignTokens.Colors.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+
             // Sound Effects device selection
             SoundEffectsDeviceRow(
                 devices: outputDevices,

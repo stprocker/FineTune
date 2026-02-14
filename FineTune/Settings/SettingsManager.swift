@@ -38,6 +38,31 @@ enum MenuBarIconStyle: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum StartupRoutingPolicy: String, Codable, CaseIterable, Identifiable {
+    case preserveExplicitRouting = "preserveExplicitRouting"
+    case followSystemDefault = "followSystemDefault"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .preserveExplicitRouting:
+            return "Preserve Explicit Routing"
+        case .followSystemDefault:
+            return "Follow System Default"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .preserveExplicitRouting:
+            return "Keep per-app device choices on launch"
+        case .followSystemDefault:
+            return "Route all customized apps to current default on launch"
+        }
+    }
+}
+
 // MARK: - App-Wide Settings Model
 
 struct AppSettings: Codable, Equatable {
@@ -55,12 +80,42 @@ struct AppSettings: Codable, Equatable {
     // Persistence
     var rememberVolumeMute: Bool = true
     var rememberEQ: Bool = true
+    var startupRoutingPolicy: StartupRoutingPolicy = .preserveExplicitRouting
 
     // Notifications
     var showDeviceDisconnectAlerts: Bool = true
 
     // Onboarding
     var onboardingCompleted: Bool = false
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case launchAtLogin
+        case menuBarIconStyle
+        case defaultNewAppVolume
+        case maxVolumeBoost
+        case lockInputDevice
+        case rememberVolumeMute
+        case rememberEQ
+        case startupRoutingPolicy
+        case showDeviceDisconnectAlerts
+        case onboardingCompleted
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        menuBarIconStyle = try container.decodeIfPresent(MenuBarIconStyle.self, forKey: .menuBarIconStyle) ?? .default
+        defaultNewAppVolume = try container.decodeIfPresent(Float.self, forKey: .defaultNewAppVolume) ?? 1.0
+        maxVolumeBoost = try container.decodeIfPresent(Float.self, forKey: .maxVolumeBoost) ?? 2.0
+        lockInputDevice = try container.decodeIfPresent(Bool.self, forKey: .lockInputDevice) ?? true
+        rememberVolumeMute = try container.decodeIfPresent(Bool.self, forKey: .rememberVolumeMute) ?? true
+        rememberEQ = try container.decodeIfPresent(Bool.self, forKey: .rememberEQ) ?? true
+        startupRoutingPolicy = try container.decodeIfPresent(StartupRoutingPolicy.self, forKey: .startupRoutingPolicy) ?? .preserveExplicitRouting
+        showDeviceDisconnectAlerts = try container.decodeIfPresent(Bool.self, forKey: .showDeviceDisconnectAlerts) ?? true
+        onboardingCompleted = try container.decodeIfPresent(Bool.self, forKey: .onboardingCompleted) ?? false
+    }
 }
 
 // MARK: - Settings Manager

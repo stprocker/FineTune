@@ -1,0 +1,351 @@
+Below is the most likely “why” (grounded in your code paths), plus two pragmatic fix tracks:
+
+1. **a minimal workaround** (get users unstuck fast), and
+2. **a more robust architecture change** (if this is an Apple/CoreAudio bug you can’t code around in the current topology).
+
+I’m going to be very explicit about *where* the behavior is coming from with **file:line** references (from the extracted `context.zip`).
+
+---
+
+## What’s actually different in the broken configuration
+
+### The only Tahoe-specific behavioral delta is in `makeTapDescription()`
+
+In `FineTune/Audio/ProcessTapController.swift`, you build the tap description using a process object ID + output device UID/stream, and then (on macOS 26) you enable **both**:
+
+* `tapDesc.bundleIDs = [bundleID]`
+* `tapDesc.isProcessRestoreEnabled = true`
+
+```swift
+// FineTune/Audio/ProcessTapController.swift
+// ...
+286: if #available(macOS 26.0, *), let bundleID = app.bundleID,
+287:    !UserDefaults.standard.bool(forKey: "FineTuneForcePIDOnlyTaps") {
+288:     tapDesc.bundleIDs = [bundleID]
+289:     tapDesc.isProcessRestoreEnabled = true
+290: }
+```
+
+**Evidence:** `ProcessTapController.swift:286–290`
+
+That lines up perfectly with your observation: **PID-only taps (no bundleIDs/restore) don’t capture Chromium**, while **bundleID+restore taps capture but output is dead**.
+
+---
+
+## Why output can be “dead” even while capture is clearly working
+
+### Your aggregate topology is a “passthrough aggregate” (tap input + real output subdevice)
+
+Activation creates:
+
+* a Process Tap via `AudioHardwareCreateProcessTap(tapDesc…)`
+* an Aggregate Device whose **main subdevice** is the physical output device UID, and whose **tap list** contains your tap UUID (via `kAudioAggregateDeviceTapListKey`)
+
+```swift
+// FineTune/Audio/ProcessTapController.swift
+370: let aggregateDesc: [String: Any] = [
+371:   kAudioAggregateDeviceNameKey: "FineTune Aggregate: \(app.name)",
+372:   kAudioAggregateDeviceUIDKey: aggregateUID,
+373:   kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+374:   kAudioAggregateDeviceIsPrivateKey: true,
+375:   kAudioAggregateDeviceTapAutoStartKey: true,
+376:   kAudioAggregateDeviceSubDeviceListKey: [
+377:     [kAudioSubDeviceUIDKey: outputUID]
+378:   ],
+379:   kAudioAggregateDeviceTapListKey: [
+380:     [
+381:       kAudioSubTapUIDKey: tapDesc.uuid.uuidString,
+382:       kAudioSubTapDriftCompensationKey: true
+383:     ]
+384:   ]
+385: ]
+```
+
+**Evidence:** `ProcessTapController.swift:370–385`
+
+Then you create an IOProc on the aggregate and write processed samples into `outOutputData`:
+
+```swift
+// FineTune/Audio/ProcessTapController.swift
+459: let err = AudioDeviceCreateIOProcIDWithBlock(aggID, &ioProcID, queue) { ... }
+466: err = AudioDeviceStart(aggID, procID)
+```
+
+**Evidence:** `ProcessTapController.swift:459–466`
+
+### In the failure mode, input has energy but output peak stays 0
+
+In the realtime callback:
+
+* you detect input energy (`inPeak > 0`), so **capture is happening**
+* you compute output peak from the output buffers and it stays `0.0` (your symptom)
+* you only update `_diagLastOutputPeak` if `outPeak > 0`
+
+```swift
+// FineTune/Audio/ProcessTapController.swift
+1179: let outPeak = computeOutputPeak(outputBuffers: outputBuffers, bytesPerSample: bytesPerSample)
+1180: if outPeak > 0 { _diagLastOutputPeak = outPeak } // only update on > 0
+```
+
+**Evidence:** `ProcessTapController.swift:1179–1180`
+
+That means your diagnostics will correctly “stick” at 0 in the broken case.
+
+---
+
+## The *real* footgun: permission confirmation promotes to `.mutedWhenTapped` even when output is broken
+
+### `shouldConfirmPermission` doesn’t require audible output
+
+In `FineTune/Audio/AudioEngine.swift`, permission confirmation uses:
+
+* `callbackCount > 10`
+* `outputWritten > 0`
+* `inputHasData > 0 || lastInputPeak > threshold`
+
+But **it never checks `lastOutputPeak`**:
+
+```swift
+// FineTune/Audio/AudioEngine.swift
+137: return diagnostics.callbackCount > 10
+138:   && diagnostics.outputWritten > 0
+139:   && (diagnostics.inputHasData > 0 || diagnostics.lastInputPeak > 0.0001)
+```
+
+**Evidence:** `AudioEngine.swift:137–139`
+
+Then, as soon as that returns true, you immediately upgrade all taps to `.mutedWhenTapped`:
+
+```swift
+// FineTune/Audio/AudioEngine.swift
+879: if needsPermissionConfirmation && shouldConfirmPermission(tapID: tapID) {
+880:   permissionConfirmed = true
+881:   needsPermissionConfirmation = false
+882:   logger.info("Permission confirmed via tap audio activity")
+883:   upgradeTapsToMutedWhenTapped()
+884: }
+```
+
+**Evidence:** `AudioEngine.swift:879–884`
+
+So if Tahoe’s bundleID/restore path is giving you **input energy** but a **non-functional output path**, your app will *still* decide “permission confirmed” and flip the tap(s) into **muted passthrough**, producing the “everything went silent” user catastrophe.
+
+This matches the failure report exactly.
+
+Also worth noting: your Apple forum thread evidence aligns with the broader world: there’s no official “query permission state” API for System Audio Recording and apps often infer it from “do I get silence or audio?” ([developer.apple.com][1])
+
+---
+
+## Root cause hypothesis that best fits the evidence
+
+### Most likely: a CoreAudio regression/limitation in macOS 26’s *bundle-id targeting + process restore* tap mode when used in a passthrough aggregate
+
+Given:
+
+* the *only code delta* is enabling `bundleIDs + isProcessRestoreEnabled` (Tahoe-only)
+* the aggregate topology is unchanged
+* the IOProc runs and sees input energy
+* output buffers appear “writeable” from your counters, yet produce no output energy and no audible sound
+
+…the most plausible explanation is:
+
+**On macOS 26, taps created in “bundle-id targeting + restore” mode are not compatible (or are buggy) when used as the input source in an aggregate device that also drives an output subdevice for realtime passthrough.**
+
+I couldn’t find a public, definitive Apple bug note for this exact symptom in the web sweep (it’s very niche), but the pattern screams “OS behavior change/regression” more than “your math is wrong,” because your audio processing path is identical between modes.
+
+---
+
+## Fix track 1: immediate user-safety and “stop the bleeding”
+
+### 1A) Make promotion to `.mutedWhenTapped` depend on real output energy
+
+Your own known-issue writeup already points at this: gate promotion on `lastOutputPeak`. (You even have the diagnostic already; it’s just not used.) ✅
+
+**Minimal change:** Update `shouldConfirmPermission()` to require output energy *when there is input energy and the user hasn’t intentionally silenced the stream*.
+
+Example:
+
+```swift
+private func shouldConfirmPermission(tapID: AudioObjectID) -> Bool {
+    guard let d = tapManager.getDiagnostics(tapID) else { return false }
+
+    let hasInputEnergy = (d.inputHasData > 0 || d.lastInputPeak > 0.0001)
+
+    // Permission should still be inferred from input energy.
+    guard d.callbackCount > 10, d.outputWritten > 0, hasInputEnergy else { return false }
+
+    // NEW: only allow auto-mute promotion if we can prove we are producing output energy.
+    // (Avoid silencing the user due to a dead output path.)
+    let userWantsAudible = !d.isMuted && d.userVolume > 0.01
+    if userWantsAudible {
+        return d.lastOutputPeak > 0.0001
+    } else {
+        return true
+    }
+}
+```
+
+This directly prevents the “upgrade => silence” disaster.
+
+### 1B) Even safer: decouple “permission confirmed” from “safe to mute”
+
+Right now, `permissionConfirmed` implies “let’s mute originals.” That’s conflating two different truths:
+
+* **TCC granted / capture works** (input side)
+* **your restore path is healthy** (output side)
+
+A safer design:
+
+* `permissionConfirmed = input energy observed`
+* `safeToMuteOriginal = output energy observed while input is active`
+
+Only call `upgradeTapsToMutedWhenTapped()` when **both** are true.
+
+That maps more cleanly onto the real-world behavior Apple staff describes: permission prompt is tied to starting capture from an aggregate-with-tap, and lack of permission can look like silence. ([developer.apple.com][1])
+
+### 1C) Add an automatic rollback watchdog
+
+Even with gating, you want defense in depth:
+
+* If you ever switch to `.mutedWhenTapped` and then detect:
+  `inputPeak > threshold` AND `outputPeak == 0` for N consecutive callbacks,
+  immediately revert that tap to `.unmuted` and surface a user-visible warning.
+
+This keeps users from being stuck silent if something changes mid-session.
+
+---
+
+## Fix track 2: isolate which Tahoe knob actually breaks output
+
+Right now you always turn on both `bundleIDs` and `isProcessRestoreEnabled` together. That makes it impossible to know which one is toxic.
+
+### 2A) Do the 2×2 matrix in `makeTapDescription()`
+
+Add two prefs (or feature flags):
+
+* `FineTuneEnableTapBundleIDs` (default true on macOS 26)
+* `FineTuneEnableTapProcessRestore` (default false until proven safe)
+
+Then test:
+
+| bundleIDs | processRestore | capture                 | output             |
+| --------- | -------------- | ----------------------- | ------------------ |
+| off       | off            | (Chromium likely fails) | ok                 |
+| on        | off            | ?                       | ?                  |
+| off       | on             | (probably meaningless)  | ?                  |
+| on        | on             | works                   | **currently dead** |
+
+**Best case:** `bundleIDs = on`, `processRestore = off` works for capture *and* output.
+Then you’ve got a clean workaround: disable restore on Tahoe until Apple fixes it.
+
+### 2B) Add one more diagnostic that will “prove” what dead output means
+
+In `processAudio(...)`, log/track:
+
+* `outputBuffers[0].mData == nil` (or “any output mData nil”)
+* `mDataByteSize`
+* maybe `AudioDeviceGetProperty(kAudioDevicePropertyDeviceIsRunning)` for the output subdevice
+
+If the broken mode gives you **nil `mData`** on outputs, that explains your `outPeak == 0` perfectly (your computePeak ignores nil pointers). If `mData` is non-nil and still silent, that points harder to “CoreAudio is discarding output frames / stream not connected.”
+
+---
+
+## Fix track 3: if it’s an Apple bug, route around it with a topology change
+
+If Tahoe’s bundleID/restore taps simply can’t drive output inside a passthrough aggregate reliably, the clean workaround is:
+
+### 3A) Stop using a passthrough aggregate for playback
+
+Instead:
+
+1. **Tap-only aggregate device** (input-only) per app/tap
+2. **Separate output engine** per target output device
+3. Bridge via a **lock-free ring buffer**
+
+This is a known-good pattern in other tap projects: capture happens in a CoreAudio callback and immediately appends to a ring buffer; non-realtime work is deferred. AudioTee’s documentation is a great example of this pipeline structure (callback capture → ring buffer buffering → downstream processing). ([deepwiki.com][2])
+
+AudioTee isn’t doing “replay,” but the buffering architecture and RT constraints are exactly the same. ([deepwiki.com][2])
+
+### 3B) How this helps FineTune specifically
+
+* BundleID taps keep working for Chromium capture (your hard requirement).
+* You **remove** the problematic combo: “bundleID/restore tap embedded in an aggregate that also hosts output.”
+* You get a single, controllable output IO thread per device (instead of potentially many per-app aggregates all pushing to the same physical device).
+
+### 3C) Implementation sketch that preserves per-app routing
+
+* **Per app**: `CaptureTapController` creates the tap and a **tap-only** aggregate (no `kAudioAggregateDeviceSubDeviceListKey`, no main subdevice). Its callback:
+
+  * reads input buffers
+  * applies per-app gain/EQ (or leaves raw)
+  * writes into `RingBuffer(appID, outputDeviceID)`
+
+* **Per output device**: `OutputDeviceEngine(deviceUID)` runs an IOProc on the *physical* output device (or an AUHAL output unit), and in its callback:
+
+  * pulls from all ring buffers targeting that device
+  * mixes (sum with headroom/limiter)
+  * writes to hardware output buffers
+
+This keeps “route app A to device X, app B to device Y” intact.
+
+---
+
+## Why “virtual driver” open source doesn’t directly solve your constraints
+
+Projects like BackgroundMusic and eqMac historically solve “intercept audio and process it” by installing a **virtual audio device/driver** that the system routes through (system-wide by nature). BackgroundMusic explicitly describes a virtual audio device/driver used to intercept system audio and apply per-app volumes. ([github.com][3])
+eqMac similarly describes a driver grabbing the system audio stream and passing it to the app for processing. ([github.com][4])
+BlackHole is also a virtual loopback audio driver. ([github.com][5])
+
+Those approaches can be powerful, but they violate (or at least strongly clash with) your stated constraint: **no system-wide capture as the primary mechanism**. So they’re useful as reference patterns (driver + userland processing), but not as a drop-in fix for FineTune’s “per-app tap replace output” model.
+
+---
+
+## Concrete edits I would make first
+
+### Change 1: stop enabling `isProcessRestoreEnabled` by default on macOS 26
+
+In `ProcessTapController.makeTapDescription`:
+
+* keep `bundleIDs` (needed for Chromium capture)
+* gate `isProcessRestoreEnabled` behind a new pref defaulting **false**
+
+**Where:** `FineTune/Audio/ProcessTapController.swift:286–290`
+
+### Change 2: prevent `.mutedWhenTapped` promotion unless output energy is proven
+
+In `AudioEngine.shouldConfirmPermission`:
+
+* require `lastOutputPeak > threshold` when `inputHasData` is true and userVolume > 0
+
+**Where:** `FineTune/Audio/AudioEngine.swift:137–139`
+
+### Change 3: decouple “permission confirmed” from “upgrade taps”
+
+In the activation loop:
+
+**Where:** `FineTune/Audio/AudioEngine.swift:879–884`
+
+Change it so `upgradeTapsToMutedWhenTapped()` happens only after “output healthy” is proven, not immediately upon “input alive.”
+
+---
+
+## What I would test to validate the root cause in under 10 minutes of runtime
+
+1. BundleIDs **on**, processRestore **off** → does output come back?
+2. If yes: ship workaround, file Apple Feedback, done.
+3. If no: implement the **tap-only capture + separate output engine** topology, because that’s the strongest “route around a HAL/aggregate bug” move.
+
+---
+
+If you want, I can also propose the exact data structures for a lock-free ring buffer suitable for CoreAudio callbacks (single-producer/single-consumer per (tap→outputDevice) lane), but the key takeaway is:
+
+* **Right now:** your code can confidently detect “dead output” (`lastOutputPeak == 0` while input has energy), but it **doesn’t use that** to prevent muting originals.
+* **The most likely breaking change:** Tahoe’s bundleID+restore tap mode + passthrough aggregate output.
+* **Fastest workaround:** disable process restore + gate mute promotion on output energy.
+* **Most robust workaround:** split capture from playback using a ring-buffer bridge (AudioTee-style pipeline). ([deepwiki.com][2])
+
+[1]: https://developer.apple.com/forums/thread/771864 "How to request permission for Syst… | Apple Developer Forums"
+[2]: https://deepwiki.com/makeusabrew/audiotee/3.1-audio-data-flow-pipeline "Audio Data Flow Pipeline | makeusabrew/audiotee | DeepWiki"
+[3]: https://github.com/kyleneideck/BackgroundMusic/blob/master/DEVELOPING.md?utm_source=chatgpt.com "BackgroundMusic/DEVELOPING.md at master - GitHub"
+[4]: https://github.com/sthagen/bitgapp-eqMac?utm_source=chatgpt.com "macOS System-wide Audio Equalizer & Volume Mixer - GitHub"
+[5]: https://github.com/ExistentialAudio/BlackHole?search=1&utm_source=chatgpt.com "BlackHole/ at master · ExistentialAudio/BlackHole · GitHub"

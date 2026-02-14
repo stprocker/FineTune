@@ -1106,6 +1106,50 @@ final class AudioEngine {
         applyPersistedSettings(for: apps)
     }
 
+    private func resolveStartupDefaultDeviceUID(for app: AudioApp) throws -> String {
+        let defaultUID = try defaultOutputDeviceUIDProvider()
+        if deviceMonitor.device(for: defaultUID) != nil {
+            // Default device is in our filtered (non-virtual) list
+            return defaultUID
+        }
+        if let firstReal = deviceMonitor.outputDevices.first?.uid {
+            // Default is virtual/aggregate — use first real device
+            logger.info("Default device \(defaultUID) is virtual/filtered, using \(firstReal) for \(app.name)")
+            return firstReal
+        }
+        // No real devices available at all
+        return defaultUID
+    }
+
+    private func resolveStartupRouting(for app: AudioApp) -> (deviceUID: String, shouldPersist: Bool)? {
+        let policy = settingsManager.appSettings.startupRoutingPolicy
+        let persistedUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier)
+
+        do {
+            let startupDefaultUID = try resolveStartupDefaultDeviceUID(for: app)
+            switch policy {
+            case .preserveExplicitRouting:
+                if let persistedUID {
+                    if deviceMonitor.device(for: persistedUID) != nil {
+                        logger.debug("Startup routing (\(app.name)): preserving explicit device \(persistedUID)")
+                        return (persistedUID, false)
+                    }
+                    logger.info("Startup routing (\(app.name)): explicit device \(persistedUID) unavailable, using fallback \(startupDefaultUID) without overwriting saved preference")
+                    return (startupDefaultUID, false)
+                }
+                logger.debug("Startup routing (\(app.name)): no explicit routing, using default \(startupDefaultUID)")
+                return (startupDefaultUID, true)
+
+            case .followSystemDefault:
+                logger.debug("Startup routing (\(app.name)): follow-system-default policy -> \(startupDefaultUID)")
+                return (startupDefaultUID, true)
+            }
+        } catch {
+            logger.error("Failed to resolve startup device for \(app.name): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private func applyPersistedSettings(for apps: [AudioApp]) {
         for app in apps {
             guard !appliedPIDs.contains(app.id) else { continue }
@@ -1114,29 +1158,12 @@ final class AudioEngine {
                 continue
             }
 
-            // Always route to the current macOS system default on startup.
-            // Persisted device routing reflects "the last device used" which may be stale
-            // (e.g., AirPods were default last session, now speakers are default).
-            // Users expect apps to follow the system default when FineTune launches.
-            let deviceUID: String
-            do {
-                let defaultUID = try defaultOutputDeviceUIDProvider()
-                if deviceMonitor.device(for: defaultUID) != nil {
-                    // Default device is in our filtered (non-virtual) list
-                    deviceUID = defaultUID
-                } else if let firstReal = deviceMonitor.outputDevices.first?.uid {
-                    // Default is virtual/aggregate — use first real device
-                    logger.info("Default device \(defaultUID) is virtual/filtered, using \(firstReal) for \(app.name)")
-                    deviceUID = firstReal
-                } else {
-                    // No real devices available at all
-                    deviceUID = defaultUID
-                }
-                settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
-                logger.debug("App \(app.name) assigned to system default: \(deviceUID)")
-            } catch {
-                logger.error("Failed to get default device for \(app.name): \(error.localizedDescription)")
+            guard let startupRouting = resolveStartupRouting(for: app) else {
                 continue
+            }
+            let deviceUID = startupRouting.deviceUID
+            if startupRouting.shouldPersist {
+                settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
             }
             appDeviceRouting[app.id] = deviceUID
 

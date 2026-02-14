@@ -387,6 +387,34 @@ final class StartupAudioInterruptionTests: XCTestCase {
                         "Explicit user routing should be preserved through startup")
     }
 
+    /// When startup policy is "follow system default", explicit routing is intentionally
+    /// replaced with the current default output device.
+    func testStartupFollowDefaultPolicyOverridesExplicitRouting() {
+        let app = makeFakeApp()
+        let headphones = AudioDevice(
+            id: AudioDeviceID(43),
+            uid: "external-headphones",
+            name: "External Headphones",
+            icon: nil
+        )
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(42), uid: "built-in-speakers", name: "Built-in Speakers", icon: nil),
+            headphones
+        ])
+
+        settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "external-headphones")
+
+        var appSettings = settings.appSettings
+        appSettings.startupRoutingPolicy = .followSystemDefault
+        settings.updateAppSettings(appSettings)
+
+        engine.applyPersistedSettingsForTests(apps: [app])
+
+        XCTAssertEqual(settings.getDeviceRouting(for: app.persistenceIdentifier),
+                       "built-in-speakers",
+                       "Follow-default policy should overwrite explicit routing on startup")
+    }
+
     /// Apps with saved volume get routing (need a tap to apply volume).
     func testStartupAttemptsTapForAppWithSavedVolume() {
         let app = makeFakeApp()

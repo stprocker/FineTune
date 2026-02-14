@@ -1,5 +1,4 @@
 # Claude artifacts
-docs/
 CLAUDE.md
 .claude/
 
@@ -25,6 +24,7 @@ _local/
 
 # macOS
 .DS_Store
+docs/.DS_Store
 *.swp
 .gemini/
 gha-creds-*.json

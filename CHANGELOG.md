@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] - 2026-02-14
+
+### Configurable Startup Routing Policy
+
+Made startup routing behavior configurable so explicit per-app routing can be preserved on launch instead of always being overwritten by the current system default.
+Full details: `docs/agents/6_startup-routing-policy-config/2_implementation_and_validation.md`
+
+#### Added
+- **`StartupRoutingPolicy` enum** in `SettingsManager` — `preserveExplicitRouting` and `followSystemDefault`
+- **`AppSettings.startupRoutingPolicy`** persisted app-wide setting (default: `preserveExplicitRouting`)
+- **Main settings control** in `SettingsView` Audio section: `Startup Routing` menu with policy selection
+- **New tests**:
+  - `SettingsManagerRoutingTests.testStartupRoutingPolicyDefaultsToPreserveExplicitRouting`
+  - `SettingsManagerRoutingTests.testStartupRoutingPolicySurvivesSaveAndReload`
+  - `StartupAudioInterruptionTests.testStartupFollowDefaultPolicyOverridesExplicitRouting`
+
+#### Changed
+- **`AudioEngine.applyPersistedSettings()` startup routing resolution** now branches by policy rather than forcing system-default routing for all customized apps
+- **`AppSettings` decoding** now uses backward-compatible `decodeIfPresent` defaults so older settings files load without `startupRoutingPolicy`
+
+#### Fixed
+- **Startup overwrite of explicit routing:** explicit per-app device selections are no longer overwritten at launch when policy is `preserveExplicitRouting` (default)
+
+#### Known Issues
+- **Pre-existing test failures remain:** crossfade duration expectation mismatch group is still failing (baseline improved from 19 failures to 18 after this fix)
+
+### Docs Tracking + Session Handoff Update
+
+Aligned repository tracking behavior with current workflow and recorded a full session handoff.
+
+#### Changed
+- **`.gitignore`** — removed broad `docs/` ignore rule so documentation is trackable
+- **`.gitignore`** — added targeted `docs/.DS_Store` ignore to avoid Finder metadata churn while keeping real docs tracked
+
+#### Added
+- **Comprehensive chat handoff record** in `docs/ai-chat-history/2026-02-14-startup-routing-policy-implementation-and-handoff.md`
+
+#### Notes
+- Enabling docs tracking surfaces many previously ignored `docs/` files as untracked; commit scope should be decided explicitly (all docs vs targeted subset)
+
 ## [Unreleased] - 2026-02-08
 
 ### Device Routing Test Coverage Expansion
