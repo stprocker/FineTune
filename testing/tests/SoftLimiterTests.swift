@@ -5,16 +5,16 @@ final class SoftLimiterTests: XCTestCase {
 
     // MARK: - Constants
 
-    func testThresholdIs0Point9() {
-        XCTAssertEqual(SoftLimiter.threshold, 0.9)
+    func testThresholdIs0Point95() {
+        XCTAssertEqual(SoftLimiter.threshold, 0.95)
     }
 
     func testCeilingIs1Point0() {
         XCTAssertEqual(SoftLimiter.ceiling, 1.0)
     }
 
-    func testHeadroomIs0Point1() {
-        XCTAssertEqual(SoftLimiter.headroom, 0.1, accuracy: 1e-7)
+    func testHeadroomIs0Point05() {
+        XCTAssertEqual(SoftLimiter.headroom, 0.05, accuracy: 1e-7)
     }
 
     // MARK: - Passthrough below threshold
@@ -34,12 +34,12 @@ final class SoftLimiterTests: XCTestCase {
     }
 
     func testPassthroughAtExactThreshold() {
-        XCTAssertEqual(SoftLimiter.apply(0.9), 0.9)
-        XCTAssertEqual(SoftLimiter.apply(-0.9), -0.9)
+        XCTAssertEqual(SoftLimiter.apply(0.95), 0.95)
+        XCTAssertEqual(SoftLimiter.apply(-0.95), -0.95)
     }
 
     func testPassthroughForAllValuesBelowThreshold() {
-        for i in 0...90 {
+        for i in 0...95 {
             let sample = Float(i) / 100.0
             XCTAssertEqual(SoftLimiter.apply(sample), sample, accuracy: 1e-7,
                            "Sample \(sample) should pass through unchanged")
@@ -51,15 +51,15 @@ final class SoftLimiterTests: XCTestCase {
     // MARK: - Limiting above threshold
 
     func testLimitingAboveThreshold() {
-        let result = SoftLimiter.apply(0.95)
-        XCTAssertGreaterThan(result, 0.9, "Should be above threshold")
+        let result = SoftLimiter.apply(0.98)
+        XCTAssertGreaterThan(result, 0.95, "Should be above threshold")
         XCTAssertLessThan(result, 1.0, "Should be below ceiling")
     }
 
     func testLimitingJustAboveThreshold() {
-        let result = SoftLimiter.apply(0.91)
-        XCTAssertGreaterThan(result, 0.9)
-        XCTAssertLessThan(result, 0.91, "Compressed output should be less than input above threshold")
+        let result = SoftLimiter.apply(0.96)
+        XCTAssertGreaterThan(result, 0.95)
+        XCTAssertLessThan(result, 0.96, "Compressed output should be less than input above threshold")
     }
 
     func testCeilingNeverExceeded() {
@@ -83,7 +83,7 @@ final class SoftLimiterTests: XCTestCase {
     // MARK: - Symmetry
 
     func testSymmetryForPositiveAndNegative() {
-        let testValues: [Float] = [0.9, 0.95, 1.0, 1.5, 2.0, 5.0]
+        let testValues: [Float] = [0.95, 0.98, 1.0, 1.5, 2.0, 5.0]
         for value in testValues {
             let positive = SoftLimiter.apply(value)
             let negative = SoftLimiter.apply(-value)
@@ -95,8 +95,8 @@ final class SoftLimiterTests: XCTestCase {
     // MARK: - Monotonicity
 
     func testMonotonicIncreaseAboveThreshold() {
-        var prev = SoftLimiter.apply(0.9)
-        for i in 91...200 {
+        var prev = SoftLimiter.apply(0.95)
+        for i in 96...200 {
             let sample = Float(i) / 100.0
             let result = SoftLimiter.apply(sample)
             XCTAssertGreaterThanOrEqual(result, prev,
@@ -121,26 +121,24 @@ final class SoftLimiterTests: XCTestCase {
     // MARK: - Continuity at threshold
 
     func testContinuityAtThreshold() {
-        let atThreshold = SoftLimiter.apply(0.9)
-        let justAbove = SoftLimiter.apply(0.901)
-
-        // Output should be continuous (no jump)
-        XCTAssertEqual(atThreshold, 0.9, accuracy: 1e-7)
-        XCTAssertEqual(justAbove, 0.9, accuracy: 0.01, "Just above threshold should be close to threshold value")
+        let atThreshold = SoftLimiter.apply(0.95)
+        let justAbove = SoftLimiter.apply(0.951)
+        XCTAssertEqual(atThreshold, 0.95, accuracy: 1e-7)
+        XCTAssertEqual(justAbove, 0.95, accuracy: 0.01, "Just above threshold should be close to threshold value")
     }
 
     // MARK: - Known values
 
     func testKnownCompressionValue() {
-        // For input = 1.0: overshoot = 0.1, compressed = 0.9 + 0.1 * (0.1 / (0.1 + 0.1)) = 0.95
+        // For input = 1.0: overshoot = 0.05, compressed = 0.95 + 0.05 * (0.05 / (0.05 + 0.05)) = 0.975
         let result = SoftLimiter.apply(1.0)
-        XCTAssertEqual(result, 0.95, accuracy: 1e-6, "apply(1.0) should equal 0.95")
+        XCTAssertEqual(result, 0.975, accuracy: 1e-6, "apply(1.0) should equal 0.975")
     }
 
     func testKnownCompressionValue2() {
-        // For input = 1.2: overshoot = 0.3, compressed = 0.9 + 0.1 * (0.3 / (0.3 + 0.1)) = 0.975
+        // For input = 1.2: overshoot = 0.25, compressed = 0.95 + 0.05 * (0.25 / (0.25 + 0.05))
         let result = SoftLimiter.apply(1.2)
-        let expected: Float = 0.9 + 0.1 * (0.3 / 0.4)
+        let expected: Float = 0.95 + 0.05 * (0.25 / 0.30)
         XCTAssertEqual(result, expected, accuracy: 1e-6)
     }
 
