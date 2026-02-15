@@ -133,8 +133,41 @@ final class BiquadMathTests: XCTestCase {
         }
     }
 
-    func testGraphicEQQConstant() {
-        XCTAssertEqual(BiquadMath.graphicEQQ, 1.8, "Graphic EQ Q should be 1.8 for stronger band shaping")
+    func testAdaptiveQConstants() {
+        XCTAssertEqual(BiquadMath.baseQ, 1.2)
+        XCTAssertEqual(BiquadMath.minQ, 0.9)
+        XCTAssertEqual(BiquadMath.qSlopePerDB, 0.025)
+    }
+
+    func testAdaptiveQAtZeroGain() {
+        let q = BiquadMath.adaptiveQ(forGainDB: 0)
+        XCTAssertEqual(q, 1.2, accuracy: 1e-10)
+    }
+
+    func testAdaptiveQAt6dBGain() {
+        XCTAssertEqual(BiquadMath.adaptiveQ(forGainDB: 6), 1.05, accuracy: 1e-10)
+        XCTAssertEqual(BiquadMath.adaptiveQ(forGainDB: -6), 1.05, accuracy: 1e-10)
+    }
+
+    func testAdaptiveQAt12dBGain() {
+        XCTAssertEqual(BiquadMath.adaptiveQ(forGainDB: 12), 0.9, accuracy: 1e-10)
+        XCTAssertEqual(BiquadMath.adaptiveQ(forGainDB: -12), 0.9, accuracy: 1e-10)
+    }
+
+    func testAdaptiveQFloorsAt0Point9() {
+        XCTAssertEqual(BiquadMath.adaptiveQ(forGainDB: 18), 0.9, accuracy: 1e-10)
+        XCTAssertEqual(BiquadMath.adaptiveQ(forGainDB: -18), 0.9, accuracy: 1e-10)
+    }
+
+    func testAdaptiveQIsSymmetric() {
+        for gain: Float in [0, 1, 3, 6, 9, 12] {
+            XCTAssertEqual(
+                BiquadMath.adaptiveQ(forGainDB: gain),
+                BiquadMath.adaptiveQ(forGainDB: -gain),
+                accuracy: 1e-10,
+                "Q should be symmetric for +-\(gain) dB"
+            )
+        }
     }
 
     func testVeryLowFrequency() {

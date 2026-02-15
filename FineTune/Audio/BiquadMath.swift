@@ -3,8 +3,21 @@ import Foundation
 /// Audio EQ Cookbook biquad coefficient calculations
 /// Reference: Robert Bristow-Johnson's Audio EQ Cookbook
 public enum BiquadMath {
-    /// Standard Q for graphic EQ (overlapping bands)
-    public static let graphicEQQ: Double = 1.8
+    /// Base Q for adaptive graphic EQ (at 0 dB gain)
+    public static let baseQ: Double = 1.2
+
+    /// Minimum Q floor (at maximum gain)
+    public static let minQ: Double = 0.9
+
+    /// Q reduction rate per dB of absolute gain
+    public static let qSlopePerDB: Double = 0.025
+
+    /// Compute adaptive Q for a given band gain.
+    /// Q widens (decreases) as gain increases, counteracting the RBJ peaking EQ's
+    /// natural bandwidth narrowing at higher gains.
+    public static func adaptiveQ(forGainDB gain: Float) -> Double {
+        return max(minQ, baseQ - Double(abs(gain)) * qSlopePerDB)
+    }
 
     /// Compute peaking EQ biquad coefficients
     /// Returns [b0, b1, b2, a1, a2] normalized by a0 for vDSP_biquad
@@ -50,10 +63,11 @@ public enum BiquadMath {
         allCoeffs.reserveCapacity(50)
 
         for (index, frequency) in EQSettings.frequencies.enumerated() {
+            let q = adaptiveQ(forGainDB: gains[index])
             let bandCoeffs = peakingEQCoefficients(
                 frequency: frequency,
                 gainDB: gains[index],
-                q: graphicEQQ,
+                q: q,
                 sampleRate: sampleRate
             )
             allCoeffs.append(contentsOf: bandCoeffs)
