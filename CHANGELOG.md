@@ -2,10 +2,47 @@
 
 ## [Unreleased] - 2026-02-15
 
+### EQ Panel Flat Reset Bar (2026-02-15)
+
+#### Added
+- Added a full-width `Reset To Flat` control in `EQPanelView` below the 10-band sliders.
+- One click now sets all EQ band gains to the flat curve instantly while preserving EQ enabled/disabled state.
+- Reset control auto-disables when already at flat gains.
+
+#### Verified
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+
+### EQ Runtime Reactivation + Tap-Create Backoff (2026-02-15)
+
+#### Changed
+- Active app control interactions now trigger on-demand tap creation when missing:
+  - `setEQSettings(_:, for:)`
+  - `setVolume(for:to:)`
+  - `setMute(for:to:)`
+- Added interaction routing resolution for tap creation target UIDs:
+  1. multi-device selected UIDs (if mode is `.multi`)
+  2. in-memory app routing
+  3. persisted app routing
+  4. startup default device fallback
+- Added per-PID exponential tap-create backoff to prevent retry storms during rapid slider writes:
+  - base delay `0.35s`
+  - capped delay `4.0s`
+- Explicit routing/mode-change user actions bypass backoff for immediate retries.
+- Health/startup tap creation paths now pass explicit tap-creation reasons for consistent diagnostics.
+
+#### Tests
+- Verified interaction/runtime tap behavior with:
+  - `testSetEQSettingsAttemptsTapCreationForActiveApp`
+  - `testSetEQSettingsTapCreationBacksOffAfterFailure`
+
+#### Verified
+- `swift test --filter AudioEngineRoutingTests`
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+
 ### Apps List Fallback Persistence (2026-02-15)
 
 #### Changed
-- Updated apps display-state rebuilding to keep the most recently active app visible as a paused fallback row when no apps are currently active.
+- Updated apps display-state rebuilding to keep the most recently active app visible as an inactive fallback row when no apps are currently active.
 - Active playback still takes precedence: when any app is active, only active apps (plus pinned inactive apps) are shown.
 - This prevents the transient `No apps playing audio` empty state during pause/stop transitions.
 

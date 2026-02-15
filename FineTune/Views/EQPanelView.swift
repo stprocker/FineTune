@@ -42,6 +42,10 @@ struct EQPanelView: View {
         return disabled
     }
 
+    private var canResetToFlat: Bool {
+        settings.bandGains != EQSettings.flat.bandGains
+    }
+
     var body: some View {
         // Entire EQ panel content inside recessed background
         VStack(spacing: 12) {
@@ -104,6 +108,27 @@ struct EQPanelView: View {
                     .frame(width: 26, height: 100)
                 }
             }
+
+            Button(action: resetToFlat) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.uturn.backward")
+                    Text("Reset To Flat")
+                }
+                .font(DesignTokens.Typography.pickerText)
+                .foregroundStyle(canResetToFlat ? DesignTokens.Colors.textSecondary : DesignTokens.Colors.textTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background {
+                    RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                        .fill(Color.white.opacity(canResetToFlat ? 0.08 : 0.04))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                        .strokeBorder(DesignTokens.Colors.glassBorder, lineWidth: 0.5)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!canResetToFlat)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -256,6 +281,11 @@ struct EQPanelView: View {
         } catch {
             errorMessage = customPresetErrorMessage(for: error)
         }
+    }
+
+    private func resetToFlat() {
+        settings.bandGains = EQSettings.flat.bandGains
+        onSettingsChanged(settings)
     }
 
     private func nextDefaultCustomName() -> String {

@@ -90,6 +90,11 @@ final class AudioEngine {
     /// Throttle per-app missing-tap EQ warnings to avoid log spam during slider drags.
     private var lastMissingTapEQLogAt: [pid_t: Date] = [:]
     private let missingTapEQLogThrottle: TimeInterval = 5.0
+    /// Tap-creation failure state used to back off retries during rapid UI interactions.
+    private var tapCreationFailureCount: [pid_t: Int] = [:]
+    private var tapCreationBlockedUntil: [pid_t: Date] = [:]
+    private let tapCreationBackoffBase: TimeInterval = 0.35
+    private let tapCreationBackoffMax: TimeInterval = 4.0
     /// Routing snapshot taken before recreation events.
     /// Restored after recreation to prevent spurious notifications from corrupting persisted routing.
     private var routingSnapshot: (memory: [pid_t: String], persisted: [String: String])?
@@ -531,12 +536,12 @@ final class AudioEngine {
                     logger.info("[HEALTH] Rerouting \(app.name) to system default \(defaultUID)")
                     appDeviceRouting[pid] = defaultUID
                     settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: defaultUID)
-                    ensureTapExists(for: app, deviceUID: defaultUID)
+                    ensureTapExists(for: app, deviceUID: defaultUID, reason: .health)
                     continue
                 }
             }
 
-            ensureTapExists(for: app, deviceUID: deviceUID)
+            ensureTapExists(for: app, deviceUID: deviceUID, reason: .health)
         }
 
         // Clean up tracking for removed taps
@@ -590,16 +595,8 @@ final class AudioEngine {
 
     /// Rebuilds the cached `displayableApps` array from current state.
     private func rebuildDisplayableApps() {
-        // Keep the most recently active app visible as a paused fallback when
-        // there are no currently active apps.
-        let effectiveActiveApps: [AudioApp]
-        if apps.isEmpty, let lastDisplayedApp {
-            effectiveActiveApps = [lastDisplayedApp]
-        } else {
-            effectiveActiveApps = apps
-        }
-
-        let activeIdentifiers = Set(effectiveActiveApps.map { $0.persistenceIdentifier })
+        let activeApps = apps
+        let activeIdentifiers = Set(activeApps.map { $0.persistenceIdentifier })
 
         // Get pinned apps that are not currently active
         let pinnedInactiveInfos = settingsManager.getPinnedAppInfo()
@@ -608,11 +605,29 @@ final class AudioEngine {
         // Single-pass partition into pinned and unpinned
         var pinnedActiveApps: [AudioApp] = []
         var unpinnedActiveApps: [AudioApp] = []
-        for app in effectiveActiveApps {
+        for app in activeApps {
             if settingsManager.isPinned(app.persistenceIdentifier) {
                 pinnedActiveApps.append(app)
             } else {
                 unpinnedActiveApps.append(app)
+            }
+        }
+
+        // When nothing is actively playing, keep showing the last played app as a
+        // transient inactive row so app settings remain accessible.
+        var transientInactive: [DisplayableApp] = []
+        if activeApps.isEmpty, let lastDisplayedApp {
+            let alreadyPresent = pinnedInactiveInfos.contains { $0.persistenceIdentifier == lastDisplayedApp.persistenceIdentifier }
+            if !alreadyPresent {
+                transientInactive = [
+                    .pinnedInactive(
+                        PinnedAppInfo(
+                            persistenceIdentifier: lastDisplayedApp.persistenceIdentifier,
+                            displayName: lastDisplayedApp.name,
+                            bundleID: lastDisplayedApp.bundleID
+                        )
+                    )
+                ]
             }
         }
 
@@ -629,7 +644,7 @@ final class AudioEngine {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { DisplayableApp.active($0) }
 
-        displayableApps = pinnedActive + pinnedInactive + unpinnedActive
+        displayableApps = pinnedActive + transientInactive + pinnedInactive + unpinnedActive
     }
 
     // MARK: - Pinning
@@ -863,6 +878,9 @@ final class AudioEngine {
             tap.invalidate()
         }
         taps.removeAll()
+        tapCreationFailureCount.removeAll()
+        tapCreationBlockedUntil.removeAll()
+        lastMissingTapEQLogAt.removeAll()
         logger.info("AudioEngine stopped")
     }
 
@@ -889,9 +907,7 @@ final class AudioEngine {
 
     func setVolume(for app: AudioApp, to volume: Float) {
         volumeState.setVolume(for: app.id, to: volume, identifier: app.persistenceIdentifier)
-        if let deviceUID = appDeviceRouting[app.id] {
-            ensureTapExists(for: app, deviceUID: deviceUID)
-        }
+        ensureTapForUserInteractionIfNeeded(for: app, trigger: "volume")
         taps[app.id]?.volume = volume
     }
 
@@ -901,6 +917,7 @@ final class AudioEngine {
 
     func setMute(for app: AudioApp, to muted: Bool) {
         volumeState.setMute(for: app.id, to: muted, identifier: app.persistenceIdentifier)
+        ensureTapForUserInteractionIfNeeded(for: app, trigger: "mute")
         taps[app.id]?.isMuted = muted
     }
 
@@ -913,6 +930,7 @@ final class AudioEngine {
         if settingsManager.appSettings.rememberEQ {
             settingsManager.setEQSettings(settings, for: app.persistenceIdentifier)
         }
+        ensureTapForUserInteractionIfNeeded(for: app, trigger: "eq")
         guard let tap = taps[app.id] else {
             let now = Date()
             let lastLogAt = lastMissingTapEQLogAt[app.id] ?? .distantPast
@@ -972,6 +990,13 @@ final class AudioEngine {
         }
         if let tap = taps[app.id] {
             try? await tap.updateDevices(to: deviceUIDs)
+        } else {
+            ensureTapExists(
+                for: app,
+                deviceUIDs: deviceUIDs,
+                reason: .modeChange,
+                bypassBackoff: true
+            )
         }
     }
 
@@ -1038,7 +1063,7 @@ final class AudioEngine {
                 self.switchTasks.removeValue(forKey: app.id)
             }
         } else {
-            ensureTapExists(for: app, deviceUID: deviceUID)
+            ensureTapExists(for: app, deviceUID: deviceUID, reason: .routing, bypassBackoff: true)
             // If tap creation failed, revert routing so UI matches reality
             // (no tap = audio goes through system default, not the selected device)
             if taps[app.id] == nil {
@@ -1213,7 +1238,7 @@ final class AudioEngine {
             let savedMute = volumeState.loadSavedMute(for: app.id, identifier: app.persistenceIdentifier)
 
             // Always create tap for audio apps (always-on strategy)
-            ensureTapExists(for: app, deviceUID: deviceUID)
+            ensureTapExists(for: app, deviceUID: deviceUID, reason: .startup)
 
             // Mark as applied regardless of tap outcome to prevent retry storm:
             // without this, every onAppsChanged fires the full sequence again
@@ -1243,13 +1268,95 @@ final class AudioEngine {
 
     // MARK: - Tap Management
 
-    /// Convenience wrapper for single-device tap creation.
-    private func ensureTapExists(for app: AudioApp, deviceUID: String) {
-        ensureTapExists(for: app, deviceUIDs: [deviceUID])
+    private enum TapCreationReason: String {
+        case startup
+        case routing
+        case userInteraction
+        case modeChange
+        case health
     }
 
-    private func ensureTapExists(for app: AudioApp, deviceUIDs: [String]) {
+    private func ensureTapForUserInteractionIfNeeded(for app: AudioApp, trigger: String) {
+        guard taps[app.id] == nil else { return }
+        guard apps.contains(where: { $0.id == app.id }) else { return }
+        let deviceUIDs = resolveTapTargetDeviceUIDs(for: app)
+        guard !deviceUIDs.isEmpty else {
+            logger.debug("[TAP] Skipping interaction tap creation for \(app.name): no target device (trigger=\(trigger))")
+            return
+        }
+        ensureTapExists(for: app, deviceUIDs: deviceUIDs, reason: .userInteraction)
+    }
+
+    private func resolveTapTargetDeviceUIDs(for app: AudioApp) -> [String] {
+        if volumeState.getDeviceSelectionMode(for: app.id) == .multi {
+            let selectedUIDs = volumeState.getSelectedDeviceUIDs(for: app.id)
+                .filter { !$0.isEmpty }
+                .sorted()
+            if !selectedUIDs.isEmpty {
+                return selectedUIDs
+            }
+        }
+
+        if let routedUID = appDeviceRouting[app.id], !routedUID.isEmpty {
+            return [routedUID]
+        }
+
+        if let persistedUID = settingsManager.getDeviceRouting(for: app.persistenceIdentifier), !persistedUID.isEmpty {
+            appDeviceRouting[app.id] = persistedUID
+            return [persistedUID]
+        }
+
+        if let defaultUID = try? resolveStartupDefaultDeviceUID(for: app), !defaultUID.isEmpty {
+            appDeviceRouting[app.id] = defaultUID
+            return [defaultUID]
+        }
+
+        return []
+    }
+
+    private func shouldAttemptTapCreation(for app: AudioApp, reason: TapCreationReason, bypassBackoff: Bool) -> Bool {
+        guard !bypassBackoff else { return true }
+        guard let blockedUntil = tapCreationBlockedUntil[app.id] else { return true }
+        if blockedUntil <= Date() {
+            tapCreationBlockedUntil.removeValue(forKey: app.id)
+            return true
+        }
+        logger.debug("[TAP] Backoff active for \(app.name) (\(reason.rawValue)); delaying retry")
+        return false
+    }
+
+    private func recordTapCreationFailure(for app: AudioApp, reason: TapCreationReason) {
+        let failureCount = (tapCreationFailureCount[app.id] ?? 0) + 1
+        tapCreationFailureCount[app.id] = failureCount
+        let exponent = min(failureCount - 1, 5)
+        let delay = min(tapCreationBackoffBase * pow(2.0, Double(exponent)), tapCreationBackoffMax)
+        tapCreationBlockedUntil[app.id] = Date().addingTimeInterval(delay)
+        logger.debug("[TAP] Creation failed for \(app.name) (\(reason.rawValue)); retry backoff \(String(format: "%.2f", delay))s")
+    }
+
+    private func clearTapCreationFailureState(for pid: pid_t) {
+        tapCreationFailureCount.removeValue(forKey: pid)
+        tapCreationBlockedUntil.removeValue(forKey: pid)
+    }
+
+    /// Convenience wrapper for single-device tap creation.
+    private func ensureTapExists(
+        for app: AudioApp,
+        deviceUID: String,
+        reason: TapCreationReason = .routing,
+        bypassBackoff: Bool = false
+    ) {
+        ensureTapExists(for: app, deviceUIDs: [deviceUID], reason: reason, bypassBackoff: bypassBackoff)
+    }
+
+    private func ensureTapExists(
+        for app: AudioApp,
+        deviceUIDs: [String],
+        reason: TapCreationReason = .routing,
+        bypassBackoff: Bool = false
+    ) {
         guard taps[app.id] == nil, !deviceUIDs.isEmpty else { return }
+        guard shouldAttemptTapCreation(for: app, reason: reason, bypassBackoff: bypassBackoff) else { return }
         let deviceUID = deviceUIDs[0]  // Primary UID for volume/mute lookups
         onTapCreationAttemptForTests?(app, deviceUID)
 
@@ -1266,6 +1373,7 @@ final class AudioEngine {
         do {
             try tap.activate()
             taps[app.id] = tap
+            clearTapCreationFailureState(for: app.id)
 
             // Schedule fast health checks after tap creation.
             // Intervals: 0.3s (quick permission check), 0.8s, 1.5s (broken tap detection)
@@ -1300,7 +1408,7 @@ final class AudioEngine {
                               let deviceUID = self.appDeviceRouting[pid] else { return }
                         self.logger.warning("[HEALTH-FAST] \(appName) tap broken (callbacks=\(d.callbackCount) output=0), recreating")
                         self.teardownTap(for: pid)
-                        self.ensureTapExists(for: app, deviceUID: deviceUID)
+                        self.ensureTapExists(for: app, deviceUID: deviceUID, reason: .health)
                         return
                     }
 
@@ -1330,12 +1438,12 @@ final class AudioEngine {
                             self.teardownTap(for: pid)
                             self.appDeviceRouting[pid] = fallbackUID
                             self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: fallbackUID)
-                            self.ensureTapExists(for: app, deviceUID: fallbackUID)
+                            self.ensureTapExists(for: app, deviceUID: fallbackUID, reason: .health)
                         } else {
                             self.logger.warning("[HEALTH-FAST] \(appName) tap dead (callbacks=0), already on default device — recreating in place")
                             self.teardownTap(for: pid)
                             if let deviceUID = currentDeviceUID {
-                                self.ensureTapExists(for: app, deviceUID: deviceUID)
+                                self.ensureTapExists(for: app, deviceUID: deviceUID, reason: .health)
                             }
                         }
                         return
@@ -1351,6 +1459,7 @@ final class AudioEngine {
 
             logger.debug("Created tap for \(app.name)")
         } catch {
+            recordTapCreationFailure(for: app, reason: reason)
             logger.error("Failed to create tap for \(app.name): \(error.localizedDescription)")
         }
     }
@@ -1685,6 +1794,9 @@ final class AudioEngine {
         let pidsToKeep = activePIDs.union(Set(pendingCleanup.keys))
         appliedPIDs = appliedPIDs.intersection(pidsToKeep)
         followsDefault = followsDefault.intersection(pidsToKeep)
+        tapCreationFailureCount = tapCreationFailureCount.filter { pidsToKeep.contains($0.key) }
+        tapCreationBlockedUntil = tapCreationBlockedUntil.filter { pidsToKeep.contains($0.key) }
+        lastMissingTapEQLogAt = lastMissingTapEQLogAt.filter { pidsToKeep.contains($0.key) }
         volumeState.cleanup(keeping: pidsToKeep)
     }
 

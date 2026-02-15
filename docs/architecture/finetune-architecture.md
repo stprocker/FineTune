@@ -260,6 +260,17 @@ POSIX signal handlers (SIGTERM, SIGINT) trigger clean `stopSync()` then `exit()`
 
 On macOS 26+, taps use `CATapDescription.bundleIDs` for bundle-ID targeting (required because Chromium-based browsers route audio through renderer subprocesses that PID-based taps can't see). `isProcessRestoreEnabled` is intentionally NOT set — it causes dead aggregate output where the IOProc writes to valid buffers but audio never reaches hardware. See `docs/known_issues/bundle-id-tap-silent-output-macos26.md` for the investigation.
 
+### Interaction-Driven Tap Activation
+To avoid no-op controls when an app has no pre-existing tap, `AudioEngine` now attempts tap creation from live control interactions for active apps (`setEQSettings`, `setVolume`, `setMute`).
+
+Target device resolution order for interaction-driven tap creation:
+1. multi-device selected UIDs (when mode is `.multi`)
+2. in-memory per-app routing
+3. persisted per-app routing
+4. startup default fallback
+
+Tap creation retries are guarded by per-PID exponential backoff (0.35s base, 4.0s cap). This prevents CoreAudio creation storms during rapid slider drags while preserving immediate retries for explicit routing and mode-change actions.
+
 ### Permission Confirmation
 On first launch, taps start with `.unmuted` (safe if app dies during permission grant). Once real input audio is detected (`inputHasData > 0` or `lastInputPeak > 0.0001`), taps are upgraded to `.mutedWhenTapped` via `recreateAllTaps()`. This prevents the audio-mute-on-permission-grant bug. The `permissionConfirmed` flag is per-session (not persisted), requiring re-granting on each launch.
 
@@ -589,8 +600,9 @@ FineTuneApp (@main)
 - `EQPresetPicker` section order is intentional: actions first, then custom presets, then built-in presets.
 - Action rows are intentionally unlabeled (no visible `Action` header) to reduce visual noise while keeping save/overwrite/rename/delete immediately accessible.
 - Custom section includes a selectable session-level `Custom` item that restores the last unsaved curve for the active row session.
+- `EQPanelView` includes a full-width `Reset To Flat` control that immediately restores the 10-band curve to flat.
 
 ## Apps Display Fallback Notes
 
-- When no apps are currently active, `AudioEngine` keeps the most recently active app visible as a paused fallback row.
+- When no apps are currently active, `AudioEngine` keeps the most recently active app visible as an inactive fallback row.
 - Active apps always take precedence over fallback rows.

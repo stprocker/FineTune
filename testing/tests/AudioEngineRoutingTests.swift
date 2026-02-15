@@ -131,6 +131,46 @@ final class AudioEngineRoutingTests: XCTestCase {
                        "EQ changes should persist even if no active tap exists")
     }
 
+    /// First EQ interaction on an active app should attempt tap creation so EQ can apply live.
+    func testSetEQSettingsAttemptsTapCreationForActiveApp() {
+        let app = makeFakeApp(pid: 15001, name: "Brave", bundleID: "com.brave.Browser")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.appDeviceRouting[app.id] = "test-device"
+
+        var attempts = 0
+        engine.onTapCreationAttemptForTests = { attemptedApp, deviceUID in
+            guard attemptedApp.id == app.id else { return }
+            attempts += 1
+            XCTAssertEqual(deviceUID, "test-device")
+        }
+
+        let settings = EQSettings(bandGains: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        engine.setEQSettings(settings, for: app)
+
+        XCTAssertEqual(attempts, 1, "Active app EQ interaction should trigger tap creation attempt")
+    }
+
+    /// Repeated rapid EQ updates should be coalesced by tap-create backoff after a failure.
+    func testSetEQSettingsTapCreationBacksOffAfterFailure() {
+        let app = makeFakeApp(pid: 15002, name: "Music", bundleID: "com.apple.Music")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.appDeviceRouting[app.id] = "test-device"
+
+        var attempts = 0
+        engine.onTapCreationAttemptForTests = { attemptedApp, _ in
+            guard attemptedApp.id == app.id else { return }
+            attempts += 1
+        }
+
+        for i in 0..<6 {
+            let gain = Float(i) * 0.5
+            let settings = EQSettings(bandGains: [gain, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            engine.setEQSettings(settings, for: app)
+        }
+
+        XCTAssertEqual(attempts, 1, "Rapid EQ writes should not spam tap creation after failure")
+    }
+
     // MARK: - Permission confirmation safety
 
     func testPermissionConfirmationRequiresRealInputAudio() {
@@ -308,8 +348,8 @@ final class AudioEngineRoutingTests: XCTestCase {
                       "Fallback row should be marked paused when no apps are active")
         XCTAssertEqual(engine.displayableApps.count, 1,
                        "UI should keep showing the last played app instead of empty state")
-        XCTAssertTrue(engine.displayableApps.first?.isActive == true,
-                      "Last played app should remain as active-row style fallback")
+        XCTAssertTrue(engine.displayableApps.first?.isActive == false,
+                      "Last played app should be shown as inactive fallback when not playing")
         XCTAssertEqual(engine.displayableApps.first?.id, app.persistenceIdentifier)
     }
 

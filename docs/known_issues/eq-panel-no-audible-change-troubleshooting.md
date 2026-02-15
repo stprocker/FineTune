@@ -1,13 +1,13 @@
 # EQ Panel Shows No Audible Change (Troubleshooting)
 
 ## Status
-Open (diagnostics added on 2026-02-14; missing-tap persistence fix added on 2026-02-14)
+Open, partially mitigated (diagnostics added on 2026-02-14; missing-tap persistence fix added on 2026-02-14; interaction-driven tap creation added on 2026-02-15)
 
 ## Observed Behavior
 Users may move EQ sliders or select an EQ preset and hear no change.
 
 ## UI State Note (2026-02-15)
-- Apps list empty-state handling was updated: when playback stops, the last active app now remains visible as a paused fallback row instead of dropping immediately to `No apps playing audio`.
+- Apps list empty-state handling was updated: when playback stops, the last active app now remains visible as an inactive fallback row instead of dropping immediately to `No apps playing audio`.
 
 ## Recent Tuning Changes (2026-02-15)
 - EQ slider range increased from ±12 dB to ±18 dB.
@@ -32,6 +32,11 @@ Users may move EQ sliders or select an EQ preset and hear no change.
 2. No tap exists yet for the app PID, so realtime EQ apply is skipped until tap creation.
 3. Crossfade is active during device switching, temporarily bypassing EQ.
 4. Input format path is not eligible for direct EQ and converter path is not reached due upstream conditions.
+
+## 2026-02-15 Mitigation
+- Active app interactions now attempt tap creation on first control write (`EQ`, `volume`, `mute`), reducing "saved settings only" no-op behavior.
+- Tap creation retries now use per-PID exponential backoff (0.35s base, 4.0s cap) to avoid retry storms during rapid slider drags.
+- Explicit routing and mode-change actions bypass backoff so user-initiated retries remain immediate.
 
 ## What Was Added
 - `TapDiagnostics.eqApplied`
