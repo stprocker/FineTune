@@ -67,6 +67,24 @@ struct EQPanelView: View {
 
                 Spacer()
 
+                Button("Reset", action: resetToFlat)
+                    .font(DesignTokens.Typography.pickerText)
+                    .foregroundStyle(canResetToFlat ? DesignTokens.Colors.textSecondary : DesignTokens.Colors.textTertiary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background {
+                        Capsule()
+                            .fill(Color.white.opacity(canResetToFlat ? 0.08 : 0.04))
+                    }
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(DesignTokens.Colors.glassBorder, lineWidth: 0.5)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canResetToFlat)
+
+                Spacer()
+
                 // Preset picker on right
                 HStack(spacing: DesignTokens.Spacing.sm) {
                     Text("Preset")
@@ -108,27 +126,6 @@ struct EQPanelView: View {
                     .frame(width: 26, height: 100)
                 }
             }
-
-            Button(action: resetToFlat) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.uturn.backward")
-                    Text("Reset To Flat")
-                }
-                .font(DesignTokens.Typography.pickerText)
-                .foregroundStyle(canResetToFlat ? DesignTokens.Colors.textSecondary : DesignTokens.Colors.textTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
-                .background {
-                    RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
-                        .fill(Color.white.opacity(canResetToFlat ? 0.08 : 0.04))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
-                        .strokeBorder(DesignTokens.Colors.glassBorder, lineWidth: 0.5)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(!canResetToFlat)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

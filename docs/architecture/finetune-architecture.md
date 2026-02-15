@@ -600,7 +600,7 @@ FineTuneApp (@main)
 - `EQPresetPicker` section order is intentional: actions first, then custom presets, then built-in presets.
 - Action rows are intentionally unlabeled (no visible `Action` header) to reduce visual noise while keeping save/overwrite/rename/delete immediately accessible.
 - Custom section includes a selectable session-level `Custom` item that restores the last unsaved curve for the active row session.
-- `EQPanelView` includes a full-width `Reset To Flat` control that immediately restores the 10-band curve to flat.
+- `EQPanelView` includes a compact header `Reset` control that immediately restores the 10-band curve to flat.
 
 ## Apps Display Fallback Notes
 

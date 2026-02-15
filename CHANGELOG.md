@@ -5,7 +5,7 @@
 ### EQ Panel Flat Reset Bar (2026-02-15)
 
 #### Added
-- Added a full-width `Reset To Flat` control in `EQPanelView` below the 10-band sliders.
+- Added a compact `Reset` control in the `EQPanelView` header (centered between EQ toggle and preset picker).
 - One click now sets all EQ band gains to the flat curve instantly while preserving EQ enabled/disabled state.
 - Reset control auto-disables when already at flat gains.
 
