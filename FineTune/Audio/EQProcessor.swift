@@ -25,6 +25,11 @@ final class EQProcessor: @unchecked Sendable {
     private nonisolated(unsafe) var _eqSetup: vDSP_biquad_Setup?
     private nonisolated(unsafe) var _isEnabled: Bool = true
 
+    /// Pre-EQ gain scalar for headroom management (linear, not dB).
+    /// Computed as: pow(10, -maxBoost / 20) where maxBoost is the maximum positive gain.
+    /// 1.0 means no attenuation (flat EQ or cuts only).
+    private nonisolated(unsafe) var _preampScalar: Float = 1.0
+
     // Pre-allocated delay buffers (raw pointers for RT-safety)
     private let delayBufferL: UnsafeMutablePointer<Float>
     private let delayBufferR: UnsafeMutablePointer<Float>
@@ -33,6 +38,9 @@ final class EQProcessor: @unchecked Sendable {
     var isEnabled: Bool {
         get { _isEnabled }
     }
+
+    /// Current pre-EQ gain scalar (linear)
+    var preampScalar: Float { _preampScalar }
 
     init(sampleRate: Double) {
         self.sampleRate = sampleRate
@@ -60,6 +68,10 @@ final class EQProcessor: @unchecked Sendable {
     func updateSettings(_ settings: EQSettings) {
         _isEnabled = settings.isEnabled
         _currentSettings = settings
+
+        let maxBoost = settings.clampedGains.max() ?? 0
+        let preampDB = -max(maxBoost, 0)
+        _preampScalar = Float(pow(10.0, Double(preampDB) / 20.0))
 
         let coefficients = BiquadMath.coefficientsForAllBands(
             gains: settings.clampedGains,
