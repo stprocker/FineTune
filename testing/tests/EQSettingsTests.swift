@@ -10,8 +10,8 @@ final class EQSettingsTests: XCTestCase {
     }
 
     func testGainRange() {
-        XCTAssertEqual(EQSettings.maxGainDB, 18.0)
-        XCTAssertEqual(EQSettings.minGainDB, -18.0)
+        XCTAssertEqual(EQSettings.maxGainDB, 12.0)
+        XCTAssertEqual(EQSettings.minGainDB, -12.0)
     }
 
     func testFrequencies() {
@@ -38,25 +38,25 @@ final class EQSettingsTests: XCTestCase {
     // MARK: - clampedGains
 
     func testClampedGainsPassthroughForValidGains() {
-        let gains: [Float] = [0, 3, -3, 6, -6, 12, -18, 18, 0, 0]
+        let gains: [Float] = [0, 3, -3, 6, -6, 12, -12, 0.5, 0, 0]
         let settings = EQSettings(bandGains: gains)
         XCTAssertEqual(settings.clampedGains, gains)
     }
 
     func testClampedGainsClampsAboveMax() {
-        let settings = EQSettings(bandGains: [15, 20, 100, 0, 0, 0, 0, 0, 0, 0])
+        let settings = EQSettings(bandGains: [11, 15, 100, 0, 0, 0, 0, 0, 0, 0])
         let clamped = settings.clampedGains
-        XCTAssertEqual(clamped[0], 15.0)
-        XCTAssertEqual(clamped[1], 18.0)
-        XCTAssertEqual(clamped[2], 18.0)
+        XCTAssertEqual(clamped[0], 11.0)
+        XCTAssertEqual(clamped[1], 12.0)
+        XCTAssertEqual(clamped[2], 12.0)
     }
 
     func testClampedGainsClampsBelow() {
-        let settings = EQSettings(bandGains: [-15, -20, -100, 0, 0, 0, 0, 0, 0, 0])
+        let settings = EQSettings(bandGains: [-11, -15, -100, 0, 0, 0, 0, 0, 0, 0])
         let clamped = settings.clampedGains
-        XCTAssertEqual(clamped[0], -15.0)
-        XCTAssertEqual(clamped[1], -18.0)
-        XCTAssertEqual(clamped[2], -18.0)
+        XCTAssertEqual(clamped[0], -11.0)
+        XCTAssertEqual(clamped[1], -12.0)
+        XCTAssertEqual(clamped[2], -12.0)
     }
 
     func testClampedGainsPadsTooFew() {
@@ -120,7 +120,7 @@ final class EQSettingsTests: XCTestCase {
     // MARK: - Codable
 
     func testCodableRoundTrip() throws {
-        let original = EQSettings(bandGains: [1, -2, 3.5, 0, -6, 18, -18, 0.5, 0, -0.5])
+        let original = EQSettings(bandGains: [1, -2, 3.5, 0, -6, 12, -12, 0.5, 0, -0.5])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(EQSettings.self, from: data)
         XCTAssertEqual(original, decoded)
