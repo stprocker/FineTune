@@ -134,7 +134,7 @@ final class BiquadMathTests: XCTestCase {
     }
 
     func testGraphicEQQConstant() {
-        XCTAssertEqual(BiquadMath.graphicEQQ, 1.4, "Standard graphic EQ Q should be 1.4")
+        XCTAssertEqual(BiquadMath.graphicEQQ, 1.8, "Graphic EQ Q should be 1.8 for stronger band shaping")
     }
 
     func testVeryLowFrequency() {

@@ -46,6 +46,13 @@ struct EQPanelView: View {
             }
             .zIndex(1)  // Ensure dropdown renders above sliders
 
+            HStack {
+                Text("Band Gain (dB)")
+                    .font(DesignTokens.Typography.caption)
+                    .foregroundColor(DesignTokens.Colors.textTertiary)
+                Spacer()
+            }
+
             // 10-band sliders
             HStack(spacing: 22) {
                 ForEach(0..<10, id: \.self) { index in

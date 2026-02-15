@@ -91,7 +91,7 @@ flowchart TB
     AudioApp["AudioApp"]
     DisplayableApp["DisplayableApp\n(active | pinnedInactive)"]
     AudioDevice["AudioDevice"]
-    EQSettings["EQSettings\n(10 bands, ±12dB)"]
+    EQSettings["EQSettings\n(10 bands, ±18dB)"]
     EQPreset["EQPreset"]
     VolumeMapping["VolumeMapping\n(linear gain ↔ log slider)"]
   end

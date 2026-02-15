@@ -2,6 +2,35 @@
 
 ## [Unreleased] - 2026-02-14
 
+### EQ Slider Impact + Label Clarity (2026-02-15)
+
+Tuned EQ defaults to make per-band changes more audible and clarified the EQ unit labeling in the panel.
+
+#### Changed
+- **`EQSettings` range** increased from `±12 dB` to `±18 dB`
+- **`BiquadMath.graphicEQQ`** increased from `1.4` to `1.8` for stronger per-band emphasis
+- **`SoftLimiter.threshold`** raised from `0.8` to `0.9` (ceiling remains `1.0`)
+- **EQ panel labeling** now includes `Band Gain (dB)` for slider unit clarity
+- **EQ slider drag label** now renders as `+N dB` / `-N dB`
+
+#### Tests
+- Updated fail-first expectations in:
+  - `EQSettingsTests`
+  - `BiquadMathTests`
+  - `SoftLimiterTests`
+- Verified passing with:
+  - `swift test --filter 'FineTuneCoreTests\\.(EQSettingsTests|BiquadMathTests|SoftLimiterTests|PostEQLimiterTests)'`
+
+### Session Handoff Record (2026-02-15)
+
+Comprehensive continuation handoff documenting timing research, crossfade default restoration, missing-tap EQ persistence fix, diagnostics verification path, and end-to-end test status.
+
+#### Added
+- **Comprehensive chat handoff record** in `docs/ai-chat-history/2026-02-15-eq-handoff-timing-and-runtime-diagnostics-continuation.md`
+
+#### Verified
+- **Full Swift test suite green:** `swift test` executed with `349` tests and `0` failures
+
 ### EQ Presets + Runtime Diagnostics
 
 Added three headphone-focused EQ presets and new tap diagnostics counters to make EQ-path runtime behavior observable.

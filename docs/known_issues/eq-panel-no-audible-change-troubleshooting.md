@@ -6,6 +6,12 @@ Open (diagnostics added on 2026-02-14; missing-tap persistence fix added on 2026
 ## Observed Behavior
 Users may move EQ sliders or select an EQ preset and hear no change.
 
+## Recent Tuning Changes (2026-02-15)
+- EQ slider range increased from ±12 dB to ±18 dB.
+- Graphic EQ Q increased from 1.4 to 1.8 for stronger per-band effect.
+- Post-EQ soft limiter threshold raised from 0.8 to 0.9 (ceiling unchanged at 1.0).
+- EQ panel now labels sliders as `Band Gain (dB)` to clarify units.
+
 ## Likely Runtime Causes
 1. EQ is disabled for that app (`isEnabled == false`).
 2. No tap exists yet for the app PID, so realtime EQ apply is skipped until tap creation.

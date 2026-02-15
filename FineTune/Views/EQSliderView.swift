@@ -4,7 +4,7 @@ import SwiftUI
 struct EQSliderView: View {
     let frequency: String
     @Binding var gain: Float
-    let range: ClosedRange<Float> = -12...12
+    let range: ClosedRange<Float> = EQSettings.minGainDB...EQSettings.maxGainDB
 
     // Local state for smooth visual updates
     @State private var localGain: Float = 0
@@ -19,7 +19,7 @@ struct EQSliderView: View {
     private var verticalPadding: CGFloat { DesignTokens.EQSlider.verticalPadding }
 
     private func formatGain(_ gain: Float) -> String {
-        gain >= 0 ? String(format: "+%.0fdB", gain) : String(format: "%.0fdB", gain)
+        gain >= 0 ? String(format: "+%.0f dB", gain) : String(format: "%.0f dB", gain)
     }
 
     var body: some View {

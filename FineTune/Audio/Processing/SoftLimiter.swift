@@ -7,14 +7,14 @@ import Accelerate
 public enum SoftLimiter {
 
     /// Threshold where limiting begins (below this, audio passes through)
-    public static let threshold: Float = 0.8
+    public static let threshold: Float = 0.9
 
     /// Maximum output level (asymptotic ceiling)
     public static let ceiling: Float = 1.0
 
     /// Available headroom above threshold
     @inline(__always)
-    public static var headroom: Float { ceiling - threshold }  // 0.2
+    public static var headroom: Float { ceiling - threshold }  // 0.1
 
     /// Applies soft-knee limiting to a single sample.
     /// - Below threshold: passes through unchanged

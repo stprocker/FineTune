@@ -4,7 +4,7 @@ import Foundation
 /// Reference: Robert Bristow-Johnson's Audio EQ Cookbook
 public enum BiquadMath {
     /// Standard Q for graphic EQ (overlapping bands)
-    public static let graphicEQQ: Double = 1.4
+    public static let graphicEQQ: Double = 1.8
 
     /// Compute peaking EQ biquad coefficients
     /// Returns [b0, b1, b2, a1, a2] normalized by a0 for vDSP_biquad
