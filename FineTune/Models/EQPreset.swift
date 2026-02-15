@@ -100,84 +100,61 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
         switch self {
         // MARK: - Utility
         case .flat:
-            // All neutral
             return EQSettings(bandGains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         case .bassBoost:
-            // Boost lows, cut 250Hz to prevent muddiness
-            return EQSettings(bandGains: [6, 6, 5, -1, 0, 0, 0, 0, 0, 0])
+            return EQSettings(bandGains: [10, 8, 5, 2, 0, 0, 0, 0, 0, 0])
         case .bassCut:
-            // Reduce low end
-            return EQSettings(bandGains: [-6, -5, -4, -2, 0, 0, 0, 0, 0, 0])
+            return EQSettings(bandGains: [-8, -6, -4, -2, 0, 0, 0, 0, 0, 0])
         case .trebleBoost:
-            // Gentle rise into highs for clarity and air
-            return EQSettings(bandGains: [0, 0, 0, 0, 0, 0, 2, 4, 5, 6])
+            return EQSettings(bandGains: [0, 0, 0, 0, 0, 0, 2, 5, 8, 10])
 
         // MARK: - Speech
         case .vocalClarity:
-            // Cut rumble & muddiness, boost presence (2-4kHz)
-            return EQSettings(bandGains: [-4, -2, -1, -3, 0, 2, 4, 4, 1, 0])
+            return EQSettings(bandGains: [-4, -3, -1, -2, 0, 3, 5, 5, 2, 0])
         case .podcast:
-            // Optimized for speech with some music/effects
-            return EQSettings(bandGains: [-6, -4, -2, -1, 0, 2, 4, 3, 1, 0])
+            return EQSettings(bandGains: [-6, -4, -2, -1, 0, 3, 5, 4, 2, 0])
         case .spokenWord:
-            // Audiobooks, lectures - aggressive bass cut, max intelligibility
-            return EQSettings(bandGains: [-8, -6, -3, -2, 0, 2, 4, 4, 2, 0])
+            return EQSettings(bandGains: [-8, -6, -3, -2, 0, 3, 5, 5, 2, 0])
 
         // MARK: - Listening
         case .loudness:
-            // "Smile curve" - boost lows & highs for low-volume listening
-            return EQSettings(bandGains: [5, 4, 2, 0, -2, -2, 0, 2, 4, 5])
+            return EQSettings(bandGains: [8, 6, 3, 0, -2, -2, 0, 3, 6, 8])
         case .lateNight:
-            // Neighbor-friendly: heavy bass cut, presence boost
             return EQSettings(bandGains: [-6, -4, -2, 0, 0, 1, 2, 2, 1, 0])
         case .smallSpeakers:
-            // Laptop/MacBook speakers: boost reproducible bass, add clarity
-            return EQSettings(bandGains: [3, 4, 5, 2, 0, 1, 2, 2, 1, 0])
+            return EQSettings(bandGains: [4, 5, 6, 3, 0, 1, 3, 3, 2, 0])
 
         // MARK: - Music
         case .rock:
-            // Punchy bass, forward guitars & vocals
-            return EQSettings(bandGains: [4, 3, 2, 0, -1, 0, 2, 3, 2, 1])
+            return EQSettings(bandGains: [6, 4, 0, -2, -1, 2, 4, 6, 4, 3])
         case .pop:
-            // Bright, punchy, vocal-forward
-            return EQSettings(bandGains: [3, 3, 2, 0, -1, 1, 2, 3, 3, 4])
+            return EQSettings(bandGains: [4, 4, 2, 0, -1, 2, 3, 4, 4, 5])
         case .electronic:
-            // Heavy sub-bass, scooped mids, crisp highs
-            return EQSettings(bandGains: [7, 6, 4, 0, -2, -2, 1, 3, 4, 3])
+            return EQSettings(bandGains: [10, 8, 4, 0, -3, -3, 2, 6, 8, 6])
         case .jazz:
-            // Warm lows, smooth mids, gentle highs
-            return EQSettings(bandGains: [3, 2, 1, 0, 0, 0, 1, 2, 2, 1])
+            return EQSettings(bandGains: [4, 3, 1, 0, 0, 0, 1, 3, 3, 2])
         case .classical:
-            // Nearly flat, gentle high "air" for detail
-            return EQSettings(bandGains: [0, 0, 0, 0, 0, 0, 1, 2, 2, 2])
+            return EQSettings(bandGains: [0, 0, 0, 0, 0, 0, 1, 3, 3, 3])
         case .hipHop:
-            // Heavy sub-bass for 808s, crisp highs for hi-hats
-            return EQSettings(bandGains: [6, 5, 4, 0, -1, 0, 2, 3, 4, 3])
+            return EQSettings(bandGains: [10, 9, 5, 2, 0, -1, 1, 3, 5, 4])
         case .rnb:
-            // Warm bass, recessed mids, smooth vocals
-            return EQSettings(bandGains: [4, 4, 3, 1, -1, 0, 2, 3, 3, 2])
+            return EQSettings(bandGains: [6, 5, 4, 1, -1, 0, 3, 4, 4, 3])
         case .deep:
-            // Deep house, ambient, lo-fi: sub-bass, scooped mids
-            return EQSettings(bandGains: [5, 6, 4, 1, -2, -2, 0, 1, 2, 1])
+            return EQSettings(bandGains: [8, 8, 5, 1, -3, -3, 0, 2, 3, 2])
         case .acoustic:
-            // Warm low-mids, natural sparkle
-            return EQSettings(bandGains: [0, 1, 2, 2, 1, 0, 1, 2, 2, 1])
+            return EQSettings(bandGains: [0, 1, 3, 3, 1, 0, 2, 3, 3, 2])
 
         // MARK: - Media
         case .movie:
-            // Cinematic: bass rumble, dialogue clarity, effects detail
-            return EQSettings(bandGains: [4, 4, 3, -1, -1, 1, 3, 3, 2, 1])
+            return EQSettings(bandGains: [6, 5, 4, -1, -1, 2, 4, 4, 3, 2])
 
-        // MARK: - Headphone (de-bass / de-muddy for over-ear headphones)
+        // MARK: - Headphone
         case .hpClarity:
-            // Moderate bass reduction, gentle presence lift - good starting point
-            return EQSettings(bandGains: [-2, -2.5, -3.5, -3, -1.5, 0, 1, 1.5, 1, 0.5])
+            return EQSettings(bandGains: [-3, -3, -4, -3, -2, 0, 2, 2, 1, 1])
         case .hpReference:
-            // Harman-inspired flat target: aggressive bass correction, slight treble taming
-            return EQSettings(bandGains: [-4, -4.5, -5, -3, -1, 0, 0, 0.5, -1, -1.5])
+            return EQSettings(bandGains: [-5, -5, -6, -4, -1, 0, 0, 1, -1, -2])
         case .hpVocalFocus:
-            // Heavy bass cut, strong 2-4kHz presence boost for max definition
-            return EQSettings(bandGains: [-6, -5.5, -4.5, -3, -1.5, 1, 2.5, 3, 1, -1])
+            return EQSettings(bandGains: [-7, -6, -5, -3, -2, 2, 4, 4, 1, -1])
         }
     }
 }
