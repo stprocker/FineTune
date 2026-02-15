@@ -6,6 +6,9 @@ Open (diagnostics added on 2026-02-14; missing-tap persistence fix added on 2026
 ## Observed Behavior
 Users may move EQ sliders or select an EQ preset and hear no change.
 
+## UI State Note (2026-02-15)
+- Apps list empty-state handling was updated: when playback stops, the last active app now remains visible as a paused fallback row instead of dropping immediately to `No apps playing audio`.
+
 ## Recent Tuning Changes (2026-02-15)
 - EQ slider range increased from ±12 dB to ±18 dB.
 - Graphic EQ Q increased from 1.4 to 1.8 for stronger per-band effect.

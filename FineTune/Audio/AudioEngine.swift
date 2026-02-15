@@ -590,8 +590,16 @@ final class AudioEngine {
 
     /// Rebuilds the cached `displayableApps` array from current state.
     private func rebuildDisplayableApps() {
-        let activeApps = apps
-        let activeIdentifiers = Set(activeApps.map { $0.persistenceIdentifier })
+        // Keep the most recently active app visible as a paused fallback when
+        // there are no currently active apps.
+        let effectiveActiveApps: [AudioApp]
+        if apps.isEmpty, let lastDisplayedApp {
+            effectiveActiveApps = [lastDisplayedApp]
+        } else {
+            effectiveActiveApps = apps
+        }
+
+        let activeIdentifiers = Set(effectiveActiveApps.map { $0.persistenceIdentifier })
 
         // Get pinned apps that are not currently active
         let pinnedInactiveInfos = settingsManager.getPinnedAppInfo()
@@ -600,7 +608,7 @@ final class AudioEngine {
         // Single-pass partition into pinned and unpinned
         var pinnedActiveApps: [AudioApp] = []
         var unpinnedActiveApps: [AudioApp] = []
-        for app in activeApps {
+        for app in effectiveActiveApps {
             if settingsManager.isPinned(app.persistenceIdentifier) {
                 pinnedActiveApps.append(app)
             } else {

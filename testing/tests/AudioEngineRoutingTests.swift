@@ -306,6 +306,11 @@ final class AudioEngineRoutingTests: XCTestCase {
         engine.updateDisplayedAppsStateForTests(activeApps: [])
         XCTAssertTrue(engine.isPausedDisplayApp(app),
                       "Fallback row should be marked paused when no apps are active")
+        XCTAssertEqual(engine.displayableApps.count, 1,
+                       "UI should keep showing the last played app instead of empty state")
+        XCTAssertTrue(engine.displayableApps.first?.isActive == true,
+                      "Last played app should remain as active-row style fallback")
+        XCTAssertEqual(engine.displayableApps.first?.id, app.persistenceIdentifier)
     }
 
     /// Active apps should always take precedence over paused fallback.
@@ -324,6 +329,25 @@ final class AudioEngineRoutingTests: XCTestCase {
         XCTAssertFalse(engine.isPausedDisplayApp(second))
         XCTAssertFalse(engine.apps.contains(where: { $0.id == first.id }),
                        "Paused fallback app should not be shown while an active app exists")
+        XCTAssertEqual(engine.displayableApps.count, 1,
+                       "While an app is active, fallback row should not be appended")
+        XCTAssertEqual(engine.displayableApps.first?.id, second.persistenceIdentifier)
+    }
+
+    func testPausedFallbackTracksMostRecentlyActiveApp() {
+        let first = makeFakeApp(pid: 12101, name: "Safari", bundleID: "com.apple.Safari")
+        let second = makeFakeApp(pid: 12102, name: "Music", bundleID: "com.apple.Music")
+
+        engine.updateDisplayedAppsStateForTests(activeApps: [first])
+        engine.updateDisplayedAppsStateForTests(activeApps: [])
+        XCTAssertEqual(engine.displayableApps.first?.id, first.persistenceIdentifier)
+
+        engine.updateDisplayedAppsStateForTests(activeApps: [second])
+        engine.updateDisplayedAppsStateForTests(activeApps: [])
+
+        XCTAssertEqual(engine.displayableApps.count, 1)
+        XCTAssertEqual(engine.displayableApps.first?.id, second.persistenceIdentifier,
+                       "When playback stops, fallback should be the most recently active app")
     }
 
     func testActiveAppIsMarkedPausedAfterSilenceGrace() {

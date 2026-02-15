@@ -2,6 +2,23 @@
 
 ## [Unreleased] - 2026-02-15
 
+### Apps List Fallback Persistence (2026-02-15)
+
+#### Changed
+- Updated apps display-state rebuilding to keep the most recently active app visible as a paused fallback row when no apps are currently active.
+- Active playback still takes precedence: when any app is active, only active apps (plus pinned inactive apps) are shown.
+- This prevents the transient `No apps playing audio` empty state during pause/stop transitions.
+
+#### Tests
+- Expanded `AudioEngineRoutingTests` with displayable-app fallback assertions:
+  - `testPausedFallbackWhenPlaybackStops`
+  - `testPausedFallbackTracksMostRecentlyActiveApp`
+  - strengthened `testActiveAppsPrecedeOverPausedFallback`
+
+#### Verified
+- `swift test --filter AudioEngineRoutingTests`
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+
 ### Session Custom Recall + New Built-In Preset (2026-02-15)
 
 #### Added
