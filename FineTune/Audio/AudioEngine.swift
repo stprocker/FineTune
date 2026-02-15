@@ -87,6 +87,9 @@ final class AudioEngine {
     /// Prevents infinite recreation loops for apps that never produce audio (e.g., CoreSpeech).
     private var deadTapRecreationCount: [pid_t: Int] = [:]
     private let maxDeadTapRecreations = 3
+    /// Throttle per-app missing-tap EQ warnings to avoid log spam during slider drags.
+    private var lastMissingTapEQLogAt: [pid_t: Date] = [:]
+    private let missingTapEQLogThrottle: TimeInterval = 5.0
     /// Routing snapshot taken before recreation events.
     /// Restored after recreation to prevent spurious notifications from corrupting persisted routing.
     private var routingSnapshot: (memory: [pid_t: String], persisted: [String: String])?
@@ -546,12 +549,20 @@ final class AudioEngine {
         for (pid, tap) in taps {
             let d = tap.diagnostics
             let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+            let eqTotal = d.eqApplied + d.eqBypassed
+            let eqBypassPct = eqTotal > 0 ? (Double(d.eqBypassed) * 100.0 / Double(eqTotal)) : 0
+            let eqCrossfadePct = d.eqBypassed > 0 ? (Double(d.eqBypassCrossfade) * 100.0 / Double(d.eqBypassed)) : 0
             logger.info("""
             [DIAG] \(appName): callbacks=\(d.callbackCount) \
             input=\(d.inputHasData) output=\(d.outputWritten) empty=\(d.emptyInput) \
             silForce=\(d.silencedForce) silMute=\(d.silencedMute) \
             conv=\(d.converterUsed) convFail=\(d.converterFailed) \
             direct=\(d.directFloat) passthru=\(d.nonFloatPassthrough) \
+            eq=\(d.eqApplied)/\(d.eqBypassed) eqBypassPct=\(String(format: "%.1f", eqBypassPct))% \
+            eqCfPct=\(String(format: "%.1f", eqCrossfadePct))% \
+            eqR=np:\(d.eqBypassNoProcessor) cf:\(d.eqBypassCrossfade) \
+            ni:\(d.eqBypassNonInterleaved) ch:\(d.eqBypassChannelMismatch) \
+            bc:\(d.eqBypassBufferCount) nil:\(d.eqBypassNoOutputData) \
             inPeak=\(String(format: "%.3f", d.lastInputPeak)) \
             outPeak=\(String(format: "%.3f", d.lastOutputPeak)) \
             outBuf=\(d.outputBufCount)x\(d.outputBuf0ByteSize)B \
@@ -891,11 +902,20 @@ final class AudioEngine {
 
     /// Update EQ settings for an app
     func setEQSettings(_ settings: EQSettings, for app: AudioApp) {
-        guard let tap = taps[app.id] else { return }
-        tap.updateEQSettings(settings)
         if settingsManager.appSettings.rememberEQ {
             settingsManager.setEQSettings(settings, for: app.persistenceIdentifier)
         }
+        guard let tap = taps[app.id] else {
+            let now = Date()
+            let lastLogAt = lastMissingTapEQLogAt[app.id] ?? .distantPast
+            if now.timeIntervalSince(lastLogAt) >= missingTapEQLogThrottle {
+                lastMissingTapEQLogAt[app.id] = now
+                logger.warning("[EQ] No active tap for \(app.name) (pid: \(app.id)); saved settings only")
+            }
+            return
+        }
+        lastMissingTapEQLogAt.removeValue(forKey: app.id)
+        tap.updateEQSettings(settings)
     }
 
     /// Get EQ settings for an app

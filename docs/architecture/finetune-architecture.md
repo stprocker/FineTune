@@ -73,7 +73,7 @@ flowchart TB
   subgraph Routing["Audio Routing (Real-Time)"]
     ProcessTapController["ProcessTapController\n(per-app audio tap,\ncrossfade state machine,\nlock-free atomic state)"]
     TapResources["TapResources\n(CoreAudio object lifecycle)"]
-    TapDiagnostics["TapDiagnostics\n(19-field RT-safe snapshot)"]
+    TapDiagnostics["TapDiagnostics\n(29-field RT-safe snapshot)"]
     EQProcessor["EQProcessor\n(10-band biquad EQ)"]
     AudioFormatConverter["AudioFormatConverter"]
     CrossfadeState["CrossfadeState\n(lock-free state machine)"]
@@ -277,7 +277,7 @@ On first launch, taps start with `.unmuted` (safe if app dies during permission 
 `ProcessTapController` uses `nonisolated(unsafe)` atomic properties for all state accessed from the audio callback thread: volume, mute, peak levels, EQ parameters, diagnostic counters. No locks, no allocations on the RT path. Uses vDSP (SIMD-optimized Accelerate) for buffer operations.
 
 ### Tap Health & Diagnostics
-`AudioEngine` runs a 3-second health check timer. `TapDiagnostics` captures 19 RT-safe counters per tap (callback counts, silence flags, converter stats, peak levels, format info). Health checks detect both stalled taps (callbacks stopped) and broken taps (callbacks running but input disconnected). Broken taps are auto-recreated.
+`AudioEngine` runs a 3-second health check timer. `TapDiagnostics` captures 29 RT-safe counters per tap (callback counts, silence flags, converter stats, EQ applied/bypassed counts, per-reason EQ bypass counters, peak levels, format info). Health checks detect both stalled taps (callbacks stopped) and broken taps (callbacks running but input disconnected). Broken taps are auto-recreated.
 
 ### coreaudiod Restart Recovery
 `AudioEngine` listens for `kAudioHardwarePropertyServiceRestarted`. On daemon restart, it destroys all stale taps, waits 1.5s for stabilization, then recreates all taps via `applyPersistedSettings()`.

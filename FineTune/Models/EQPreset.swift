@@ -26,6 +26,10 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
     case acoustic
     // Media
     case movie
+    // Headphone
+    case hpClarity
+    case hpReference
+    case hpVocalFocus
 
     public var id: String { rawValue }
 
@@ -37,6 +41,7 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
         case listening = "Listening"
         case music = "Music"
         case media = "Media"
+        case headphone = "Headphone"
 
         public var id: String { rawValue }
     }
@@ -53,6 +58,8 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
             return .music
         case .movie:
             return .media
+        case .hpClarity, .hpReference, .hpVocalFocus:
+            return .headphone
         }
     }
 
@@ -82,6 +89,9 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
         case .deep: return "Deep"
         case .acoustic: return "Acoustic"
         case .movie: return "Movie"
+        case .hpClarity: return "HP: Clarity"
+        case .hpReference: return "HP: Reference"
+        case .hpVocalFocus: return "HP: Vocal Focus"
         }
     }
 
@@ -157,6 +167,17 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
         case .movie:
             // Cinematic: bass rumble, dialogue clarity, effects detail
             return EQSettings(bandGains: [4, 4, 3, -1, -1, 1, 3, 3, 2, 1])
+
+        // MARK: - Headphone (de-bass / de-muddy for over-ear headphones)
+        case .hpClarity:
+            // Moderate bass reduction, gentle presence lift - good starting point
+            return EQSettings(bandGains: [-2, -2.5, -3.5, -3, -1.5, 0, 1, 1.5, 1, 0.5])
+        case .hpReference:
+            // Harman-inspired flat target: aggressive bass correction, slight treble taming
+            return EQSettings(bandGains: [-4, -4.5, -5, -3, -1, 0, 0, 0.5, -1, -1.5])
+        case .hpVocalFocus:
+            // Heavy bass cut, strong 2-4kHz presence boost for max definition
+            return EQSettings(bandGains: [-6, -5.5, -4.5, -3, -1.5, 1, 2.5, 3, 1, -1])
         }
     }
 }

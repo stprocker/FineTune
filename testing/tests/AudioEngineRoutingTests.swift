@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import AudioToolbox
 @testable import FineTuneIntegration
+@testable import FineTuneCore
 
 /// Tests for AudioEngine routing state management.
 ///
@@ -116,6 +117,18 @@ final class AudioEngineRoutingTests: XCTestCase {
         engine.setDevice(for: app, deviceUID: "nonexistent-device")
         XCTAssertNil(settings.getDeviceRouting(for: app.persistenceIdentifier),
                      "Failed switch with no prior routing should not leave persisted orphan routing")
+    }
+
+    /// EQ updates should still persist when no tap exists yet (e.g. app row visible but tap not created).
+    /// This avoids silent loss of user changes before audio starts.
+    func testSetEQSettingsPersistsWhenTapMissing() {
+        let app = makeFakeApp()
+        let settings = EQSettings(bandGains: [1.0, 0.5, 0, -0.5, -1.0, 0, 0.5, 1.0, 0.5, 0])
+
+        XCTAssertEqual(engine.getEQSettings(for: app), .flat, "Precondition: default EQ should be flat")
+        engine.setEQSettings(settings, for: app)
+        XCTAssertEqual(engine.getEQSettings(for: app), settings,
+                       "EQ changes should persist even if no active tap exists")
     }
 
     // MARK: - Permission confirmation safety

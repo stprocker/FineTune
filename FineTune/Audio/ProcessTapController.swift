@@ -78,6 +78,14 @@ final class ProcessTapController {
     private nonisolated(unsafe) var _diagDirectFloat: UInt64 = 0
     private nonisolated(unsafe) var _diagNonFloatPassthrough: UInt64 = 0
     private nonisolated(unsafe) var _diagEmptyInput: UInt64 = 0  // Callbacks with zero-length or nil input buffers
+    private nonisolated(unsafe) var _diagEQApplied: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassed: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassNoProcessor: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassCrossfade: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassNonInterleaved: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassChannelMismatch: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassBufferCount: UInt64 = 0
+    private nonisolated(unsafe) var _diagEQBypassNoOutputData: UInt64 = 0
     private nonisolated(unsafe) var _diagLastInputPeak: Float = 0
     private nonisolated(unsafe) var _diagLastOutputPeak: Float = 0
     private nonisolated(unsafe) var _diagOutputBufCount: UInt32 = 0
@@ -119,6 +127,32 @@ final class ProcessTapController {
     /// During crossfade, returns max of both taps for smoother VU transitions
     var audioLevel: Float { max(_peakLevel, _secondaryPeakLevel) }
 
+    enum EQBypassReason: Equatable {
+        case noProcessor
+        case crossfadeActive
+        case nonInterleaved
+        case channelMismatch
+        case bufferCount
+        case noOutputData
+    }
+
+    static func eqBypassReason(
+        hasEQProcessor: Bool,
+        isCrossfadeActive: Bool,
+        isInterleaved: Bool,
+        channelCount: Int,
+        outputBufferCount: Int,
+        hasOutputData: Bool
+    ) -> EQBypassReason? {
+        guard hasEQProcessor else { return .noProcessor }
+        guard !isCrossfadeActive else { return .crossfadeActive }
+        guard isInterleaved else { return .nonInterleaved }
+        guard channelCount == 2 else { return .channelMismatch }
+        guard outputBufferCount == 1 else { return .bufferCount }
+        guard hasOutputData else { return .noOutputData }
+        return nil
+    }
+
     // MARK: - Diagnostics (TapDiagnostics struct is in Tap/TapDiagnostics.swift)
 
     // Sums primary + secondary diagnostic counters.
@@ -139,6 +173,14 @@ final class ProcessTapController {
             directFloat: _diagDirectFloat + _diagSecondaryDirectFloat,
             nonFloatPassthrough: _diagNonFloatPassthrough + _diagSecondaryNonFloatPassthrough,
             emptyInput: _diagEmptyInput + _diagSecondaryEmptyInput,
+            eqApplied: _diagEQApplied,
+            eqBypassed: _diagEQBypassed,
+            eqBypassNoProcessor: _diagEQBypassNoProcessor,
+            eqBypassCrossfade: _diagEQBypassCrossfade,
+            eqBypassNonInterleaved: _diagEQBypassNonInterleaved,
+            eqBypassChannelMismatch: _diagEQBypassChannelMismatch,
+            eqBypassBufferCount: _diagEQBypassBufferCount,
+            eqBypassNoOutputData: _diagEQBypassNoOutputData,
             lastInputPeak: max(_diagLastInputPeak, _diagSecondaryLastInputPeak),
             lastOutputPeak: max(_diagLastOutputPeak, _diagSecondaryLastOutputPeak),
             outputBufCount: _diagOutputBufCount,
@@ -1318,12 +1360,19 @@ final class ProcessTapController {
 
         // Apply EQ processing (after volume, before output)
         // Only safe for interleaved stereo Float32
-        if let eqProcessor = eqProcessor,
-           !crossfadeState.isActive,
-           format.isInterleaved,
-           format.channelCount == 2,
-           outputBuffers.count == 1,
-           let outputData = outputBuffers[0].mData {
+        let eqBypassReason = Self.eqBypassReason(
+            hasEQProcessor: eqProcessor != nil,
+            isCrossfadeActive: crossfadeState.isActive,
+            isInterleaved: format.isInterleaved,
+            channelCount: format.channelCount,
+            outputBufferCount: outputBuffers.count,
+            hasOutputData: outputBuffers.count == 1 && outputBuffers[0].mData != nil
+        )
+        if let reason = eqBypassReason {
+            _diagEQBypassed += 1
+            incrementEQBypassReason(reason)
+        } else if let eqProcessor = eqProcessor,
+                  let outputData = outputBuffers[0].mData {
             let outputSamples = outputData.assumingMemoryBound(to: Float.self)
             let sampleCount = Int(outputBuffers[0].mDataByteSize) / MemoryLayout<Float>.size
             let frameCount = sampleCount / 2  // Stereo frames
@@ -1333,6 +1382,11 @@ final class ProcessTapController {
                 frameCount: frameCount
             )
             SoftLimiter.processBuffer(outputSamples, sampleCount: sampleCount)
+            _diagEQApplied += 1
+        } else {
+            // Defensive fallback; unreachable if eqBypassReason logic is in sync.
+            _diagEQBypassed += 1
+            _diagEQBypassNoProcessor += 1
         }
 
         _diagOutputWritten += 1
@@ -1507,6 +1561,24 @@ final class ProcessTapController {
     }
 
     // MARK: - RT-Safe Buffer Helpers
+
+    @inline(__always)
+    private func incrementEQBypassReason(_ reason: EQBypassReason) {
+        switch reason {
+        case .noProcessor:
+            _diagEQBypassNoProcessor += 1
+        case .crossfadeActive:
+            _diagEQBypassCrossfade += 1
+        case .nonInterleaved:
+            _diagEQBypassNonInterleaved += 1
+        case .channelMismatch:
+            _diagEQBypassChannelMismatch += 1
+        case .bufferCount:
+            _diagEQBypassBufferCount += 1
+        case .noOutputData:
+            _diagEQBypassNoOutputData += 1
+        }
+    }
 
     @inline(__always)
     private func zeroOutputBuffers(_ outputBuffers: UnsafeMutableAudioBufferListPointer) {

@@ -2,6 +2,36 @@
 
 ## [Unreleased] - 2026-02-14
 
+### EQ Presets + Runtime Diagnostics
+
+Added three headphone-focused EQ presets and new tap diagnostics counters to make EQ-path runtime behavior observable.
+
+#### Added
+- **`EQPreset` headphone category** with 3 new presets:
+  - `HP: Clarity`
+  - `HP: Reference`
+  - `HP: Vocal Focus`
+- **`TapDiagnostics.eqApplied` / `TapDiagnostics.eqBypassed`** counters for EQ-path visibility during tap callback processing
+- **Per-reason EQ bypass counters**:
+  - `eqBypassNoProcessor`
+  - `eqBypassCrossfade`
+  - `eqBypassNonInterleaved`
+  - `eqBypassChannelMismatch`
+  - `eqBypassBufferCount`
+  - `eqBypassNoOutputData`
+- **Tests**:
+  - `EQPresetTests.testHeadphoneCategoryPresets`
+  - `ProcessTapControllerTests.testDiagnosticsInitialState` now verifies the new EQ counters default to zero
+
+#### Changed
+- **`EQPresetTests`** expected totals updated for 23 presets across 6 categories
+- **`TapDiagnostics`** initializer now supports backward-compatible defaults for newly added EQ counters
+- **`AudioEngine.logDiagnostics()`** now includes `eq=<applied>/<bypassed>` in DIAG lines for runtime EQ-path verification
+- **`AudioEngine.logDiagnostics()`** now includes `eqR=...` breakdown for EQ bypass reason counts
+- **`AudioEngine.logDiagnostics()`** now includes `eqBypassPct` and `eqCfPct` for quick bypass-rate and crossfade-share visibility
+- **`CrossfadeConfig.defaultDuration`** restored to `50ms` default to align with crossfade test expectations and reduce EQ bypass window during switch
+- **`AudioEngine.setEQSettings()`** now persists EQ settings even when no active tap exists and emits a throttled warning instead of silently dropping updates
+
 ### Audio & UI Performance Optimizations
 
 Targeted performance improvements to the audio hot-path, device monitoring, and UI layer. All changes are behavior-preserving — no timing, API, or user-facing changes.

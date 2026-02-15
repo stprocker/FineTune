@@ -31,7 +31,7 @@ final class EQPresetTests: XCTestCase {
     }
 
     func testTotalPresetCount() {
-        XCTAssertEqual(EQPreset.allCases.count, 20, "Should have exactly 20 presets")
+        XCTAssertEqual(EQPreset.allCases.count, 23, "Should have exactly 23 presets")
     }
 
     // MARK: - Flat preset
@@ -81,6 +81,60 @@ final class EQPresetTests: XCTestCase {
         XCTAssertEqual(Set(presets), expected)
     }
 
+    func testHeadphoneCategoryPresets() {
+        let presets = EQPreset.presets(for: .headphone)
+        let expected: Set<EQPreset> = [.hpClarity, .hpReference, .hpVocalFocus]
+        XCTAssertEqual(Set(presets), expected)
+        XCTAssertEqual(presets.count, 3)
+    }
+
+    func testHeadphonePresetsAreEnabledAndNonFlat() {
+        let presets: [EQPreset] = [.hpClarity, .hpReference, .hpVocalFocus]
+        for preset in presets {
+            XCTAssertTrue(preset.settings.isEnabled, "\(preset.name) should be enabled")
+            XCTAssertTrue(
+                preset.settings.bandGains.contains { $0 != 0 },
+                "\(preset.name) should not be flat"
+            )
+        }
+    }
+
+    func testHeadphonePresetABBassCutProgression() {
+        let clarity = EQPreset.hpClarity.settings.bandGains
+        let reference = EQPreset.hpReference.settings.bandGains
+        let vocal = EQPreset.hpVocalFocus.settings.bandGains
+
+        XCTAssertLessThan(reference[0], clarity[0], "Reference should cut 31Hz more than Clarity")
+        XCTAssertLessThan(vocal[0], reference[0], "Vocal Focus should cut 31Hz more than Reference")
+        XCTAssertLessThan(reference[1], clarity[1], "Reference should cut 62Hz more than Clarity")
+        XCTAssertLessThan(vocal[1], reference[1], "Vocal Focus should cut 62Hz more than Reference")
+    }
+
+    func testHeadphonePresetABPresenceProgression() {
+        let clarity = EQPreset.hpClarity.settings.bandGains
+        let reference = EQPreset.hpReference.settings.bandGains
+        let vocal = EQPreset.hpVocalFocus.settings.bandGains
+
+        XCTAssertGreaterThan(clarity[6], reference[6], "Clarity should boost 2kHz more than Reference")
+        XCTAssertGreaterThan(vocal[6], clarity[6], "Vocal Focus should boost 2kHz more than Clarity")
+        XCTAssertGreaterThan(clarity[7], reference[7], "Clarity should boost 4kHz more than Reference")
+        XCTAssertGreaterThan(vocal[7], clarity[7], "Vocal Focus should boost 4kHz more than Clarity")
+    }
+
+    func testHeadphonePresetABHasLargeOverallDifference() {
+        let clarity = EQPreset.hpClarity.settings.bandGains
+        let vocal = EQPreset.hpVocalFocus.settings.bandGains
+        let totalAbsoluteDelta = zip(clarity, vocal).reduce(Float(0)) { partial, pair in
+            partial + abs(pair.0 - pair.1)
+        }
+
+        XCTAssertGreaterThan(
+            totalAbsoluteDelta,
+            10.0,
+            "Clarity vs Vocal Focus should be a clearly distinct A/B profile"
+        )
+    }
+
     func testAllCategoriesCoverAllPresets() {
         var allFromCategories: Set<EQPreset> = []
         for category in EQPreset.Category.allCases {
@@ -120,7 +174,7 @@ final class EQPresetTests: XCTestCase {
     // MARK: - Category count
 
     func testCategoryCount() {
-        XCTAssertEqual(EQPreset.Category.allCases.count, 5)
+        XCTAssertEqual(EQPreset.Category.allCases.count, 6)
     }
 
     // MARK: - Specific preset characteristics

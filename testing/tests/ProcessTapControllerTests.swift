@@ -108,6 +108,14 @@ final class ProcessTapControllerTests: XCTestCase {
         XCTAssertEqual(diag.directFloat, 0)
         XCTAssertEqual(diag.nonFloatPassthrough, 0)
         XCTAssertEqual(diag.emptyInput, 0)
+        XCTAssertEqual(diag.eqApplied, 0)
+        XCTAssertEqual(diag.eqBypassed, 0)
+        XCTAssertEqual(diag.eqBypassNoProcessor, 0)
+        XCTAssertEqual(diag.eqBypassCrossfade, 0)
+        XCTAssertEqual(diag.eqBypassNonInterleaved, 0)
+        XCTAssertEqual(diag.eqBypassChannelMismatch, 0)
+        XCTAssertEqual(diag.eqBypassBufferCount, 0)
+        XCTAssertEqual(diag.eqBypassNoOutputData, 0)
 
         // Volume reflects current state
         XCTAssertEqual(diag.volume, 0.8, accuracy: 0.001)
@@ -120,6 +128,92 @@ final class ProcessTapControllerTests: XCTestCase {
         let controller = makeTapController()
         controller.volume = 1.5
         XCTAssertEqual(controller.diagnostics.volume, 1.5, accuracy: 0.001)
+    }
+
+    // MARK: - EQ Bypass Reason Decision
+
+    func testEQBypassReasonReturnsNilWhenEQCanRun() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: true,
+            isCrossfadeActive: false,
+            isInterleaved: true,
+            channelCount: 2,
+            outputBufferCount: 1,
+            hasOutputData: true
+        )
+        XCTAssertNil(reason)
+    }
+
+    func testEQBypassReasonNoProcessor() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: false,
+            isCrossfadeActive: false,
+            isInterleaved: true,
+            channelCount: 2,
+            outputBufferCount: 1,
+            hasOutputData: true
+        )
+        XCTAssertEqual(reason, .noProcessor)
+    }
+
+    func testEQBypassReasonCrossfade() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: true,
+            isCrossfadeActive: true,
+            isInterleaved: true,
+            channelCount: 2,
+            outputBufferCount: 1,
+            hasOutputData: true
+        )
+        XCTAssertEqual(reason, .crossfadeActive)
+    }
+
+    func testEQBypassReasonNonInterleaved() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: true,
+            isCrossfadeActive: false,
+            isInterleaved: false,
+            channelCount: 2,
+            outputBufferCount: 1,
+            hasOutputData: true
+        )
+        XCTAssertEqual(reason, .nonInterleaved)
+    }
+
+    func testEQBypassReasonChannelMismatch() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: true,
+            isCrossfadeActive: false,
+            isInterleaved: true,
+            channelCount: 1,
+            outputBufferCount: 1,
+            hasOutputData: true
+        )
+        XCTAssertEqual(reason, .channelMismatch)
+    }
+
+    func testEQBypassReasonBufferCount() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: true,
+            isCrossfadeActive: false,
+            isInterleaved: true,
+            channelCount: 2,
+            outputBufferCount: 2,
+            hasOutputData: true
+        )
+        XCTAssertEqual(reason, .bufferCount)
+    }
+
+    func testEQBypassReasonNoOutputData() {
+        let reason = ProcessTapController.eqBypassReason(
+            hasEQProcessor: true,
+            isCrossfadeActive: false,
+            isInterleaved: true,
+            channelCount: 2,
+            outputBufferCount: 1,
+            hasOutputData: false
+        )
+        XCTAssertEqual(reason, .noOutputData)
     }
 
     // MARK: - Audio Level (VU Meter)
