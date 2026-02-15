@@ -1376,6 +1376,9 @@ final class ProcessTapController {
             let outputSamples = outputData.assumingMemoryBound(to: Float.self)
             let sampleCount = Int(outputBuffers[0].mDataByteSize) / MemoryLayout<Float>.size
             let frameCount = sampleCount / 2  // Stereo frames
+            // Pre-EQ gain reduction for headroom management
+            var preamp = eqProcessor.preampScalar
+            vDSP_vsmul(outputSamples, 1, &preamp, outputSamples, 1, vDSP_Length(sampleCount))
             eqProcessor.process(
                 input: outputSamples,
                 output: outputSamples,
@@ -1544,6 +1547,9 @@ final class ProcessTapController {
             let outputSamples = outputData.assumingMemoryBound(to: Float.self)
             let sampleCount = Int(outputBuffers[0].mDataByteSize) / MemoryLayout<Float>.size
             let frameCount = sampleCount / 2  // Stereo frames
+            // Pre-EQ gain reduction for headroom management
+            var preamp = eqProcessor.preampScalar
+            vDSP_vsmul(outputSamples, 1, &preamp, outputSamples, 1, vDSP_Length(sampleCount))
             eqProcessor.process(
                 input: outputSamples,
                 output: outputSamples,
