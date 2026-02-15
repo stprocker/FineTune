@@ -42,6 +42,7 @@ struct MenuBarPopupView: View {
                     onResetAll: {
                         audioEngine.settingsManager.resetAllSettings()
                         viewModel.localAppSettings = audioEngine.settingsManager.appSettings
+                        viewModel.refreshCustomEQPresets()
                         // Sync Core Audio: system sounds should follow default after reset
                         deviceVolumeMonitor.setSystemFollowDefault()
                     },
@@ -399,6 +400,19 @@ struct MenuBarPopupView: View {
             onEQChange: { settings in
                 audioEngine.setEQSettings(settings, for: app)
             },
+            customEQPresets: viewModel.customEQPresets,
+            onSaveCustomEQPreset: { name, gains in
+                try viewModel.saveCustomEQPreset(name: name, bandGains: gains)
+            },
+            onOverwriteCustomEQPreset: { id, gains in
+                try viewModel.overwriteCustomEQPreset(id: id, bandGains: gains)
+            },
+            onRenameCustomEQPreset: { id, newName in
+                try viewModel.renameCustomEQPreset(id: id, to: newName)
+            },
+            onDeleteCustomEQPreset: { id in
+                viewModel.deleteCustomEQPreset(id: id)
+            },
             isEQExpanded: viewModel.expandedEQAppID == displayableApp.id,
             onEQToggle: {
                 withAnimation(DesignTokens.Animation.eqToggle) {
@@ -449,6 +463,19 @@ struct MenuBarPopupView: View {
             eqSettings: audioEngine.getEQSettingsForInactive(identifier: identifier),
             onEQChange: { settings in
                 audioEngine.setEQSettingsForInactive(settings, identifier: identifier)
+            },
+            customEQPresets: viewModel.customEQPresets,
+            onSaveCustomEQPreset: { name, gains in
+                try viewModel.saveCustomEQPreset(name: name, bandGains: gains)
+            },
+            onOverwriteCustomEQPreset: { id, gains in
+                try viewModel.overwriteCustomEQPreset(id: id, bandGains: gains)
+            },
+            onRenameCustomEQPreset: { id, newName in
+                try viewModel.renameCustomEQPreset(id: id, to: newName)
+            },
+            onDeleteCustomEQPreset: { id in
+                viewModel.deleteCustomEQPreset(id: id)
             },
             isEQExpanded: viewModel.expandedEQAppID == displayableApp.id,
             onEQToggle: {

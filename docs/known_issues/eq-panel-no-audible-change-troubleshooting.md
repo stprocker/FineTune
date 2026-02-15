@@ -12,6 +12,16 @@ Users may move EQ sliders or select an EQ preset and hear no change.
 - Post-EQ soft limiter threshold raised from 0.8 to 0.9 (ceiling unchanged at 1.0).
 - EQ panel now labels sliders as `Band Gain (dB)` to clarify units.
 
+## Custom Preset Behavior (2026-02-15)
+- Custom EQ presets are global (shared across app rows), not per-app.
+- Maximum custom presets: 5.
+- Preset matching precedence for label/checkmark:
+  1. Built-in preset exact gain match
+  2. Custom preset exact gain match
+  3. Otherwise `Custom`
+- When custom preset storage is full, save-new routes users to overwrite flow.
+- Save/rename name entry now uses an inline editor overlay (not modal sheet) to avoid menu bar panel key-window issues.
+
 ## Likely Runtime Causes
 1. EQ is disabled for that app (`isEnabled == false`).
 2. No tap exists yet for the app PID, so realtime EQ apply is skipped until tap creation.

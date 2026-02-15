@@ -93,6 +93,7 @@ flowchart TB
     AudioDevice["AudioDevice"]
     EQSettings["EQSettings\n(10 bands, ±18dB)"]
     EQPreset["EQPreset"]
+    CustomEQPreset["CustomEQPreset\n(global user presets, max 5)"]
     VolumeMapping["VolumeMapping\n(linear gain ↔ log slider)"]
   end
 
@@ -211,6 +212,7 @@ flowchart TB
 
   %% Persistence
   SettingsManager --> SettingsFiles
+  SettingsManager --> CustomEQPreset
   VolumeState --> SettingsFiles
 
   %% URL Handler

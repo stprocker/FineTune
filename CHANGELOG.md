@@ -2,6 +2,82 @@
 
 ## [Unreleased] - 2026-02-14
 
+### Session Handoff: Custom EQ Presets, Rename Crash Fix, and UI Polish (2026-02-15)
+
+Comprehensive handoff documentation for this implementation and polish cycle is recorded at:
+`docs/ai-chat-history/2026-02-15-custom-eq-presets-crash-fix-and-ui-polish-handoff.md`
+
+#### Changed
+- Added full custom EQ preset workflow (save/overwrite/rename/delete, max 5 presets) with persistence and validation.
+- Fixed rename crash path in menu bar panel context by replacing save/rename sheet presentation with inline overlay editor UI in `EQPanelView`.
+- Enabled visible grouped-dropdown scroll indicators for preset menu discoverability.
+- Updated preset menu organization:
+  - moved `Custom` section to top
+  - removed visible `Actions` subcategory label
+  - suppressed empty section headers in grouped dropdown rendering
+- Improved inline save/rename editor contrast with opaque surface + shadow.
+
+#### Verified
+- `swift test --filter SettingsManagerRoutingTests`
+- `swift test`
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+
+### Custom Preset Rename Crash Fix (2026-02-15)
+
+Fixed a crash path when invoking custom preset rename from the menu bar panel.
+
+#### Changed
+- Replaced save/rename `.sheet` presentation in `EQPanelView` with an inline overlay editor to avoid `NSPanel` key-window promotion issues.
+- Kept save/rename behavior the same (name entry + submit/cancel), but without opening a separate sheet window.
+
+#### Verified
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+- `swift test --filter SettingsManagerRoutingTests`
+
+### Custom EQ Presets (Up To 5) (2026-02-15)
+
+Added support for user-defined custom EQ presets with save/overwrite/rename/delete flows in the EQ panel.
+
+#### Added
+- **`CustomEQPreset` model** with global preset storage and `max 5` enforcement
+- **Preset selection resolver** (`built-in` first, then `custom`, otherwise unsaved `Custom`)
+- **`SettingsManager` custom preset APIs**:
+  - `getCustomEQPresets()`
+  - `saveCustomEQPreset(...)`
+  - `overwriteCustomEQPreset(...)`
+  - `renameCustomEQPreset(...)`
+  - `deleteCustomEQPreset(...)`
+- **`MenuBarPopupViewModel` custom preset orchestration** and refresh hooks
+- **EQ panel UI actions**:
+  - Save Current as New
+  - Overwrite Custom Preset
+  - Rename Custom Preset
+  - Delete Custom Preset
+
+#### Changed
+- **`EQPresetPicker`** now supports:
+  - built-in presets
+  - custom presets section (`Custom x/5`)
+  - action rows
+- **`EQPanelView`** now resolves active preset label/checkmark from current gains and handles custom-preset dialogs
+- **`AppRow` / `InactiveAppRow` / `MenuBarPopupView` wiring** now passes custom preset state and actions through the row stack
+- **`SettingsManager.Settings.version`** bumped to `6` and includes `customEQPresets`
+
+#### Tests
+- Expanded `SettingsManagerRoutingTests` with fail-first + passing coverage for:
+  - max-5 enforcement and sixth-save rejection
+  - rename duplicate-name rejection
+  - overwrite timestamp + gain updates
+  - delete behavior
+  - persistence round-trip
+  - legacy settings load without `customEQPresets`
+  - selection precedence (built-in > custom > unsaved custom)
+- Verified with:
+  - `swift test --filter SettingsManagerRoutingTests`
+  - full `swift test` (`359` tests, `0` failures)
+- Verified app compile with:
+  - `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+
 ### EQ Slider Impact + Label Clarity (2026-02-15)
 
 Tuned EQ defaults to make per-band changes more audible and clarified the EQ unit labeling in the panel.

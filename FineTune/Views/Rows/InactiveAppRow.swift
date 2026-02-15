@@ -23,6 +23,11 @@ struct InactiveAppRow: View {
     let onUnpin: () -> Void
     let eqSettings: EQSettings
     let onEQChange: (EQSettings) -> Void
+    let customEQPresets: [CustomEQPreset]
+    let onSaveCustomEQPreset: (String, [Float]) throws -> Void
+    let onOverwriteCustomEQPreset: (UUID, [Float]) throws -> Void
+    let onRenameCustomEQPreset: (UUID, String) throws -> Void
+    let onDeleteCustomEQPreset: (UUID) -> Void
     let isEQExpanded: Bool
     let onEQToggle: () -> Void
     let deviceSelectionMode: DeviceSelectionMode
@@ -70,6 +75,11 @@ struct InactiveAppRow: View {
         onUnpin: @escaping () -> Void,
         eqSettings: EQSettings = EQSettings(),
         onEQChange: @escaping (EQSettings) -> Void = { _ in },
+        customEQPresets: [CustomEQPreset] = [],
+        onSaveCustomEQPreset: @escaping (String, [Float]) throws -> Void = { _, _ in },
+        onOverwriteCustomEQPreset: @escaping (UUID, [Float]) throws -> Void = { _, _ in },
+        onRenameCustomEQPreset: @escaping (UUID, String) throws -> Void = { _, _ in },
+        onDeleteCustomEQPreset: @escaping (UUID) -> Void = { _ in },
         isEQExpanded: Bool = false,
         onEQToggle: @escaping () -> Void = {},
         deviceSelectionMode: DeviceSelectionMode = .single,
@@ -89,6 +99,11 @@ struct InactiveAppRow: View {
         self.onUnpin = onUnpin
         self.eqSettings = eqSettings
         self.onEQChange = onEQChange
+        self.customEQPresets = customEQPresets
+        self.onSaveCustomEQPreset = onSaveCustomEQPreset
+        self.onOverwriteCustomEQPreset = onOverwriteCustomEQPreset
+        self.onRenameCustomEQPreset = onRenameCustomEQPreset
+        self.onDeleteCustomEQPreset = onDeleteCustomEQPreset
         self.isEQExpanded = isEQExpanded
         self.onEQToggle = onEQToggle
         self.deviceSelectionMode = deviceSelectionMode
@@ -206,13 +221,24 @@ struct InactiveAppRow: View {
             // EQ panel - shown when expanded
             EQPanelView(
                 settings: $localEQSettings,
-                onPresetSelected: { preset in
-                    localEQSettings = preset.settings
-                    onEQChange(preset.settings)
+                customPresets: customEQPresets,
+                onPresetSelected: { selected in
+                    switch selected {
+                    case .builtIn(let preset):
+                        localEQSettings = preset.settings
+                        onEQChange(preset.settings)
+                    case .custom(let preset):
+                        localEQSettings = preset.eqSettings
+                        onEQChange(preset.eqSettings)
+                    case .customUnsaved:
+                        break
+                    }
                 },
-                onSettingsChanged: { settings in
-                    onEQChange(settings)
-                }
+                onSettingsChanged: onEQChange,
+                onSaveCustomPreset: onSaveCustomEQPreset,
+                onOverwriteCustomPreset: onOverwriteCustomEQPreset,
+                onRenameCustomPreset: onRenameCustomEQPreset,
+                onDeleteCustomPreset: onDeleteCustomEQPreset
             )
             .padding(.top, DesignTokens.Spacing.sm)
         }

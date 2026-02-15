@@ -124,7 +124,7 @@ private struct DropdownContentView<Item: Identifiable, ItemContent: View>: View 
     @ViewBuilder let itemContent: (Item, Bool) -> ItemContent
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        ScrollView(.vertical, showsIndicators: true) {
             LazyVStack(spacing: 1) {
                 ForEach(items) { item in
                     DropdownMenuItem(
@@ -264,14 +264,17 @@ private struct GroupedDropdownContentView<Section: Identifiable & Hashable, Item
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(sections) { section in
-                    // Section header
-                    Text(sectionTitle(section))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.top, section.id == sections.first?.id ? 2 : 8)
-                        .padding(.bottom, 2)
-                        .frame(height: sectionHeaderHeight, alignment: .bottomLeading)
+                    let title = sectionTitle(section)
+                    if !title.isEmpty {
+                        // Section header
+                        Text(title)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.top, section.id == sections.first?.id ? 2 : 8)
+                            .padding(.bottom, 2)
+                            .frame(height: sectionHeaderHeight, alignment: .bottomLeading)
+                    }
 
                     // Items in section
                     ForEach(itemsForSection(section)) { item in

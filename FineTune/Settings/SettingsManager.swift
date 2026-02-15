@@ -63,6 +63,14 @@ enum StartupRoutingPolicy: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum CustomEQPresetError: Error, Equatable {
+    case nameRequired
+    case nameTooLong
+    case duplicateName
+    case limitReached
+    case notFound
+}
+
 // MARK: - App-Wide Settings Model
 
 struct AppSettings: Codable, Equatable {
@@ -129,11 +137,12 @@ final class SettingsManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "SettingsManager")
 
     struct Settings: Codable {
-        var version: Int = 5
+        var version: Int = 6
         var appVolumes: [String: Float] = [:]
         var appDeviceRouting: [String: String] = [:]  // bundleID → deviceUID
         var appMutes: [String: Bool] = [:]  // bundleID → isMuted
         var appEQSettings: [String: EQSettings] = [:]  // bundleID → EQ settings
+        var customEQPresets: [CustomEQPreset] = []
         var appSettings: AppSettings = AppSettings()
         var systemSoundsFollowsDefault: Bool = true
         var appDeviceSelectionMode: [String: DeviceSelectionMode] = [:]
@@ -249,6 +258,85 @@ final class SettingsManager {
         scheduleSave()
     }
 
+    // MARK: - Custom EQ Presets
+
+    func getCustomEQPresets() -> [CustomEQPreset] {
+        settings.customEQPresets.sorted { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt {
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    func saveCustomEQPreset(name: String, bandGains: [Float]) throws -> CustomEQPreset {
+        guard settings.customEQPresets.count < CustomEQPreset.maxCount else {
+            throw CustomEQPresetError.limitReached
+        }
+
+        let validatedName = try validateCustomPresetName(name, excludingID: nil)
+        let preset = CustomEQPreset(name: validatedName, bandGains: bandGains, updatedAt: Date())
+        settings.customEQPresets.append(preset)
+        scheduleSave()
+        return preset
+    }
+
+    func overwriteCustomEQPreset(id: UUID, bandGains: [Float]) throws -> CustomEQPreset {
+        guard let index = settings.customEQPresets.firstIndex(where: { $0.id == id }) else {
+            throw CustomEQPresetError.notFound
+        }
+
+        settings.customEQPresets[index].bandGains = EQSettings(bandGains: bandGains).clampedGains
+        settings.customEQPresets[index].updatedAt = Date()
+        scheduleSave()
+        return settings.customEQPresets[index]
+    }
+
+    func renameCustomEQPreset(id: UUID, to newName: String) throws -> CustomEQPreset {
+        guard let index = settings.customEQPresets.firstIndex(where: { $0.id == id }) else {
+            throw CustomEQPresetError.notFound
+        }
+
+        let validatedName = try validateCustomPresetName(newName, excludingID: id)
+        settings.customEQPresets[index].name = validatedName
+        settings.customEQPresets[index].updatedAt = Date()
+        scheduleSave()
+        return settings.customEQPresets[index]
+    }
+
+    @discardableResult
+    func deleteCustomEQPreset(id: UUID) -> Bool {
+        guard let index = settings.customEQPresets.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+
+        settings.customEQPresets.remove(at: index)
+        scheduleSave()
+        return true
+    }
+
+    private func validateCustomPresetName(_ name: String, excludingID: UUID?) throws -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CustomEQPresetError.nameRequired
+        }
+        guard trimmed.count <= CustomEQPreset.maxNameLength else {
+            throw CustomEQPresetError.nameTooLong
+        }
+
+        let folded = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let hasConflict = settings.customEQPresets.contains { preset in
+            guard preset.id != excludingID else { return false }
+            let existing = preset.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return existing == folded
+        }
+        guard !hasConflict else {
+            throw CustomEQPresetError.duplicateName
+        }
+
+        return trimmed
+    }
+
     // MARK: - Device Selection Mode
 
     func getDeviceSelectionMode(for identifier: String) -> DeviceSelectionMode? {
@@ -344,6 +432,7 @@ final class SettingsManager {
         settings.appDeviceRouting.removeAll()
         settings.appMutes.removeAll()
         settings.appEQSettings.removeAll()
+        settings.customEQPresets.removeAll()
         settings.appDeviceSelectionMode.removeAll()
         settings.appSelectedDeviceUIDs.removeAll()
         settings.pinnedApps.removeAll()
@@ -366,7 +455,7 @@ final class SettingsManager {
         do {
             let data = try Data(contentsOf: settingsURL)
             settings = try JSONDecoder().decode(Settings.self, from: data)
-            logger.debug("Loaded settings with \(self.settings.appVolumes.count) volumes, \(self.settings.appDeviceRouting.count) device routings, \(self.settings.appMutes.count) mutes, \(self.settings.appEQSettings.count) EQ settings")
+            logger.debug("Loaded settings with \(self.settings.appVolumes.count) volumes, \(self.settings.appDeviceRouting.count) device routings, \(self.settings.appMutes.count) mutes, \(self.settings.appEQSettings.count) EQ settings, \(self.settings.customEQPresets.count) custom EQ presets")
         } catch {
             logger.error("Failed to load settings: \(error.localizedDescription)")
             let backupURL = settingsURL.deletingPathExtension().appendingPathExtension("backup.json")

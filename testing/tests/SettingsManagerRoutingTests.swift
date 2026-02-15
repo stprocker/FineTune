@@ -1,5 +1,6 @@
 import XCTest
 @testable import FineTuneIntegration
+@testable import FineTuneCore
 
 /// Tests for SettingsManager device routing persistence.
 ///
@@ -244,5 +245,133 @@ final class SettingsManagerRoutingTests: XCTestCase {
         let reloaded = SettingsManager(directory: tempDir)
         XCTAssertEqual(reloaded.appSettings.startupRoutingPolicy, .followSystemDefault,
                        "Startup routing policy should survive save + reload")
+    }
+
+    // MARK: - Custom EQ Presets
+
+    func testSaveCustomEQPresetUpToFive() throws {
+        for i in 1...5 {
+            _ = try settings.saveCustomEQPreset(
+                name: "Custom \(i)",
+                bandGains: Array(repeating: Float(i), count: EQSettings.bandCount)
+            )
+        }
+
+        let presets = settings.getCustomEQPresets()
+        XCTAssertEqual(presets.count, 5, "Should store at most 5 custom presets")
+        XCTAssertEqual(Set(presets.map(\.name)).count, 5, "Preset names should be unique")
+    }
+
+    func testSavingSixthCustomEQPresetThrowsLimitReached() throws {
+        for i in 1...5 {
+            _ = try settings.saveCustomEQPreset(
+                name: "Custom \(i)",
+                bandGains: Array(repeating: 0, count: EQSettings.bandCount)
+            )
+        }
+
+        XCTAssertThrowsError(
+            try settings.saveCustomEQPreset(
+                name: "Custom 6",
+                bandGains: Array(repeating: 1, count: EQSettings.bandCount)
+            )
+        ) { error in
+            XCTAssertEqual(error as? CustomEQPresetError, .limitReached)
+        }
+    }
+
+    func testRenameCustomEQPresetRejectsDuplicateName() throws {
+        let a = try settings.saveCustomEQPreset(name: "Alpha", bandGains: Array(repeating: 0, count: EQSettings.bandCount))
+        _ = try settings.saveCustomEQPreset(name: "Beta", bandGains: Array(repeating: 1, count: EQSettings.bandCount))
+
+        XCTAssertThrowsError(try settings.renameCustomEQPreset(id: a.id, to: "Beta")) { error in
+            XCTAssertEqual(error as? CustomEQPresetError, .duplicateName)
+        }
+    }
+
+    func testOverwriteCustomEQPresetUpdatesGainsAndTimestamp() throws {
+        let original = try settings.saveCustomEQPreset(name: "Alpha", bandGains: Array(repeating: 0, count: EQSettings.bandCount))
+        let before = original.updatedAt
+
+        usleep(20_000) // ensure measurable timestamp delta
+        let overwritten = try settings.overwriteCustomEQPreset(
+            id: original.id,
+            bandGains: Array(repeating: 6, count: EQSettings.bandCount)
+        )
+
+        XCTAssertEqual(overwritten.id, original.id)
+        XCTAssertEqual(overwritten.name, original.name)
+        XCTAssertEqual(overwritten.bandGains, Array(repeating: 6, count: EQSettings.bandCount))
+        XCTAssertGreaterThan(overwritten.updatedAt, before)
+    }
+
+    func testDeleteCustomEQPresetRemovesEntry() throws {
+        let preset = try settings.saveCustomEQPreset(name: "Delete Me", bandGains: Array(repeating: 0, count: EQSettings.bandCount))
+        XCTAssertTrue(settings.deleteCustomEQPreset(id: preset.id))
+        XCTAssertTrue(settings.getCustomEQPresets().isEmpty)
+    }
+
+    func testCustomEQPresetsSurviveSaveAndReload() throws {
+        _ = try settings.saveCustomEQPreset(name: "Room", bandGains: [2, 2, 1, 0, 0, 0, 1, 2, 2, 1])
+        _ = try settings.saveCustomEQPreset(name: "Speech", bandGains: [-4, -2, -1, -2, 0, 2, 4, 4, 2, 0])
+        settings.flushSync()
+
+        let reloaded = SettingsManager(directory: tempDir)
+        let names = reloaded.getCustomEQPresets().map(\.name)
+        XCTAssertEqual(Set(names), Set(["Room", "Speech"]))
+    }
+
+    func testLegacySettingsWithoutCustomEQPresetsLoadsWithEmptyList() throws {
+        let fineTuneDir = tempDir.appendingPathComponent("FineTune")
+        try FileManager.default.createDirectory(at: fineTuneDir, withIntermediateDirectories: true)
+        let legacyURL = fineTuneDir.appendingPathComponent("settings.json")
+        let legacyJSON = """
+        {
+          "version": 5,
+          "appVolumes": {},
+          "appDeviceRouting": {},
+          "appMutes": {},
+          "appEQSettings": {},
+          "appSettings": {},
+          "systemSoundsFollowsDefault": true,
+          "appDeviceSelectionMode": {},
+          "appSelectedDeviceUIDs": {},
+          "lockedInputDeviceUID": null,
+          "pinnedApps": [],
+          "pinnedAppInfo": {}
+        }
+        """
+        try legacyJSON.data(using: .utf8)!.write(to: legacyURL, options: .atomic)
+
+        let reloaded = SettingsManager(directory: tempDir)
+        XCTAssertTrue(reloaded.getCustomEQPresets().isEmpty)
+    }
+
+    func testResolveEQPresetSelectionPrefersBuiltInOverCustom() {
+        let custom = CustomEQPreset(name: "My Flat", bandGains: Array(repeating: 0, count: EQSettings.bandCount))
+        let selection = resolveEQPresetSelection(
+            bandGains: EQPreset.flat.settings.bandGains,
+            customPresets: [custom]
+        )
+
+        XCTAssertEqual(selection, .builtIn(.flat))
+    }
+
+    func testResolveEQPresetSelectionReturnsCustomWhenNoBuiltInMatch() {
+        let customGains: [Float] = [1, 2, 3, 2, 1, 0, 1, 2, 1, 0]
+        let custom = CustomEQPreset(name: "My Curve", bandGains: customGains)
+        let selection = resolveEQPresetSelection(bandGains: customGains, customPresets: [custom])
+
+        XCTAssertEqual(selection, .custom(custom))
+    }
+
+    func testResolveEQPresetSelectionReturnsUnsavedWhenNoMatch() {
+        let gains: [Float] = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let selection = resolveEQPresetSelection(
+            bandGains: gains,
+            customPresets: []
+        )
+
+        XCTAssertEqual(selection, .customUnsaved)
     }
 }

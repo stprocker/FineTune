@@ -35,6 +35,9 @@ final class MenuBarPopupViewModel {
     /// Local copy of app settings for binding
     var localAppSettings: AppSettings = AppSettings()
 
+    /// Global custom EQ presets (shared across apps)
+    var customEQPresets: [CustomEQPreset] = []
+
     /// Update manager for Sparkle integration
     let updateManager: UpdateManager
 
@@ -46,6 +49,7 @@ final class MenuBarPopupViewModel {
         self.deviceVolumeMonitor = deviceVolumeMonitor
         self.updateManager = UpdateManager()
         self.localAppSettings = audioEngine.settingsManager.appSettings
+        self.customEQPresets = audioEngine.settingsManager.getCustomEQPresets()
     }
 
     // MARK: - Settings Toggle
@@ -65,6 +69,32 @@ final class MenuBarPopupViewModel {
     /// Syncs local app settings back to the settings manager.
     func syncSettings() {
         audioEngine.settingsManager.updateAppSettings(localAppSettings)
+    }
+
+    // MARK: - Custom EQ Presets
+
+    func refreshCustomEQPresets() {
+        customEQPresets = audioEngine.settingsManager.getCustomEQPresets()
+    }
+
+    func saveCustomEQPreset(name: String, bandGains: [Float]) throws {
+        _ = try audioEngine.settingsManager.saveCustomEQPreset(name: name, bandGains: bandGains)
+        refreshCustomEQPresets()
+    }
+
+    func overwriteCustomEQPreset(id: UUID, bandGains: [Float]) throws {
+        _ = try audioEngine.settingsManager.overwriteCustomEQPreset(id: id, bandGains: bandGains)
+        refreshCustomEQPresets()
+    }
+
+    func renameCustomEQPreset(id: UUID, to newName: String) throws {
+        _ = try audioEngine.settingsManager.renameCustomEQPreset(id: id, to: newName)
+        refreshCustomEQPresets()
+    }
+
+    func deleteCustomEQPreset(id: UUID) {
+        _ = audioEngine.settingsManager.deleteCustomEQPreset(id: id)
+        refreshCustomEQPresets()
     }
 
     // MARK: - EQ Toggle
