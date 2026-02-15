@@ -1,5 +1,71 @@
 # Changelog
 
+## [Unreleased] - 2026-02-15
+
+### Session Custom Recall + New Built-In Preset (2026-02-15)
+
+#### Added
+- **Session `Custom` recall slot** (separate from the 5 saved custom presets):
+  - Selecting built-in/saved presets no longer discards the last unsaved curve during the active app-row session.
+  - Selecting `Custom` in the preset picker restores the last unsaved custom gains for that row.
+- **New built-in preset: `Balanced`** in the Utility category.
+
+#### Changed
+- `EQPresetPicker` now includes a selectable `Custom` item in the Custom section (in addition to saved custom presets).
+- Added helper functions in `CustomEQPreset.swift` to resolve/cache session custom gains deterministically.
+- Updated `AppRow` preset handling to restore session custom gains when `Custom` is selected.
+
+#### Tests
+- Added fail-first + passing tests for session custom cache behavior in `SettingsManagerRoutingTests`.
+- Updated `EQPresetTests` preset count and utility-category expectations for `Balanced`.
+
+#### Verified
+- `swift test --filter 'FineTuneCoreTests\\.(EQPresetTests)|FineTuneIntegrationTests\\.(SettingsManagerRoutingTests)'`
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+
+### EQ Preset Save Action Visibility Fix (2026-02-15)
+
+#### Changed
+- Reordered preset dropdown sections in `EQPresetPicker` so action rows render first (`Save Current as New...`, overwrite, rename, delete), then custom presets, then built-in presets.
+- Kept the actions section header hidden (no visible "Action" label) while preserving all action handlers.
+
+#### Verified
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -sdk macosx build`
+- `swift test --filter SettingsManagerRoutingTests`
+
+### Adaptive EQ Redesign — Meaningful Slider Impact (2026-02-15)
+
+Complete redesign of the 10-band graphic EQ signal chain so slider adjustments produce clearly audible tonal changes. Previously, moving sliders had almost no effect due to four compounding issues: too-narrow Q, aggressive limiter, no pre-EQ headroom, and conservative presets.
+
+Comprehensive handoff documentation:
+`docs/ai-chat-history/2026-02-15-adaptive-eq-redesign-handoff.md`
+
+#### Changed
+- **Adaptive Q per band** (`BiquadMath.swift`) — replaced fixed Q=1.8 with dynamic Q computed from each band's gain: `max(0.9, 1.2 - abs(gainDB) * 0.025)`. Bandwidth widens as gain increases, counteracting the RBJ cookbook's natural narrowing at higher gains.
+- **Gain range +-18 dB to +-12 dB** (`EQSettings.swift`) — industry standard (Spotify, Apple Music, API 560, dbx). Each slider increment has more perceptual impact. Existing saved settings with gains outside +-12 silently clamped via `clampedGains`.
+- **Limiter threshold 0.9 to 0.95** (`SoftLimiter.swift`) — limiter is now a safety net for rare inter-band stacking peaks, not a constantly-engaged compressor.
+- **Automatic pre-EQ gain reduction** (`EQProcessor.swift`, `ProcessTapController.swift`) — signal attenuated by the maximum positive band gain before EQ processing via `vDSP_vsmul`. Prevents clipping while preserving spectral shape. Scalar precomputed on main thread, applied RT-safe at both callback sites.
+- **All 23 presets recalibrated** (`EQPreset.swift`) — bolder values for +-12 dB range. Bass Boost peaks at +10, Electronic +10, Hip-Hop +10, Loudness +8. Headphone presets converted from fractional to integer values.
+
+#### Tests
+- Updated `EQSettingsTests` for +-12 dB range (gain range, clamping, passthrough, codable round trip)
+- Updated `SoftLimiterTests` for threshold=0.95, headroom=0.05 (12+ tests updated)
+- Added 5 new adaptive Q tests in `BiquadMathTests` (zero gain, 6dB, 12dB, floor at 0.9, symmetry)
+- Removed old `graphicEQQ` constant test
+- **364 tests passing, 0 failures**
+
+#### Verified
+- `swift test` — 364 tests, 0 failures
+- Runtime diagnostic logs confirm pre-EQ gain reduction active (outPeak < inPeak on boost presets)
+- User listening test confirmed: "sounds pretty good!"
+
+#### Known Issues
+- SourceKit shows false compile errors for cross-module references (`BiquadMath`, `EQProcessor` in `ProcessTapController`) — IDE indexing only, actual builds succeed
+- Pre-EQ uses simple `max(gains)` — does not account for adjacent band constructive interference (limiter at 0.95 catches rare overflow)
+- Custom presets saved with gains 12-18 dB will be silently clamped (no user notification)
+
+---
+
 ## [Unreleased] - 2026-02-14
 
 ### Session Handoff: Custom EQ Presets, Rename Crash Fix, and UI Polish (2026-02-15)

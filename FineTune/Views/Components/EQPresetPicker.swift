@@ -28,12 +28,15 @@ private enum EQPresetPickerSection: String, CaseIterable, Identifiable {
 }
 
 private enum EQPresetPickerItem: Identifiable {
+    case customUnsaved
     case builtIn(EQPreset)
     case custom(CustomEQPreset)
     case action(EQPresetPickerAction)
 
     var id: String {
         switch self {
+        case .customUnsaved:
+            return "custom-unsaved"
         case .builtIn(let preset):
             return "builtin-\(preset.id)"
         case .custom(let preset):
@@ -52,7 +55,7 @@ struct EQPresetPicker: View {
     let onPresetSelected: (EQPresetSelection) -> Void
     let onActionSelected: (EQPresetPickerAction) -> Void
 
-    private var sections: [EQPresetPickerSection] { [.custom, .builtIn, .actions] }
+    private var sections: [EQPresetPickerSection] { [.actions, .custom, .builtIn] }
 
     private var selectedItem: EQPresetPickerItem? {
         switch selectedPreset {
@@ -61,7 +64,7 @@ struct EQPresetPicker: View {
         case .custom(let preset):
             return .custom(preset)
         case .customUnsaved:
-            return nil
+            return .customUnsaved
         }
     }
 
@@ -70,7 +73,7 @@ struct EQPresetPicker: View {
         case .builtIn:
             return EQPreset.allCases.map { .builtIn($0) }
         case .custom:
-            return customPresets.map { .custom($0) }
+            return [.customUnsaved] + customPresets.map { .custom($0) }
         case .actions:
             return EQPresetPickerAction.allCases.map { .action($0) }
         }
@@ -111,6 +114,8 @@ struct EQPresetPicker: View {
             popoverWidth: 210,
             onSelect: { item in
                 switch item {
+                case .customUnsaved:
+                    onPresetSelected(.customUnsaved)
                 case .builtIn(let preset):
                     onPresetSelected(.builtIn(preset))
                 case .custom(let preset):
@@ -124,6 +129,16 @@ struct EQPresetPicker: View {
             Text(selectedPreset.displayName)
         } itemContent: { item, isSelected in
             switch item {
+            case .customUnsaved:
+                HStack {
+                    Text("Custom")
+                    Spacer()
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
             case .builtIn(let preset):
                 HStack {
                     Text(preset.name)

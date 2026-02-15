@@ -67,3 +67,26 @@ func resolveEQPresetSelection(
 
     return .customUnsaved
 }
+
+/// Updates the in-session unsaved custom curve cache.
+/// Keeps the previous cache when current gains match a built-in or saved custom preset.
+func updatedSessionCustomBandGains(
+    currentBandGains: [Float],
+    existingSessionCustomBandGains: [Float]?,
+    customPresets: [CustomEQPreset]
+) -> [Float]? {
+    switch resolveEQPresetSelection(bandGains: currentBandGains, customPresets: customPresets) {
+    case .customUnsaved:
+        return EQSettings(bandGains: currentBandGains).clampedGains
+    case .builtIn, .custom:
+        return existingSessionCustomBandGains
+    }
+}
+
+/// Resolves which band gains should be restored when user selects `Custom`.
+func resolvedSessionCustomBandGains(
+    currentBandGains: [Float],
+    sessionCustomBandGains: [Float]?
+) -> [Float] {
+    sessionCustomBandGains ?? EQSettings(bandGains: currentBandGains).clampedGains
+}

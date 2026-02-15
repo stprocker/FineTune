@@ -3,6 +3,7 @@ import Foundation
 public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
     // Utility
     case flat
+    case balanced
     case bassBoost
     case bassCut
     case trebleBoost
@@ -48,7 +49,7 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
 
     public var category: Category {
         switch self {
-        case .flat, .bassBoost, .bassCut, .trebleBoost:
+        case .flat, .balanced, .bassBoost, .bassCut, .trebleBoost:
             return .utility
         case .vocalClarity, .podcast, .spokenWord:
             return .speech
@@ -70,6 +71,7 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
     public var name: String {
         switch self {
         case .flat: return "Flat"
+        case .balanced: return "Balanced"
         case .bassBoost: return "Bass Boost"
         case .bassCut: return "Bass Cut"
         case .trebleBoost: return "Treble Boost"
@@ -101,6 +103,8 @@ public enum EQPreset: String, CaseIterable, Identifiable, Sendable {
         // MARK: - Utility
         case .flat:
             return EQSettings(bandGains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        case .balanced:
+            return EQSettings(bandGains: [2, 1, 0, -1, -1, 0, 1, 2, 2, 1])
         case .bassBoost:
             return EQSettings(bandGains: [10, 8, 5, 2, 0, 0, 0, 0, 0, 0])
         case .bassCut:

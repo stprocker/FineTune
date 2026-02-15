@@ -43,6 +43,7 @@ struct AppRow: View {
     @State private var isRowHovered = false
     @State private var isPinButtonHovered = false
     @State private var localEQSettings: EQSettings
+    @State private var sessionCustomBandGains: [Float]?
 
     /// Show muted icon when explicitly muted OR volume is 0
     private var showMutedIcon: Bool { isMutedExternal || sliderValue == 0 }
@@ -130,6 +131,14 @@ struct AppRow: View {
         self._sliderValue = State(initialValue: VolumeMapping.gainToSlider(volume))
         // Initialize local EQ state for reactive UI updates
         self._localEQSettings = State(initialValue: eqSettings)
+        // Cache the initial unsaved curve if current gains are not a built-in/saved preset.
+        self._sessionCustomBandGains = State(
+            initialValue: updatedSessionCustomBandGains(
+                currentBandGains: eqSettings.bandGains,
+                existingSessionCustomBandGains: nil,
+                customPresets: customEQPresets
+            )
+        )
     }
 
     // MARK: Body
@@ -287,10 +296,21 @@ struct AppRow: View {
                         localEQSettings = preset.eqSettings
                         onEQChange(preset.eqSettings)
                     case .customUnsaved:
-                        break
+                        let restoredGains = resolvedSessionCustomBandGains(
+                            currentBandGains: localEQSettings.bandGains,
+                            sessionCustomBandGains: sessionCustomBandGains
+                        )
+                        let restored = EQSettings(
+                            bandGains: restoredGains,
+                            isEnabled: localEQSettings.isEnabled
+                        )
+                        localEQSettings = restored
+                        onEQChange(restored)
                     }
                 },
-                onSettingsChanged: onEQChange,
+                onSettingsChanged: { updated in
+                    onEQChange(updated)
+                },
                 onSaveCustomPreset: onSaveCustomEQPreset,
                 onOverwriteCustomPreset: onOverwriteCustomEQPreset,
                 onRenameCustomPreset: onRenameCustomEQPreset,
@@ -306,6 +326,20 @@ struct AppRow: View {
         .onChange(of: eqSettings) { _, newValue in
             // Sync from parent when external EQ settings change
             localEQSettings = newValue
+        }
+        .onChange(of: localEQSettings.bandGains) { _, newValue in
+            sessionCustomBandGains = updatedSessionCustomBandGains(
+                currentBandGains: newValue,
+                existingSessionCustomBandGains: sessionCustomBandGains,
+                customPresets: customEQPresets
+            )
+        }
+        .onChange(of: customEQPresets) { _, _ in
+            sessionCustomBandGains = updatedSessionCustomBandGains(
+                currentBandGains: localEQSettings.bandGains,
+                existingSessionCustomBandGains: sessionCustomBandGains,
+                customPresets: customEQPresets
+            )
         }
     }
 }

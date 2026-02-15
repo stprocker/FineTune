@@ -31,7 +31,7 @@ final class EQPresetTests: XCTestCase {
     }
 
     func testTotalPresetCount() {
-        XCTAssertEqual(EQPreset.allCases.count, 23, "Should have exactly 23 presets")
+        XCTAssertEqual(EQPreset.allCases.count, 24, "Should have exactly 24 presets")
     }
 
     // MARK: - Flat preset
@@ -52,7 +52,7 @@ final class EQPresetTests: XCTestCase {
 
     func testUtilityCategoryPresets() {
         let presets = EQPreset.presets(for: .utility)
-        let expected: Set<EQPreset> = [.flat, .bassBoost, .bassCut, .trebleBoost]
+        let expected: Set<EQPreset> = [.flat, .balanced, .bassBoost, .bassCut, .trebleBoost]
         XCTAssertEqual(Set(presets), expected)
     }
 

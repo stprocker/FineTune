@@ -21,6 +21,8 @@ Users may move EQ sliders or select an EQ preset and hear no change.
   3. Otherwise `Custom`
 - When custom preset storage is full, save-new routes users to overwrite flow.
 - Save/rename name entry now uses an inline editor overlay (not modal sheet) to avoid menu bar panel key-window issues.
+- Preset action rows are shown at the top of the preset dropdown and remain unlabeled by design (no visible `Action` section title).
+- Preset picker includes a session-level `Custom` item (separate from saved presets) that restores the last unsaved curve for the active row session.
 
 ## Likely Runtime Causes
 1. EQ is disabled for that app (`isEnabled == false`).

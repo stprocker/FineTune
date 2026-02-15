@@ -583,3 +583,9 @@ FineTuneApp (@main)
          │
          └─ Settings Button (gear/X morphing animation)
 ```
+
+## EQ Preset Dropdown Notes
+
+- `EQPresetPicker` section order is intentional: actions first, then custom presets, then built-in presets.
+- Action rows are intentionally unlabeled (no visible `Action` header) to reduce visual noise while keeping save/overwrite/rename/delete immediately accessible.
+- Custom section includes a selectable session-level `Custom` item that restores the last unsaved curve for the active row session.

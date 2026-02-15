@@ -374,4 +374,51 @@ final class SettingsManagerRoutingTests: XCTestCase {
 
         XCTAssertEqual(selection, .customUnsaved)
     }
+
+    func testUpdatedSessionCustomBandGainsStoresOnlyUnsavedCurves() {
+        let saved = CustomEQPreset(name: "Saved", bandGains: [1, 1, 1, 1, 0, 0, 0, 0, 0, 0])
+        let existingSession: [Float] = [4, 3, 2, 1, 0, 0, 1, 2, 3, 4]
+
+        let builtInResult = updatedSessionCustomBandGains(
+            currentBandGains: EQPreset.flat.settings.bandGains,
+            existingSessionCustomBandGains: existingSession,
+            customPresets: [saved]
+        )
+        XCTAssertEqual(builtInResult, existingSession)
+
+        let savedResult = updatedSessionCustomBandGains(
+            currentBandGains: saved.bandGains,
+            existingSessionCustomBandGains: existingSession,
+            customPresets: [saved]
+        )
+        XCTAssertEqual(savedResult, existingSession)
+
+        let unsaved: [Float] = [2, 1, 0, -1, -2, -1, 0, 1, 2, 1]
+        let unsavedResult = updatedSessionCustomBandGains(
+            currentBandGains: unsaved,
+            existingSessionCustomBandGains: existingSession,
+            customPresets: [saved]
+        )
+        XCTAssertEqual(unsavedResult, unsaved)
+    }
+
+    func testResolvedSessionCustomBandGainsUsesSessionWhenAvailable() {
+        let current = EQPreset.bassCut.settings.bandGains
+        let session: [Float] = [3, 2, 1, 0, -1, -1, 0, 1, 2, 2]
+
+        XCTAssertEqual(
+            resolvedSessionCustomBandGains(
+                currentBandGains: current,
+                sessionCustomBandGains: session
+            ),
+            session
+        )
+        XCTAssertEqual(
+            resolvedSessionCustomBandGains(
+                currentBandGains: current,
+                sessionCustomBandGains: nil
+            ),
+            current
+        )
+    }
 }
