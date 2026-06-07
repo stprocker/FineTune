@@ -1,0 +1,400 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -destination platform=macOS build
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  xctest-dynamic-overlay: https://github.com/pointfreeco/xctest-dynamic-overlay @ 1.8.1
+  swift-snapshot-testing: https://github.com/pointfreeco/swift-snapshot-testing @ 1.18.7
+  swift-custom-dump: https://github.com/pointfreeco/swift-custom-dump @ 1.3.3
+  Sparkle: https://github.com/sparkle-project/Sparkle @ 2.8.1
+  swift-syntax: https://github.com/swiftlang/swift-syntax @ 602.0.0
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:macOS, arch:arm64, id:00006041-001030290207001C, name:My Mac }
+{ platform:macOS, arch:x86_64, id:00006041-001030290207001C, name:My Mac }
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (2 targets)
+    Target 'FineTune' in project 'finetune_fork'
+        ➜ Explicit dependency on target 'Sparkle' in project 'Sparkle'
+    Target 'Sparkle' in project 'Sparkle' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: 319e497815da0be12e6d0b4f48150bd6
+Build description path: /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/XCBuildData/319e497815da0be12e6d0b4f48150bd6.xcbuilddata
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk /Users/acopp/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.2-25C57-00fa09913b459cbbc988d1f6730289ae.sdkstatcache
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/finetune_fork.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -o /Users/acopp/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.2-25C57-00fa09913b459cbbc988d1f6730289ae.sdkstatcache
+
+ProcessInfoPlistFile /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Info.plist /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Info-Debug.plist (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-infoPlistUtility /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Info-Debug.plist -producttype com.apple.product-type.application -genpkginfo /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/PkgInfo -expandbuildsettings -platform macosx -additionalcontentfile /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/assetcatalog_generated_info.plist -scanforprivacyfile /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Frameworks/Sparkle.framework -o /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Info.plist
+
+SwiftDriver FineTune normal arm64 com.apple.xcode.tools.swift.compiler (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name FineTune -Onone -enforce-exclusivity\=checked @/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -target arm64-apple-macos14.2 -g -module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -F /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64 -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.2-25C57-00fa09913b459cbbc988d1f6730289ae.sdkstatcache -output-file-map /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune_const_extract_protocols.json -Xcc -iquote -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-generated-files.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-own-target-headers.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-all-target-headers.hmap -Xcc -iquote -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-project-headers.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/include -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources-normal/arm64 -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources/arm64 -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-Swift.h -working-directory /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork -experimental-emit-module-separately -disable-cmo
+
+SwiftCompile normal arm64 Compiling\ ProcessTapController.swift,\ URLHandler.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/ProcessTapController.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Utilities/URLHandler.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/ProcessTapController.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Utilities/URLHandler.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ DeviceVolumeMonitor.swift,\ EQProcessor.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/DeviceVolumeMonitor.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/EQProcessor.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/DeviceVolumeMonitor.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+/Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/FineTune/Audio/DeviceVolumeMonitor.swift:996:40: warning: main actor-isolated conformance of 'DeviceVolumeMonitor.DeviceScope' to 'Equatable' cannot be used in nonisolated context; this is an error in the Swift 6 language mode
+                let scopeLabel = scope == .output ? "" : "input "
+                                       ^
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/EQProcessor.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ ExpandableGlassRow.swift,\ LiquidGlassSlider.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/ExpandableGlassRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/LiquidGlassSlider.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/ExpandableGlassRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/LiquidGlassSlider.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ ViewModifiers.swift,\ VisualEffectBackground.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/DesignSystem/ViewModifiers.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/DesignSystem/VisualEffectBackground.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/DesignSystem/ViewModifiers.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/DesignSystem/VisualEffectBackground.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ AudioDeviceMonitor.swift,\ AudioEngine.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioDeviceMonitor.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioEngine.swift (in target 'FineTune' from project 'finetune_fork')
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioDeviceMonitor.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+/Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioDeviceMonitor.swift:38:70: warning: main actor-isolated static property 'empty' can not be referenced from a nonisolated context
+    nonisolated(unsafe) private(set) var deviceCache: DeviceCache = .empty
+                                                                     ^
+/Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioDeviceMonitor.swift:33:20: note: static property declared here
+        static let empty = DeviceCache(devicesByUID: [:], devicesByID: [:], inputDevicesByUID: [:], inputDevicesByID: [:])
+                   ^
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioEngine.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ DevicePicker.swift,\ EditablePercentage.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/DevicePicker.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/EditablePercentage.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/DevicePicker.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/EditablePercentage.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ SettingsSliderRow.swift,\ SettingsToggleRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsSliderRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsToggleRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsSliderRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsToggleRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ SectionHeader.swift,\ VUMeter.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/SectionHeader.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/VUMeter.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/SectionHeader.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/VUMeter.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ FineTune (in target 'FineTune' from project 'finetune_fork')
+
+EmitSwiftModule normal arm64 (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+/Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioDeviceMonitor.swift:38:70: warning: main actor-isolated static property 'empty' can not be referenced from a nonisolated context
+    nonisolated(unsafe) private(set) var deviceCache: DeviceCache = .empty
+                                                                     ^
+/Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/FineTune/Audio/AudioDeviceMonitor.swift:33:20: note: static property declared here
+        static let empty = DeviceCache(devicesByUID: [:], devicesByID: [:], inputDevicesByUID: [:], inputDevicesByID: [:])
+                   ^
+/Users/acopp/Omnia Law Dropbox/Alex Copp/3 - Alex Only/Software Dev/2_works_in_progress/finetune_fork/FineTune/Audio/TapAPITestRunner.swift:16:5: warning: 'nonisolated(unsafe)' is unnecessary for a constant with 'Sendable' type 'URL', consider removing it
+    nonisolated(unsafe) static let logFile = URL(fileURLWithPath: "/tmp/TapAPITest.log")
+    ^~~~~~~~~~~~~~~~~~~~
+    
+
+SwiftCompile normal arm64 Compiling\ SoundEffectsDeviceRow.swift,\ EQPanelView.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SoundEffectsDeviceRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/EQPanelView.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SoundEffectsDeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/EQPanelView.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ EQSliderView.swift,\ MenuBarPopupView.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/EQSliderView.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/MenuBarPopupView.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/EQSliderView.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/MenuBarPopupView.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ SettingsIconPickerRow.swift,\ SettingsRowView.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsIconPickerRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsRowView.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsIconPickerRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsRowView.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ MenuBarPopupViewModel.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/MenuBarPopupViewModel.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/MenuBarPopupViewModel.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ MuteButton.swift,\ RadioButton.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/MuteButton.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/RadioButton.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/MuteButton.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/RadioButton.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ FineTuneApp.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/FineTuneApp.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/FineTuneApp.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ AppRow.swift,\ SettingsButtonRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/AppRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsButtonRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/AppRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Settings/SettingsButtonRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ MenuBarStatusController.swift,\ PreviewContainer.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/MenuBar/MenuBarStatusController.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Previews/PreviewContainer.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/MenuBar/MenuBarStatusController.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Previews/PreviewContainer.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling SectionHeader.swift, VUMeter.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling MuteButton.swift, RadioButton.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SettingsSliderRow.swift, SettingsToggleRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ExpandableGlassRow.swift, LiquidGlassSlider.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SettingsIconPickerRow.swift, SettingsRowView.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ViewModifiers.swift, VisualEffectBackground.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AppRow.swift, SettingsButtonRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling FineTuneApp.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling DevicePicker.swift, EditablePercentage.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 Compiling\ EQPresetPicker.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/EQPresetPicker.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Components/EQPresetPicker.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ InputDeviceRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/InputDeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/InputDeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ InactiveAppRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/InactiveAppRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/InactiveAppRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftCompile normal arm64 Compiling\ DeviceRow.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/DeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Views/Rows/DeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling MenuBarPopupViewModel.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SoundEffectsDeviceRow.swift, EQPanelView.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling DeviceVolumeMonitor.swift, EQProcessor.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling InactiveAppRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ProcessTapController.swift, URLHandler.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling DeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling InputDeviceRow.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling EQPresetPicker.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for FineTune (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriver\ Compilation\ Requirements FineTune normal arm64 com.apple.xcode.tools.swift.compiler (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name FineTune -Onone -enforce-exclusivity\=checked @/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -target arm64-apple-macos14.2 -g -module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -F /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64 -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.2-25C57-00fa09913b459cbbc988d1f6730289ae.sdkstatcache -output-file-map /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune_const_extract_protocols.json -Xcc -iquote -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-generated-files.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-own-target-headers.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-all-target-headers.hmap -Xcc -iquote -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-project-headers.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/include -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources-normal/arm64 -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources/arm64 -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-Swift.h -working-directory /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork -experimental-emit-module-separately -disable-cmo
+
+SwiftMergeGeneratedHeaders /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources/FineTune-Swift.h /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-Swift.h (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-swiftHeaderTool -arch arm64 /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-Swift.h -o /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources/FineTune-Swift.h
+
+Copy /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/arm64-apple-macos.swiftmodule /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftmodule (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftmodule /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/arm64-apple-macos.swiftmodule
+
+Copy /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/arm64-apple-macos.swiftdoc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftdoc (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftdoc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/arm64-apple-macos.swiftdoc
+
+Copy /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/arm64-apple-macos.abi.json /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.abi.json (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.abi.json /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/arm64-apple-macos.abi.json
+
+Copy /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftsourceinfo (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftsourceinfo /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo
+
+SwiftDriverJobDiscovery normal arm64 Compiling MenuBarStatusController.swift, PreviewContainer.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling EQSliderView.swift, MenuBarPopupView.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AudioDeviceMonitor.swift, AudioEngine.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 Compiling\ AudioDeviceID+Resolution.swift /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/Extensions/AudioDeviceID+Resolution.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftCompile normal arm64 /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork/FineTune/Audio/Extensions/AudioDeviceID+Resolution.swift (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling AudioDeviceID+Resolution.swift (in target 'FineTune' from project 'finetune_fork')
+
+SwiftDriver\ Compilation FineTune normal arm64 com.apple.xcode.tools.swift.compiler (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name FineTune -Onone -enforce-exclusivity\=checked @/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -target arm64-apple-macos14.2 -g -module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -F /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64 -c -j16 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.2-25C57-00fa09913b459cbbc988d1f6730289ae.sdkstatcache -output-file-map /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/acopp/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune_const_extract_protocols.json -Xcc -iquote -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-generated-files.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-own-target-headers.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-all-target-headers.hmap -Xcc -iquote -Xcc /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-project-headers.hmap -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/include -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources-normal/arm64 -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources/arm64 -Xcc -I/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-Swift.h -working-directory /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib normal (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos14.2 -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -O0 -L/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -L/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -F/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -F/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -filelist /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.LinkFileList -install_name @rpath/FineTune.debug.dylib -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/../Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune_dependency_info.dat -fobjc-link-runtime -fprofile-instr-generate -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.swiftmodule @/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune-linker-args.resp -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -framework Sparkle -Xlinker -no_adhoc_codesign -o /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib
+
+ConstructStubExecutorLinkFileList /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-ExecutorLinkFileList-normal-arm64.txt (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    construct-stub-executor-link-file-list /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'FineTune' from project 'finetune_fork')
+
+Ld /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune normal (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos14.2 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -O0 -L/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -F/Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune-ExecutorLinkFileList-normal-arm64.txt /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib -Xlinker -no_adhoc_codesign -o /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune
+
+CopySwiftLibs /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib --scan-folder /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Frameworks --scan-folder /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/PlugIns --scan-folder /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Library/SystemExtensions --scan-folder /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Extensions --platform macosx --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+ExtractAppIntentsMetadata (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name FineTune --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk --xcode-version 17C52 --platform-family macOS --deployment-target 14.2 --bundle-identifier com.finetuneapp.FineTune --output /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/Resources --target-triple arm64-apple-macos14.2 --binary-file /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune --dependency-file /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune_dependency_info.dat --stringsdata-file /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.SwiftFileList --metadata-file-list /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune.DependencyMetadataFileList --static-metadata-file-list /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune.DependencyStaticMetadataFileList --swift-const-vals-list /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/Objects-normal/arm64/FineTune.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-02-17 18:40:22.381 appintentsmetadataprocessor[45556:8559731] Starting appintentsmetadataprocessor export
+2026-02-17 18:40:22.382 appintentsmetadataprocessor[45556:8559731] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+CodeSign /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --generate-entitlement-der /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/FineTune.debug.dylib
+
+CodeSign /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/__preview.dylib (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --generate-entitlement-der /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app/Contents/MacOS/__preview.dylib
+
+CodeSign /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --entitlements /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Intermediates.noindex/finetune_fork.build/Debug/FineTune.build/FineTune.app.xcent --timestamp\=none --generate-entitlement-der /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app
+
+RegisterExecutionPolicyException /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-RegisterExecutionPolicyException /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app
+
+Validate /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    builtin-validationUtility /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app -no-validate-extension -infoplist-subpath Contents/Info.plist
+
+Touch /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    /usr/bin/touch -c /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app
+
+RegisterWithLaunchServices /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app (in target 'FineTune' from project 'finetune_fork')
+    cd /Users/acopp/Omnia\ Law\ Dropbox/Alex\ Copp/3\ -\ Alex\ Only/Software\ Dev/2_works_in_progress/finetune_fork
+    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f -R -trusted /Users/acopp/Library/Developer/Xcode/DerivedData/finetune_fork-fsreqnqrxzzfdhflohxygorzsnwp/Build/Products/Debug/FineTune.app
+
+note: Disabling hardened runtime with ad-hoc codesigning. (in target 'FineTune' from project 'finetune_fork')
+** BUILD SUCCEEDED **
+

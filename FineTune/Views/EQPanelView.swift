@@ -1,5 +1,8 @@
 // FineTune/Views/EQPanelView.swift
 import SwiftUI
+#if canImport(FineTuneCore)
+import FineTuneCore
+#endif
 
 struct EQPanelView: View {
     @Binding var settings: EQSettings
@@ -17,11 +20,7 @@ struct EQPanelView: View {
     @State private var renameName = ""
     @State private var pendingRenamePreset: CustomEQPreset?
     @State private var pendingDeletePreset: CustomEQPreset?
-    @State private var activeNameEditor: CustomPresetNameEditorMode?
-    @State private var showOverwriteDialog = false
-    @State private var showRenameTargetDialog = false
-    @State private var showDeleteDialog = false
-    @State private var showDeleteTargetDialog = false
+    @State private var activeOverlay: EQPanelOverlayMode?
     @State private var errorMessage: String?
 
     private var resolvedSelection: EQPresetSelection {
@@ -136,64 +135,44 @@ struct EQPanelView: View {
         .padding(.horizontal, 2)
         .padding(.vertical, 4)
         .overlay {
-            if let mode = activeNameEditor {
-                CustomPresetNameEditorOverlay(
-                    title: mode.title,
-                    primaryActionTitle: mode.primaryActionTitle,
-                    name: mode == .save ? $saveName : $renameName,
-                    onSubmit: {
-                        switch mode {
-                        case .save:
-                            saveCurrentAsNew()
-                        case .rename:
-                            renamePendingPreset()
+            if let mode = activeOverlay {
+                EQPanelOverlayView(
+                    mode: mode,
+                    presets: customPresets,
+                    saveName: $saveName,
+                    renameName: $renameName,
+                    pendingRenamePreset: pendingRenamePreset,
+                    pendingDeletePreset: pendingDeletePreset,
+                    onSave: saveCurrentAsNew,
+                    onRename: renamePendingPreset,
+                    onOverwrite: { preset in
+                        overwrite(with: preset)
+                    },
+                    onSelectRenameTarget: { preset in
+                        pendingRenamePreset = preset
+                        renameName = preset.name
+                        activeOverlay = .renameName
+                    },
+                    onSelectDeleteTarget: { preset in
+                        pendingDeletePreset = preset
+                        activeOverlay = .deleteConfirmation
+                    },
+                    onConfirmDelete: {
+                        if let preset = pendingDeletePreset {
+                            onDeleteCustomPreset(preset.id)
                         }
+                        activeOverlay = nil
+                        pendingDeletePreset = nil
                     },
                     onCancel: {
-                        activeNameEditor = nil
+                        activeOverlay = nil
                         pendingRenamePreset = nil
+                        pendingDeletePreset = nil
                     }
                 )
             }
         }
-        // No outer background - parent ExpandableGlassRow provides the glass container
-        .confirmationDialog("Overwrite Custom Preset", isPresented: $showOverwriteDialog, titleVisibility: .visible) {
-            ForEach(customPresets) { preset in
-                Button(preset.name) {
-                    overwrite(with: preset)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Choose a preset to replace with current EQ settings.")
-        }
-        .confirmationDialog("Select Preset to Rename", isPresented: $showRenameTargetDialog, titleVisibility: .visible) {
-            ForEach(customPresets) { preset in
-                Button(preset.name) {
-                    pendingRenamePreset = preset
-                    renameName = preset.name
-                    activeNameEditor = .rename
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .confirmationDialog("Select Preset to Delete", isPresented: $showDeleteTargetDialog, titleVisibility: .visible) {
-            ForEach(customPresets) { preset in
-                Button(preset.name, role: .destructive) {
-                    pendingDeletePreset = preset
-                    showDeleteDialog = true
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Delete Custom Preset?", isPresented: $showDeleteDialog, presenting: pendingDeletePreset) { preset in
-            Button("Delete", role: .destructive) {
-                onDeleteCustomPreset(preset.id)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { preset in
-            Text("\"\(preset.name)\" will be permanently removed.")
-        }
+        // Error alert is kept as it is for actual errors
         .alert("EQ Preset", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -212,17 +191,17 @@ struct EQPanelView: View {
         switch action {
         case .saveNew:
             if customPresetLimitReached {
-                showOverwriteDialog = true
+                activeOverlay = .overwriteSelector
             } else {
                 saveName = nextDefaultCustomName()
-                activeNameEditor = .save
+                activeOverlay = .saveName
             }
         case .overwrite:
             guard !customPresets.isEmpty else {
                 errorMessage = "No custom presets to overwrite."
                 return
             }
-            showOverwriteDialog = true
+            activeOverlay = .overwriteSelector
         case .rename:
             guard !customPresets.isEmpty else {
                 errorMessage = "No custom presets to rename."
@@ -231,9 +210,9 @@ struct EQPanelView: View {
             if let currentCustom = resolvedSelection.customPreset {
                 pendingRenamePreset = currentCustom
                 renameName = currentCustom.name
-                activeNameEditor = .rename
+                activeOverlay = .renameName
             } else {
-                showRenameTargetDialog = true
+                activeOverlay = .renameSelector
             }
         case .delete:
             guard !customPresets.isEmpty else {
@@ -242,9 +221,9 @@ struct EQPanelView: View {
             }
             if let currentCustom = resolvedSelection.customPreset {
                 pendingDeletePreset = currentCustom
-                showDeleteDialog = true
+                activeOverlay = .deleteConfirmation
             } else {
-                showDeleteTargetDialog = true
+                activeOverlay = .deleteSelector
             }
         }
     }
@@ -252,6 +231,7 @@ struct EQPanelView: View {
     private func overwrite(with preset: CustomEQPreset) {
         do {
             try onOverwriteCustomPreset(preset.id, settings.bandGains)
+            activeOverlay = nil
         } catch {
             errorMessage = customPresetErrorMessage(for: error)
         }
@@ -260,7 +240,7 @@ struct EQPanelView: View {
     private func saveCurrentAsNew() {
         do {
             try onSaveCustomPreset(saveName, settings.bandGains)
-            activeNameEditor = nil
+            activeOverlay = nil
         } catch {
             errorMessage = customPresetErrorMessage(for: error)
         }
@@ -273,7 +253,7 @@ struct EQPanelView: View {
         }
         do {
             try onRenameCustomPreset(pendingRenamePreset.id, renameName)
-            activeNameEditor = nil
+            activeOverlay = nil
             self.pendingRenamePreset = nil
         } catch {
             errorMessage = customPresetErrorMessage(for: error)
@@ -316,66 +296,191 @@ struct EQPanelView: View {
     }
 }
 
-private enum CustomPresetNameEditorMode {
-    case save
-    case rename
-
-    var title: String {
-        switch self {
-        case .save: return "Save Custom EQ Preset"
-        case .rename: return "Rename Custom Preset"
-        }
-    }
-
-    var primaryActionTitle: String {
-        switch self {
-        case .save: return "Save"
-        case .rename: return "Rename"
-        }
-    }
+private enum EQPanelOverlayMode {
+    case saveName
+    case renameName
+    case overwriteSelector
+    case renameSelector
+    case deleteSelector
+    case deleteConfirmation
 }
 
-private struct CustomPresetNameEditorOverlay: View {
-    let title: String
-    let primaryActionTitle: String
-    @Binding var name: String
-    let onSubmit: () -> Void
+private struct EQPanelOverlayView: View {
+    let mode: EQPanelOverlayMode
+    let presets: [CustomEQPreset]
+    @Binding var saveName: String
+    @Binding var renameName: String
+    let pendingRenamePreset: CustomEQPreset?
+    let pendingDeletePreset: CustomEQPreset?
+
+    let onSave: () -> Void
+    let onRename: () -> Void
+    let onOverwrite: (CustomEQPreset) -> Void
+    let onSelectRenameTarget: (CustomEQPreset) -> Void
+    let onSelectDeleteTarget: (CustomEQPreset) -> Void
+    let onConfirmDelete: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
         ZStack {
+            // Semi-transparent dimming background
             Rectangle()
-                .fill(Color.black.opacity(0.32))
+                .fill(Color.black.opacity(0.45))
                 .ignoresSafeArea()
                 .onTapGesture { onCancel() }
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text(title)
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 16) {
+                headerView
 
-                TextField("Preset Name", text: $name)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(onSubmit)
+                contentView
 
-                HStack {
-                    Spacer()
-                    Button("Cancel", action: onCancel)
-                    Button(primaryActionTitle, action: onSubmit)
-                        .keyboardShortcut(.defaultAction)
-                }
+                footerView
             }
             .padding(16)
-            .frame(width: 360)
+            .frame(width: 320)
             .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(nsColor: .windowBackgroundColor))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.clear)
+                    .background(VisualEffectBackground(material: .hudWindow, blendingMode: .withinWindow))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(DesignTokens.Colors.glassBorder, lineWidth: 0.5)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(DesignTokens.Colors.glassBorder, lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(0.35), radius: 16, x: 0, y: 8)
+            .shadow(color: .black.opacity(0.5), radius: 20, x: 0, y: 10)
         }
+    }
+
+    @ViewBuilder
+    private var headerView: some View {
+        Text(title)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(DesignTokens.Colors.textPrimary)
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        switch mode {
+        case .saveName:
+            TextField("Preset Name", text: $saveName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(onSave)
+
+        case .renameName:
+            TextField("Preset Name", text: $renameName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(onRename)
+
+        case .overwriteSelector, .renameSelector, .deleteSelector:
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 2) {
+                    ForEach(presets) { preset in
+                        Button {
+                            switch mode {
+                            case .overwriteSelector: onOverwrite(preset)
+                            case .renameSelector: onSelectRenameTarget(preset)
+                            case .deleteSelector: onSelectDeleteTarget(preset)
+                            default: break
+                            }
+                        } label: {
+                            HStack {
+                                Text(preset.name)
+                                    .font(DesignTokens.Typography.pickerText)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PresetRowButtonStyle())
+                    }
+                }
+            }
+            .frame(maxHeight: 180)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+        case .deleteConfirmation:
+            if let preset = pendingDeletePreset {
+                Text("Are you sure you want to delete \"\(preset.name)\"? This action cannot be undone.")
+                    .font(DesignTokens.Typography.pickerText)
+                    .foregroundStyle(DesignTokens.Colors.textSecondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var footerView: some View {
+        HStack {
+            Spacer()
+            Button("Cancel", action: onCancel)
+                .buttonStyle(.plain)
+                .font(DesignTokens.Typography.pickerText)
+                .foregroundStyle(DesignTokens.Colors.textSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
+
+            if showPrimaryAction {
+                Button(primaryActionTitle) {
+                    primaryAction()
+                }
+                .buttonStyle(.plain)
+                .font(DesignTokens.Typography.pickerText)
+                .foregroundStyle(mode == .deleteConfirmation ? Color.red : Color.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(mode == .deleteConfirmation ? Color.red.opacity(0.2) : Color.white.opacity(0.12)))
+            }
+        }
+    }
+
+    private var title: String {
+        switch mode {
+        case .saveName: return "Save Custom Preset"
+        case .renameName: return "Rename Preset"
+        case .overwriteSelector: return "Select Preset to Overwrite"
+        case .renameSelector: return "Select Preset to Rename"
+        case .deleteSelector: return "Select Preset to Delete"
+        case .deleteConfirmation: return "Delete Preset?"
+        }
+    }
+
+    private var showPrimaryAction: Bool {
+        switch mode {
+        case .saveName, .renameName, .deleteConfirmation: return true
+        default: return false
+        }
+    }
+
+    private var primaryActionTitle: String {
+        switch mode {
+        case .saveName: return "Save"
+        case .renameName: return "Rename"
+        case .deleteConfirmation: return "Delete"
+        default: return ""
+        }
+    }
+
+    private func primaryAction() {
+        switch mode {
+        case .saveName: onSave()
+        case .renameName: onRename()
+        case .deleteConfirmation: onConfirmDelete()
+        default: break
+        }
+    }
+}
+
+private struct PresetRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Color.white.opacity(0.1) : Color.clear)
+            .contentShape(Rectangle())
     }
 }
 
