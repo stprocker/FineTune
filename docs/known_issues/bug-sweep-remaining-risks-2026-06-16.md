@@ -13,10 +13,10 @@ Fixed in this pass:
 - Popup visibility false positives from unfiltered process-wide window notifications.
 - App-row volume feedback loop on external volume updates.
 - Empty single-mode device UID during mode-change tap creation.
+- Tap-recreation re-entry and routing-suppression lifetime during coreaudiod restart recovery.
+- Signal-handler HAL destruction risk, resolved by removing the signal-handler aggregate cleanup path and relying on normal teardown plus startup orphan cleanup.
 
 Still open:
-- `AudioEngine.handleServiceRestarted()` / `recreateAllTaps()` can still re-enter tap recreation and clear the routing-change suppression window before teardown completes. This needs a coordinated async tap lifecycle refactor rather than a local guard.
-- `CrashGuard` still calls `AudioHardwareDestroyAggregateDevice` from a crash signal handler. The safer design is to avoid HAL IPC in signal context and rely on startup orphan cleanup or an out-of-process helper.
 - EQ preamp headroom still accounts only for the largest positive band, not constructive overlap across the filter cascade.
 - `DeviceVolumeMonitor.setDefaultDevice()` self-change suppression still relies partly on elapsed time rather than a target UID/token acknowledgement.
 - `EQProcessor` still publishes setup/enabled/preamp state to the realtime thread without explicit release/acquire ordering.

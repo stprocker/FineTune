@@ -2,6 +2,22 @@
 
 ## [Unreleased] - 2026-02-15
 
+### Tap Recreation Coordinator + Startup Orphan Cleanup Simplification (2026-06-15)
+
+#### Changed
+- Added a serialized tap-recreation transaction around coreaudiod restart recovery, permission-driven tap recreation, and permission downgrade recovery.
+- Restart recovery now snapshots routing and selection state at transaction start, drains in-flight switch tasks before restore, suppresses device churn during recreation, and reconciles restored routes against the current device list before suppression clears.
+- Tap construction now binds `muteOriginal` to the current per-session permission confirmation state.
+- Removed signal-handler aggregate-device cleanup. FineTune now relies on normal ordered teardown plus startup orphan cleanup for leftover `FineTune-*` aggregate devices.
+- `OrphanedTapCleanup.destroyOrphanedDevices()` now supports injected device scanning and destruction for HAL-free regression tests.
+
+#### Tests
+- Added service-restart coordinator coverage for restart ordering, trigger coalescing, switch-task cancellation/drain behavior, churn suppression, route/selection restoration, and restart-close reconciliation.
+- Added constructor-time tap mute behavior coverage and startup orphan cleanup filtering coverage.
+
+#### Verified
+- `swift test`
+
 ### Bug Sweep Reliability Fixes (2026-06-16)
 
 #### Changed
@@ -425,14 +441,14 @@ Full details: `docs/ai-chat-history/2026-02-08-safety-and-reliability-fixes.md`
 #### Added
 - **Post-EQ soft limiter** (hearing safety) — `SoftLimiter.processBuffer()` now runs after every `eqProcessor.process()` call across all three audio paths (primary tap, secondary tap, format converter). Prevents EQ bands at +12 dB from boosting output above 1.0. Signal chain is now: Gain -> SoftLimiter -> EQ -> SoftLimiter -> Output.
 - **PostEQLimiterTests.swift** — 3 tests: boosted signal clamping, below-threshold passthrough, interleaved stereo mixed amplitudes
-- **Thread-safe CrashGuard** — `os_unfair_lock` protects `trackDevice()`/`untrackDevice()` against data race between MainActor and `DispatchQueue.global(qos: .utility)` callers. Signal handler intentionally does not take the lock (standard signal-safe pattern).
+- **Signal cleanup bookkeeping synchronization** — the former signal-handler aggregate cleanup bookkeeping was synchronized while it still existed; the signal-handler cleanup path has since been removed in favor of startup orphan cleanup.
 
 #### Fixed
 - **Post-EQ clipping (hearing safety):** EQ boost could push limited signal well above 1.0. Post-EQ `SoftLimiter.processBuffer()` now guarantees output <= 1.0 for any finite input.
 - **Leaked polling tasks on AudioEngine.stop():** Diagnostic health check (3s) and pause-recovery (1s) polling loops, plus `pendingCleanup` grace-period tasks and `serviceRestartTask`, were fire-and-forget. Now stored as task handles and cancelled in `stop()`.
 - **Second instance nukes first instance's audio:** `OrphanedTapCleanup.destroyOrphanedDevices()` ran before `SingleInstanceGuard` check, destroying the running instance's live aggregate devices. Reordered so single-instance check runs first; duplicate instance terminates immediately without creating any resources.
 - **NaN in EQ settings maps to max boost:** Corrupted settings with NaN band gains were mapped to +12 dB (max) due to IEEE 754 `min`/`max` behavior. Now maps NaN and Infinity to 0 dB (flat).
-- **CrashGuard data race:** `trackDevice()` (MainActor) and `untrackDevice()` (utility queue) had unsynchronized access to `gDeviceCount` and slot array. Now protected by `os_unfair_lock`.
+- **Signal cleanup bookkeeping race:** aggregate cleanup bookkeeping had unsynchronized cross-queue access while it still existed. That path has since been removed in favor of startup orphan cleanup.
 
 #### Known Issues
 - **PostEQLimiterTests not runnable via `swift test`** — compiles but can't execute due to pre-existing Sparkle dependency issue. Verified via standalone compilation.
@@ -476,20 +492,19 @@ Full details: `docs/ai-chat-history/2026-02-08-settings-panel-and-system-sounds-
 - ~~**`SystemSoundsDeviceChanges.swift` is dead code**~~ — resolved: deleted in "Cut the Fat" cleanup
 - **Settings panel doesn't auto-close on popup dismiss** — `isSettingsOpen` persists across popup show/hide cycles
 
-### Crash-Safe Cleanup for Orphaned CoreAudio Resources
+### Startup Cleanup for Orphaned CoreAudio Resources
 
 Ensures orphaned FineTune process taps are always cleaned up, even after crashes or `kill -9`.
-Full details: `docs/ai-chat-history/2026-02-08-crash-safe-cleanup-orphaned-coreaudio-resources.md`
 
 #### Added
 - **`OrphanedTapCleanup.swift`** — Static utility that scans CoreAudio for aggregate devices named `"FineTune-*"` and destroys them. Runs on startup before any new taps are created, cleaning up orphans left by crashes or `kill -9`.
-- **`CrashGuard.swift`** — Tracks live aggregate device IDs in a fixed-size C buffer and installs crash signal handlers (SIGABRT, SIGSEGV, SIGBUS, SIGTRAP) that destroy them before the process terminates. Uses async-signal-safe memory and IPC to coreaudiod. Prevents orphaned taps on actual crashes.
+- **Signal-handler aggregate cleanup** — initially added in this section, later removed because HAL IPC does not belong in crash signal context. Startup orphan cleanup remains.
 - **POSIX signal handlers** — `DispatchSource` handlers for SIGTERM and SIGINT in `AppDelegate` that call `audioEngine?.stopSync()` before `exit(0)`. Catches `kill <pid>` and Ctrl+C for clean shutdown.
 
 #### Changed
-- **`AppDelegate.applicationDidFinishLaunching`** — Now calls `OrphanedTapCleanup.destroyOrphanedDevices()` and `CrashGuard.install()` before creating `AudioEngine`, and `installSignalHandlers()` after engine creation.
-- **`ProcessTapController`** — All 3 aggregate device creation sites now call `CrashGuard.trackDevice()`. All 5 inline destruction sites call `CrashGuard.untrackDevice()` before `AudioHardwareDestroyAggregateDevice`.
-- **`TapResources.destroy()` / `destroyAsync()`** — Now call `CrashGuard.untrackDevice()` before destroying aggregate devices.
+- **`AppDelegate.applicationDidFinishLaunching`** — Now calls `OrphanedTapCleanup.destroyOrphanedDevices()` before creating `AudioEngine`, and `installSignalHandlers()` after engine creation.
+- **`ProcessTapController`** — Aggregate-device creation and destruction paths continue to use the normal CoreAudio lifecycle calls.
+- **`TapResources.destroy()` / `destroyAsync()`** — Preserve ordered teardown: stop device, destroy IO proc, destroy aggregate device, destroy process tap.
 
 ## [Unreleased] - 2026-02-07
 

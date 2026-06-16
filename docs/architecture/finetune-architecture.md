@@ -7,7 +7,6 @@ flowchart TB
   subgraph AppEntry["App Entry (AppKit Lifecycle)"]
     FineTuneApp["FineTuneApp.swift\n(@main + AppDelegate)"]
     MenuBarStatusController["MenuBarStatusController\n(NSStatusItem + KeyablePanel)"]
-    CrashGuard["CrashGuard\n(signal handler + C buffer)"]
     OrphanedTapCleanup["OrphanedTapCleanup\n(startup device scan)"]
   end
 
@@ -124,10 +123,9 @@ flowchart TB
 
   %% App Entry Flow
   FineTuneApp -->|"1. destroyOrphanedDevices()"| OrphanedTapCleanup
-  FineTuneApp -->|"2. CrashGuard.install()"| CrashGuard
-  FineTuneApp -->|"3. creates"| SettingsManager
-  FineTuneApp -->|"4. creates"| AudioEngine
-  FineTuneApp -->|"5. creates"| MenuBarStatusController
+  FineTuneApp -->|"2. creates"| SettingsManager
+  FineTuneApp -->|"3. creates"| AudioEngine
+  FineTuneApp -->|"4. creates"| MenuBarStatusController
   FineTuneApp -->|"URL open events"| URLHandler
   MenuBarStatusController -->|creates| MenuBarPopupViewModel
   MenuBarStatusController -->|hosts in KeyablePanel| MenuBarPopupView
@@ -176,8 +174,7 @@ flowchart TB
   AudioEngine --> SettingsManager
   AudioEngine -->|"create per-app taps\n(1 per audio process)"| ProcessTapController
 
-  %% Crash Safety
-  ProcessTapController -->|"trackDevice()"| CrashGuard
+  %% Cleanup Safety
   OrphanedTapCleanup -->|"scan FineTune-* devices"| CoreAudioHAL
 
   %% Monitors → CoreAudio
@@ -241,12 +238,12 @@ User interaction → SwiftUI Views → MenuBarPopupViewModel / AudioEngine
 ## Key Architectural Patterns
 
 ### App Lifecycle (AppKit, not SwiftUI Scene)
-`FineTuneApp` uses `@NSApplicationDelegateAdaptor(AppDelegate)`. The `AppDelegate.applicationDidFinishLaunching` runs a 5-step startup sequence:
-1. `OrphanedTapCleanup.destroyOrphanedDevices()` — scan and destroy leftover aggregate devices from previous crashes
-2. `CrashGuard.install()` — install signal handlers (SIGABRT, SIGSEGV, SIGBUS, SIGTRAP) with a fixed C buffer tracking aggregate device IDs
+`FineTuneApp` uses `@NSApplicationDelegateAdaptor(AppDelegate)`. The `AppDelegate.applicationDidFinishLaunching` runs this startup sequence:
+1. `SingleInstanceGuard` check — terminate immediately if another FineTune instance is already running
+2. `OrphanedTapCleanup.destroyOrphanedDevices()` — scan and destroy leftover aggregate devices from previous crashes
 3. Create `SettingsManager` (loads JSON from `~/Library/Application Support/FineTune/settings.json`)
-4. Create `AudioEngine` with injected SettingsManager
-5. `SingleInstanceGuard` check, notification authorization, create `MenuBarStatusController`
+4. Install SIGTERM/SIGINT handlers for graceful shutdown
+5. Check system-audio capture permission, then create `AudioEngine` and `MenuBarStatusController` when appropriate
 
 `MenuBarStatusController` owns an `NSStatusItem` with a `KeyablePanel` (non-activating panel that can become key). Left-click toggles the popup; right-click shows a context menu. Detects macOS 26 button action/target resets and re-wires automatically via a 2-second timer.
 
@@ -302,11 +299,11 @@ Startup routing for apps with custom settings is controlled by `AppSettings.star
 
 Startup default selection still validates against non-virtual output devices; if the system default is virtual/filtered, it falls back to the first real output device.
 
-### Crash Safety (Multi-Layer)
+### Cleanup Safety (Multi-Layer)
 Three layers protect against orphaned aggregate devices that silently mute apps:
-1. **CrashGuard** — C-compatible signal handler tracking up to 64 aggregate device IDs in a fixed buffer. On SIGABRT/SIGSEGV/SIGBUS/SIGTRAP, destroys all tracked devices via CoreAudio IPC before re-raising the signal. Uses only async-signal-safe operations.
-2. **OrphanedTapCleanup** — startup scan of all CoreAudio devices for "FineTune-*" names, destroying any found. Handles `kill -9` scenarios where CrashGuard cannot run.
-3. **POSIX signal handlers** — SIGTERM/SIGINT trigger graceful `stopSync()` for normal shutdown paths.
+1. **OrphanedTapCleanup** — startup scan of all CoreAudio devices for "FineTune-*" names, destroying any found. Handles prior crashes and `kill -9` scenarios on the next launch.
+2. **POSIX signal handlers** — SIGTERM/SIGINT trigger graceful `stopSync()` for normal shutdown paths.
+3. **TapResources ordered teardown** — normal tap shutdown stops the IO proc, destroys the IO proc ID, destroys the aggregate device, then destroys the process tap.
 
 ### Pause-State Detection with Asymmetric Hysteresis
 AudioEngine detects app pause/play state using two mechanisms:
@@ -428,7 +425,6 @@ FineTune/
 │   ├── ProcessTapController.swift             Per-app audio tap
 │   ├── EQProcessor.swift                      10-band EQ (vDSP_biquad)
 │   ├── BiquadMath.swift                       Biquad filter coefficients
-│   ├── CrashGuard.swift                       Signal handler + C buffer cleanup
 │   ├── OrphanedTapCleanup.swift               Startup orphan device scan
 │   ├── MediaNotificationMonitor.swift         Spotify/Music instant play/pause
 │   ├── SystemSoundsDeviceChanges.swift        System sounds routing guide

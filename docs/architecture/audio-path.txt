@@ -66,9 +66,8 @@ NOTE: `isProcessRestoreEnabled` must NOT be set — it causes dead aggregate out
 2. Orphan cleanup
    Destroys aggregate devices named "FineTune-*", left by crashes/kill -9.
 
-3. Crash guard install
-   Allocates a fixed-size C buffer (64 slots) and installs SIGABRT/SIGSEGV/SIGBUS/SIGTRAP
-   handlers to destroy tracked aggregates, then re-raise.
+3. Graceful shutdown handlers
+   Installs SIGTERM/SIGINT handlers that stop the audio engine before process exit.
 
 4. Settings load
    Initializes SettingsManager and loads settings.json from Application Support/FineTune.
@@ -217,19 +216,9 @@ The `GainProcessor` (extracted to `FineTune/Audio/Processing/GainProcessor.swift
 
 ## Safety Checks & Guards
 
-### Crash Guard (`CrashGuard.swift`)
-
-Handles unclean process termination (SIGABRT, SIGSEGV, SIGBUS, SIGTRAP):
-
-| Aspect | Detail |
-|--------|--------|
-| **Buffer** | Fixed-size C buffer, 64 slots, allocated once at startup, never freed |
-| **Tracking** | `os_unfair_lock`-protected add/remove; swap-with-last removal algorithm |
-| **Signal handler** | Resets to `SIG_DFL` FIRST (prevents infinite recursion if cleanup crashes), then destroys all tracked aggregates via `AudioHardwareDestroyAggregateDevice` (IPC to coreaudiod, doesn't depend on in-process heap), then re-raises for normal crash behavior |
-
 ### Orphaned Device Cleanup (`OrphanedTapCleanup.swift`)
 
-Called on startup before CrashGuard. Scans CoreAudio device list for aggregate devices with transport type `.aggregate` and name prefix `"FineTune-"`. Destroys them and logs the count. This catches devices left by `kill -9` or system crashes that the crash guard couldn't handle.
+Called on startup after the single-instance guard. Scans CoreAudio device list for aggregate devices with transport type `.aggregate` and name prefix `"FineTune-"`. Destroys them and logs the count. This catches devices left by `kill -9` or prior process crashes on the next launch.
 
 ### TapResources -- Safe Ordered Teardown (`Tap/TapResources.swift`)
 
@@ -238,9 +227,8 @@ Encapsulates CoreAudio resource lifecycle with a **critical teardown order**:
 ```
 1. AudioDeviceStop()                    -- Stop IO proc
 2. AudioDeviceDestroyIOProcID()         -- Destroy IO proc (blocks until callback finishes)
-3. CrashGuard.untrackDevice()           -- Remove from crash tracking
-4. AudioHardwareDestroyAggregateDevice()-- Destroy aggregate device
-5. AudioHardwareDestroyProcessTap()     -- Destroy process tap
+3. AudioHardwareDestroyAggregateDevice()-- Destroy aggregate device
+4. AudioHardwareDestroyProcessTap()     -- Destroy process tap
 ```
 
 Violating this order can leak resources or crash on shutdown. Two variants:
@@ -284,9 +272,6 @@ Create process tap                  -- On failure: throw
   v
 Create aggregate device             -- On failure: cleanupPartialActivation()
   |                                    (destroys tap, clears format/converter)
-  v
-CrashGuard.trackDevice()            -- Register for crash-safe cleanup
-  |
   v
 Read sample rate                    -- Fallback: 48kHz if read fails
   |
@@ -665,7 +650,7 @@ Two detection paths feed into this:
       |         |        |         |
       v         v        v         v
   [Agg A]   [Agg B]  [Agg C]  [Agg D]      <-- Aggregate devices
-      \         \       /         /             (CrashGuard tracked)
+      \         \       /         /
        `---------+-----+---------'
                  v
          [System Default Device]               <-- Most common: all apps to same output
@@ -677,7 +662,6 @@ Two detection paths feed into this:
   devices is possible when it works (see earlier diagram description).
 
   SAFETY LAYERS:
-  ├─ CrashGuard .............. Signal handler destroys aggregates on crash
   ├─ OrphanedTapCleanup ...... Startup scan for leftover "FineTune-*" devices
   ├─ TapResources ............ Correct teardown order (stop → destroy IO → destroy agg → destroy tap)
   ├─ TapDiagnostics .......... RT-safe counters for health detection
