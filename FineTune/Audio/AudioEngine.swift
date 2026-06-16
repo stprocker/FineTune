@@ -1169,6 +1169,25 @@ final class AudioEngine {
         appDeviceRouting[app.id]
     }
 
+    private func runSwitchTask<T>(
+        pid: pid_t,
+        operation: @escaping () async throws -> T,
+        commit: @escaping (T) -> Void
+    ) {
+        switchTasks[pid]?.cancel()
+        switchTasks[pid] = Task { @MainActor in
+            defer { self.switchTasks.removeValue(forKey: pid) }
+            do {
+                let result = try await operation()
+                guard !Task.isCancelled else { return }
+                commit(result)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.logger.error("Failed to switch devices for PID \(pid): \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Routes all currently-active apps to the specified device.
     /// Called when user selects a device in the OUTPUT DEVICES section.
     /// This provides macOS-like "switch all audio" behavior.
@@ -1595,6 +1614,11 @@ final class AudioEngine {
     /// The original device preference is preserved in SettingsManager so that reconnect
     /// recovery can switch the app back when the device reappears.
     private func handleDeviceDisconnected(_ deviceUID: String, name deviceName: String) {
+        guard !isRecreationTransactionActive else {
+            logger.info("Dropping device disconnect during tap recreation: \(deviceName) (\(deviceUID))")
+            return
+        }
+
         // Get fallback device: macOS default output, or first available device
         let fallbackDevice: (uid: String, name: String)
         do {
@@ -1651,33 +1675,34 @@ final class AudioEngine {
 
         // Multi-device updates: remove disconnected device, keep remaining
         for (pid, tap, remaining) in multiDeviceUpdates {
-            switchTasks[pid] = Task {
-                do {
+            runSwitchTask(
+                pid: pid,
+                operation: {
                     try await tap.updateDevices(to: remaining)
-                } catch {
-                    self.logger.error("Failed to update multi-device set for PID \(pid): \(error.localizedDescription)")
+                },
+                commit: { _ in
+                    self.logger.debug("Updated multi-device set for PID \(pid) after \(deviceName) disconnected")
                 }
-                self.switchTasks.removeValue(forKey: pid)
-            }
+            )
         }
 
         // Switch single-mode taps directly (bypassing setDevice which would persist)
         if !tapsToSwitch.isEmpty {
             for (pid, tap) in tapsToSwitch {
-                switchTasks[pid] = Task {
-                    do {
+                runSwitchTask(
+                    pid: pid,
+                    operation: {
                         try await tap.switchDevice(to: fallbackDevice.uid)
+                    },
+                    commit: { _ in
                         tap.volume = self.volumeState.getVolume(for: pid)
                         tap.isMuted = self.volumeState.getMute(for: pid)
                         if let device = self.deviceMonitor.device(for: fallbackDevice.uid) {
                             tap.currentDeviceVolume = self.deviceVolumeMonitor.volumes[device.id] ?? 1.0
                             tap.isDeviceMuted = self.deviceVolumeMonitor.muteStates[device.id] ?? false
                         }
-                    } catch {
-                        self.logger.error("Failed to switch PID \(pid) to fallback: \(error.localizedDescription)")
                     }
-                    self.switchTasks.removeValue(forKey: pid)
-                }
+                )
             }
         }
 
@@ -1692,6 +1717,11 @@ final class AudioEngine {
     /// Called when a device reappears - switches apps back to their preferred device
     /// if their persisted routing matches the reconnected device UID.
     private func handleDeviceConnected(_ deviceUID: String, name deviceName: String) {
+        guard !isRecreationTransactionActive else {
+            logger.info("Dropping device connect during tap recreation: \(deviceName) (\(deviceUID))")
+            return
+        }
+
         var affectedApps: [AudioApp] = []
         var tapsToSwitch: [(pid: pid_t, tap: ProcessTapController)] = []
         var multiDeviceUpdates: [(pid: pid_t, tap: ProcessTapController, updated: [String])] = []
@@ -1735,25 +1765,26 @@ final class AudioEngine {
 
         // Multi-device updates: add reconnected device back
         for (pid, tap, updated) in multiDeviceUpdates {
-            switchTasks[pid]?.cancel()
-            switchTasks[pid] = Task {
-                do {
+            runSwitchTask(
+                pid: pid,
+                operation: {
                     try await tap.updateDevices(to: updated)
+                },
+                commit: { _ in
                     self.logger.debug("Added reconnected device \(deviceName) back to PID \(pid) multi-set")
-                } catch {
-                    self.logger.error("Failed to add reconnected device to PID \(pid): \(error.localizedDescription)")
                 }
-                self.switchTasks.removeValue(forKey: pid)
-            }
+            )
         }
 
         // Switch single-mode taps back to the reconnected device
         if !tapsToSwitch.isEmpty {
             for (pid, tap) in tapsToSwitch {
-                switchTasks[pid]?.cancel()
-                switchTasks[pid] = Task {
-                    do {
+                runSwitchTask(
+                    pid: pid,
+                    operation: {
                         try await tap.switchDevice(to: deviceUID)
+                    },
+                    commit: { _ in
                         tap.volume = self.volumeState.getVolume(for: pid)
                         tap.isMuted = self.volumeState.getMute(for: pid)
                         if let device = self.deviceMonitor.device(for: deviceUID) {
@@ -1761,11 +1792,8 @@ final class AudioEngine {
                             tap.isDeviceMuted = self.deviceVolumeMonitor.muteStates[device.id] ?? false
                         }
                         self.logger.debug("Switched PID \(pid) back to reconnected device: \(deviceName)")
-                    } catch {
-                        self.logger.error("Failed to switch PID \(pid) back to \(deviceName): \(error.localizedDescription)")
                     }
-                    self.switchTasks.removeValue(forKey: pid)
-                }
+                )
             }
         }
 
@@ -2007,6 +2035,14 @@ final class AudioEngine {
 
     func permissionRecoveryRecreationForTests() {
         requestTapRecreation(reason: .permissionRecovery)
+    }
+
+    func installInFlightSwitchTaskForTests(
+        pid: pid_t,
+        operation: @escaping () async throws -> Void,
+        commit: @escaping () -> Void
+    ) {
+        runSwitchTask(pid: pid, operation: operation, commit: { _ in commit() })
     }
 
     func deviceDisconnectedForTests(uid: String, name: String) {
