@@ -7,7 +7,7 @@ Fixed in this pass:
 - Main-thread CoreAudio process-list reads in `AudioProcessMonitor`.
 - Off-main SwiftUI binding mutation in popover/global click dismissal.
 - Main-actor synchronous AppleScript activation and bundle-ID interpolation risk.
-- Multi-device routing mode and selected UID startup restoration.
+- Multi-device routing mode and selected UID startup restoration, including startup tap creation with the restored target UID set.
 - Legacy/corrupt EQ band arrays crashing the EQ panel.
 - Inert `maxVolumeBoost` setting on volume writes.
 - Popup visibility false positives from unfiltered process-wide window notifications.

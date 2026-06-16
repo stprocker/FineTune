@@ -15,6 +15,25 @@ import FineTuneCore
 /// - Volume mapping roundtrip consistency
 final class AppRowInteractionTests: XCTestCase {
 
+    private func sliderValueAfterUnmute(
+        sliderValue: Double,
+        isMuted: Bool,
+        defaultUnmuteVolume: Double
+    ) -> Double {
+        if isMuted && sliderValue == 0 {
+            return defaultUnmuteVolume
+        }
+        return sliderValue
+    }
+
+    private func appRowShouldAutoUnmute(isMutedExternal: Bool) -> Bool {
+        isMutedExternal
+    }
+
+    private func deviceRowShouldAutoUnmute(isMuted: Bool, newValue: Double) -> Bool {
+        isMuted && newValue > 0
+    }
+
     // MARK: - Volume Slider → onVolumeChange
 
     /// Slider position maps to gain via VolumeMapping.sliderToGain
@@ -44,58 +63,47 @@ final class AppRowInteractionTests: XCTestCase {
     func testUnmuteFromZeroRestoresDefaultVolume() {
         // AppRow behavior: if slider == 0 && muted, unmute sets slider to 0.5
         let defaultUnmuteVolume: Double = 0.5
-        var sliderValue: Double = 0.0
+        let sliderValue: Double = 0.0
         let isMuted = true
 
-        // Simulate unmute button tap when at zero
-        if isMuted {
-            if sliderValue == 0 {
-                sliderValue = defaultUnmuteVolume
-            }
-        }
+        let restoredValue = sliderValueAfterUnmute(
+            sliderValue: sliderValue,
+            isMuted: isMuted,
+            defaultUnmuteVolume: defaultUnmuteVolume
+        )
 
-        XCTAssertEqual(sliderValue, 0.5, "Unmuting from zero should restore to default 50%")
+        XCTAssertEqual(restoredValue, 0.5, "Unmuting from zero should restore to default 50%")
     }
 
     /// When showMutedIcon is true (muted) and slider > 0, just unmute without changing volume
     func testUnmuteWithNonZeroVolumePreservesSlider() {
         let defaultUnmuteVolume: Double = 0.5
-        var sliderValue: Double = 0.75
+        let sliderValue: Double = 0.75
         let isMuted = true
 
-        if isMuted {
-            if sliderValue == 0 {
-                sliderValue = defaultUnmuteVolume
-            }
-        }
+        let restoredValue = sliderValueAfterUnmute(
+            sliderValue: sliderValue,
+            isMuted: isMuted,
+            defaultUnmuteVolume: defaultUnmuteVolume
+        )
 
-        XCTAssertEqual(sliderValue, 0.75, "Unmuting with non-zero volume should preserve slider position")
+        XCTAssertEqual(restoredValue, 0.75, "Unmuting with non-zero volume should preserve slider position")
     }
 
     // MARK: - Auto-Unmute (Slider Move While Muted)
 
     /// Moving slider while muted should trigger unmute
     func testSliderMoveWhileMutedTriggersUnmute() {
-        var unmuteCalled = false
         let isMutedExternal = true
-
-        // Simulate: slider onChange fires while muted → auto-unmute
-        // This is the pattern in AppRow lines 168-175 and DeviceRow lines 92-98
-        if isMutedExternal {
-            unmuteCalled = true  // onMuteChange(false) would be called
-        }
+        let unmuteCalled = appRowShouldAutoUnmute(isMutedExternal: isMutedExternal)
 
         XCTAssertTrue(unmuteCalled, "Moving slider while muted should trigger unmute callback")
     }
 
     /// Moving slider while NOT muted should NOT trigger unmute
     func testSliderMoveWhileUnmutedDoesNotTriggerUnmute() {
-        var unmuteCalled = false
         let isMutedExternal = false
-
-        if isMutedExternal {
-            unmuteCalled = true
-        }
+        let unmuteCalled = appRowShouldAutoUnmute(isMutedExternal: isMutedExternal)
 
         XCTAssertFalse(unmuteCalled, "Moving slider while unmuted should NOT trigger unmute callback")
     }
@@ -104,26 +112,17 @@ final class AppRowInteractionTests: XCTestCase {
 
     /// DeviceRow auto-unmute additionally checks newValue > 0
     func testDeviceRowSliderMoveWhileMutedOnlyUnmutesAboveZero() {
-        var unmuteCalled = false
         let isMuted = true
         let newValue: Double = 0.3
-
-        // DeviceRow pattern (line 96-98): auto-unmute only when slider > 0
-        if isMuted && newValue > 0 {
-            unmuteCalled = true
-        }
+        let unmuteCalled = deviceRowShouldAutoUnmute(isMuted: isMuted, newValue: newValue)
 
         XCTAssertTrue(unmuteCalled, "DeviceRow should auto-unmute when slider moved above 0 while muted")
     }
 
     func testDeviceRowSliderAtZeroWhileMutedDoesNotUnmute() {
-        var unmuteCalled = false
         let isMuted = true
         let newValue: Double = 0.0
-
-        if isMuted && newValue > 0 {
-            unmuteCalled = true
-        }
+        let unmuteCalled = deviceRowShouldAutoUnmute(isMuted: isMuted, newValue: newValue)
 
         XCTAssertFalse(unmuteCalled, "DeviceRow should NOT auto-unmute when slider at 0 while muted")
     }

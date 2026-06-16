@@ -101,6 +101,8 @@ final class AudioEngine {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
+    /// Test-only hook for observing the full requested tap target set.
+    var onTapCreationDeviceUIDsAttemptForTests: ((AudioApp, [String]) -> Void)?
 
     // MARK: - Injectable Timing
 
@@ -1248,11 +1250,20 @@ final class AudioEngine {
             // Load saved volume and mute state
             let savedVolume = volumeState.loadSavedVolume(for: app.id, identifier: app.persistenceIdentifier)
             let savedMute = volumeState.loadSavedMute(for: app.id, identifier: app.persistenceIdentifier)
+            // Keep these loads before tap creation: startup target resolution needs
+            // restored multi-device mode and selected UIDs, not just the single routing UID.
             _ = volumeState.loadSavedDeviceSelectionMode(for: app.id, identifier: app.persistenceIdentifier)
             _ = volumeState.loadSavedSelectedDeviceUIDs(for: app.id, identifier: app.persistenceIdentifier)
+            let startupDeviceUIDs = volumeState.getDeviceSelectionMode(for: app.id) == .multi
+                ? resolveTapTargetDeviceUIDs(for: app)
+                : [deviceUID]
+            guard !startupDeviceUIDs.isEmpty else {
+                logger.debug("Skipping \(app.name) — no startup target devices")
+                continue
+            }
 
             // Always create tap for audio apps (always-on strategy)
-            ensureTapExists(for: app, deviceUID: deviceUID, reason: .startup)
+            ensureTapExists(for: app, deviceUIDs: startupDeviceUIDs, reason: .startup)
 
             // Mark as applied regardless of tap outcome to prevent retry storm:
             // without this, every onAppsChanged fires the full sequence again
@@ -1373,6 +1384,7 @@ final class AudioEngine {
         guard shouldAttemptTapCreation(for: app, reason: reason, bypassBackoff: bypassBackoff) else { return }
         let deviceUID = deviceUIDs[0]  // Primary UID for volume/mute lookups
         onTapCreationAttemptForTests?(app, deviceUID)
+        onTapCreationDeviceUIDsAttemptForTests?(app, deviceUIDs)
 
         let tap = ProcessTapController(app: app, targetDeviceUIDs: deviceUIDs, deviceMonitor: deviceMonitor)
         tap.volume = volumeState.getVolume(for: app.id)

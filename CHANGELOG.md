@@ -9,14 +9,16 @@
 - Moved `AudioProcessMonitor` CoreAudio process-list reads off the main actor and made startup refresh asynchronous.
 - Normalized decoded EQ settings and custom EQ presets so legacy/corrupt band arrays are clamped, padded, and truncated before UI use.
 - Hardened `EQPanelView` against malformed band arrays by driving sliders from normalized gains.
-- Restored persisted multi-device routing mode and selected device UIDs during startup settings application.
+- Restored persisted multi-device routing mode and selected device UIDs during startup settings application, including startup tap creation against all restored target UIDs.
 - Enforced `maxVolumeBoost` in active, inactive, and URL-driven volume writes.
+- Deferred onboarding completion to the next main-actor turn after window closure to avoid modal reentrancy during `windowWillClose`.
 - Removed synchronous AppleScript app activation from the main actor.
 - Made popover/menu-bar dismissal and popup visibility state update on the main thread with explicit show/dismiss lifecycle hooks.
 - Prevented volume slider programmatic updates from re-persisting external state while preserving explicit unmute-from-zero volume restore.
+- Removed warning-only dead branches from `AppRowInteractionTests` and static isolation warnings from immutable audio helper constants.
 
 #### Tests
-- Added regression coverage for EQ decode normalization, custom preset decode normalization, multi-device custom-settings detection, and startup multi-device restore.
+- Added regression coverage for EQ decode normalization, custom preset decode normalization, multi-device custom-settings detection, startup multi-device restore/tap targets, and max volume boost enforcement.
 
 #### Verified
 - `swift test`

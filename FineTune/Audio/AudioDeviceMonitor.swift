@@ -22,15 +22,15 @@ final class AudioDeviceMonitor {
         let inputDevicesByUID: [String: AudioDevice]
         let inputDevicesByID: [AudioDeviceID: AudioDevice]
 
-        init(devicesByUID: [String: AudioDevice], devicesByID: [AudioDeviceID: AudioDevice],
-             inputDevicesByUID: [String: AudioDevice], inputDevicesByID: [AudioDeviceID: AudioDevice]) {
+        nonisolated init(devicesByUID: [String: AudioDevice], devicesByID: [AudioDeviceID: AudioDevice],
+                         inputDevicesByUID: [String: AudioDevice], inputDevicesByID: [AudioDeviceID: AudioDevice]) {
             self.devicesByUID = devicesByUID
             self.devicesByID = devicesByID
             self.inputDevicesByUID = inputDevicesByUID
             self.inputDevicesByID = inputDevicesByID
         }
 
-        static let empty = DeviceCache(devicesByUID: [:], devicesByID: [:], inputDevicesByUID: [:], inputDevicesByID: [:])
+        nonisolated static let empty = DeviceCache(devicesByUID: [:], devicesByID: [:], inputDevicesByUID: [:], inputDevicesByID: [:])
     }
 
     /// Atomic snapshot of all device caches. Updated on MainActor; read cross-actor.

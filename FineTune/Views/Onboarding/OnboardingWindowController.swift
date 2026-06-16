@@ -61,6 +61,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if closeWindow {
             currentWindow?.close()
         }
-        onComplete()
+        let completion = onComplete
+        Task { @MainActor in
+            completion()
+        }
     }
 }

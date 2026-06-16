@@ -537,10 +537,80 @@ final class ApplyPersistedSettingsFallbackTests: XCTestCase {
         settings.setDeviceSelectionMode(for: app.persistenceIdentifier, to: .multi)
         settings.setSelectedDeviceUIDs(for: app.persistenceIdentifier, to: ["speakers", "headphones"])
 
+        var attemptedDeviceUIDs: [String] = []
+        engine.onTapCreationDeviceUIDsAttemptForTests = { attemptedApp, deviceUIDs in
+            guard attemptedApp.id == app.id else { return }
+            attemptedDeviceUIDs = deviceUIDs
+        }
+
         engine.applyPersistedSettingsForTests(apps: [app])
 
         XCTAssertEqual(engine.getDeviceSelectionMode(for: app), .multi)
         XCTAssertEqual(engine.getSelectedDeviceUIDs(for: app), ["speakers", "headphones"])
+        XCTAssertEqual(attemptedDeviceUIDs, ["headphones", "speakers"])
+
+        engine.stop()
+    }
+}
+
+// MARK: - Volume Limit Enforcement
+
+@MainActor
+final class AudioEngineVolumeLimitTests: XCTestCase {
+
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+    }
+
+    override func tearDown() async throws {
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+    }
+
+    private func makeEngine(maxVolumeBoost: Float) -> AudioEngine {
+        let settings = SettingsManager(directory: tempDir)
+        var appSettings = settings.appSettings
+        appSettings.maxVolumeBoost = maxVolumeBoost
+        settings.updateAppSettings(appSettings)
+        return AudioEngine(settingsManager: settings)
+    }
+
+    func testSetVolumeClampsToMaxVolumeBoost() {
+        let engine = makeEngine(maxVolumeBoost: 1.25)
+        let app = makeFakeApp()
+
+        engine.setVolume(for: app, to: 2.0)
+
+        XCTAssertEqual(engine.getVolume(for: app), 1.25, accuracy: 0.0001)
+        XCTAssertEqual(engine.settingsManager.getVolume(for: app.persistenceIdentifier) ?? -1, 1.25, accuracy: 0.0001)
+
+        engine.stop()
+    }
+
+    func testSetVolumeForInactiveClampsToMaxVolumeBoost() {
+        let engine = makeEngine(maxVolumeBoost: 1.5)
+
+        engine.setVolumeForInactive(identifier: "com.test.inactive", to: 3.0)
+
+        XCTAssertEqual(engine.getVolumeForInactive(identifier: "com.test.inactive"), 1.5, accuracy: 0.0001)
+        XCTAssertEqual(engine.settingsManager.getVolume(for: "com.test.inactive") ?? -1, 1.5, accuracy: 0.0001)
+
+        engine.stop()
+    }
+
+    func testSetVolumeClampsNegativeAndNonFiniteInputs() {
+        let engine = makeEngine(maxVolumeBoost: 1.25)
+        let app = makeFakeApp()
+
+        engine.setVolume(for: app, to: -0.5)
+        XCTAssertEqual(engine.getVolume(for: app), 0, accuracy: 0.0001)
+
+        engine.setVolume(for: app, to: .infinity)
+        XCTAssertEqual(engine.getVolume(for: app), 1.0, accuracy: 0.0001)
 
         engine.stop()
     }
