@@ -120,6 +120,14 @@ final class AudioEngine {
     /// Test-only hook for observing constructor-time mute behavior before activation.
     var onTapConstructedForTests: ((AudioApp, Bool) -> Void)?
 
+    private static var isRunningUnderXCTest: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+            || NSClassFromString("XCTest.XCTestCase") != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
     // MARK: - Injectable Timing
 
     /// Diagnostic + health check polling interval (seconds).
@@ -167,8 +175,9 @@ final class AudioEngine {
 
     /// Restores transaction state from the most recent snapshot, then discards it.
     /// Call after recreation completes to undo any spurious notification side-effects.
-    private func restoreTransactionSnapshot() {
-        guard let snapshot = recreationSnapshot else { return }
+    @discardableResult
+    private func restoreTransactionSnapshot() -> RecreationSnapshot? {
+        guard let snapshot = recreationSnapshot else { return nil }
         appDeviceRouting = snapshot.appDeviceRouting
         followsDefault = snapshot.followsDefault
         settingsManager.restoreDeviceRoutings(snapshot.persistedRouting)
@@ -176,6 +185,7 @@ final class AudioEngine {
         volumeState.restoreSelectionState(snapshot.inMemorySelection)
         recreationSnapshot = nil
         logger.debug("[SNAPSHOT] Restored routing: \(snapshot.appDeviceRouting.count) in-memory, \(snapshot.persistedRouting.count) persisted")
+        return snapshot
     }
 
     // MARK: - Permission Confirmation
@@ -242,7 +252,7 @@ final class AudioEngine {
         // Skip CoreAudio listener registration when launched as an Xcode test host.
         // Each test host instance registers listeners on coreaudiod; concurrent test runs
         // spawn multiple instances whose listeners corrupt coreaudiod state and freeze System Settings.
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        guard !Self.isRunningUnderXCTest else { return }
 
         Task { @MainActor in
             processMonitor.start()
@@ -485,7 +495,90 @@ final class AudioEngine {
     }
 
     private func finalizeTransaction() async {
-        restoreTransactionSnapshot()
+        guard let snapshot = restoreTransactionSnapshot() else { return }
+        await reconcileRestoredStateAgainstCurrentDevices(snapshot)
+    }
+
+    private func reconcileRestoredStateAgainstCurrentDevices(_ snapshot: RecreationSnapshot) async {
+        for app in apps where volumeState.getDeviceSelectionMode(for: app.id) == .multi {
+            await reconcileRestoredMultiDeviceSelection(for: app)
+        }
+
+        for (pid, restoredUID) in snapshot.appDeviceRouting {
+            guard deviceMonitor.device(for: restoredUID) == nil else { continue }
+            guard let app = apps.first(where: { $0.id == pid }) else { continue }
+
+            if volumeState.getDeviceSelectionMode(for: pid) == .multi,
+               !volumeState.getSelectedDeviceUIDs(for: pid).isEmpty {
+                continue
+            }
+
+            await reconcileRestoredSingleDeviceRoute(for: app, missingUID: restoredUID)
+        }
+    }
+
+    private func reconcileRestoredMultiDeviceSelection(for app: AudioApp) async {
+        let selectedUIDs = volumeState.getSelectedDeviceUIDs(for: app.id)
+        guard !selectedUIDs.isEmpty else { return }
+
+        let availableUIDs = Set(deviceMonitor.outputDevices.map(\.uid))
+        let remainingUIDs = selectedUIDs.intersection(availableUIDs)
+        guard remainingUIDs != selectedUIDs else { return }
+
+        volumeState.setSelectedDeviceUIDs(for: app.id, to: remainingUIDs, identifier: app.persistenceIdentifier)
+
+        guard !remainingUIDs.isEmpty else {
+            await reconcileRestoredSingleDeviceRoute(for: app, missingUID: nil)
+            return
+        }
+
+        guard let tap = taps[app.id] else { return }
+        let orderedUIDs = remainingUIDs.sorted()
+        do {
+            try await tap.updateDevices(to: orderedUIDs)
+            guard !Task.isCancelled else { return }
+            logger.info("[RECREATE] Reconciled \(app.name) multi-device selection after restart: \(orderedUIDs.joined(separator: ", "))")
+        } catch {
+            logger.error("[RECREATE] Failed to reconcile \(app.name) multi-device selection: \(error.localizedDescription)")
+        }
+    }
+
+    private func reconcileRestoredSingleDeviceRoute(for app: AudioApp, missingUID: String?) async {
+        guard let fallbackUID = resolveCurrentFallbackOutputDeviceUID() else {
+            if let missingUID {
+                logger.error("[RECREATE] No fallback device available while reconciling missing route \(missingUID) for \(app.name)")
+            } else {
+                logger.error("[RECREATE] No fallback device available while reconciling empty multi-device selection for \(app.name)")
+            }
+            return
+        }
+
+        appDeviceRouting[app.id] = fallbackUID
+        followsDefault.insert(app.id)
+
+        guard let tap = taps[app.id] else { return }
+        do {
+            try await tap.switchDevice(to: fallbackUID)
+            guard !Task.isCancelled else { return }
+            tap.volume = volumeState.getVolume(for: app.id)
+            tap.isMuted = volumeState.getMute(for: app.id)
+            if let device = deviceMonitor.device(for: fallbackUID) {
+                tap.currentDeviceVolume = deviceVolumeMonitor.volumes[device.id] ?? 1.0
+                tap.isDeviceMuted = deviceVolumeMonitor.muteStates[device.id] ?? false
+            }
+            logger.info("[RECREATE] Reconciled \(app.name) to fallback device \(fallbackUID) after restart")
+        } catch {
+            logger.error("[RECREATE] Failed to reconcile \(app.name) to fallback device \(fallbackUID): \(error.localizedDescription)")
+        }
+    }
+
+    private func resolveCurrentFallbackOutputDeviceUID() -> String? {
+        if let defaultUID = try? defaultOutputDeviceUIDProvider(),
+           deviceMonitor.device(for: defaultUID) != nil {
+            return defaultUID
+        }
+
+        return deviceMonitor.outputDevices.first?.uid
     }
 
     /// Tears down a tap for the given PID: invalidates it, removes from tracking dictionaries.
@@ -1926,7 +2019,7 @@ final class AudioEngine {
         guard !activeApps.isEmpty else {
             guard let cached = lastDisplayedApp else { return }
             // In tests, fake PIDs are not OS processes; keep fallback deterministic.
-            guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+            guard !Self.isRunningUnderXCTest else { return }
             if !isProcessRunningProvider(cached.id) {
                 lastDisplayedApp = nil
             }

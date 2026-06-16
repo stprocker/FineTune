@@ -179,4 +179,153 @@ final class ServiceRestartCoordinatorTests: XCTestCase {
         XCTAssertFalse(commitRan)
         XCTAssertEqual(engine.activeSwitchTaskCountForTests, 0)
     }
+
+    func testRecreationFinalizeRestoresSnapshotWhenDevicesAreStillPresent() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let settings = SettingsManager(directory: tempDir)
+        let engine = AudioEngine(
+            settingsManager: settings,
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .zero
+        engine.fastHealthCheckIntervals = []
+
+        let app = makeFakeApp(pid: 19003, name: "Spotify", bundleID: "com.spotify.restore")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(1), uid: "headphones", name: "Headphones", icon: nil),
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.appDeviceRouting[app.id] = "headphones"
+        settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "headphones")
+        engine.markFollowsDefaultForTests([])
+
+        engine.serviceRestartWillBeginForTests()
+        engine.appDeviceRouting[app.id] = "speakers"
+        settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "speakers")
+        engine.markFollowsDefaultForTests([app.id])
+        engine.serviceRestartDidCompleteForTests()
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertEqual(engine.appDeviceRoutingSnapshotForTests(), [app.id: "headphones"])
+        XCTAssertEqual(settings.getDeviceRouting(for: app.persistenceIdentifier), "headphones")
+        XCTAssertTrue(engine.followsDefaultSnapshotForTests().isEmpty)
+        XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+    }
+
+    func testRecreationFinalizeReconcilesMissingSingleModeDeviceInMemoryOnly() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let settings = SettingsManager(directory: tempDir)
+        let engine = AudioEngine(
+            settingsManager: settings,
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .zero
+        engine.fastHealthCheckIntervals = []
+
+        let app = makeFakeApp(pid: 19004, name: "Spotify", bundleID: "com.spotify.single")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(1), uid: "headphones", name: "Headphones", icon: nil),
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.appDeviceRouting[app.id] = "headphones"
+        settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "headphones")
+        engine.markFollowsDefaultForTests([])
+
+        engine.serviceRestartWillBeginForTests()
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.serviceRestartDidCompleteForTests()
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertEqual(engine.appDeviceRoutingSnapshotForTests(), [app.id: "speakers"])
+        XCTAssertEqual(settings.getDeviceRouting(for: app.persistenceIdentifier), "headphones")
+        XCTAssertEqual(engine.followsDefaultSnapshotForTests(), [app.id])
+    }
+
+    func testRecreationFinalizeReconcilesMissingMultiModeDeviceInMemoryAndPersistedSelection() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let settings = SettingsManager(directory: tempDir)
+        let engine = AudioEngine(
+            settingsManager: settings,
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .zero
+        engine.fastHealthCheckIntervals = []
+
+        let app = makeFakeApp(pid: 19005, name: "Spotify", bundleID: "com.spotify.multi")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(1), uid: "headphones", name: "Headphones", icon: nil),
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.volumeState.setDeviceSelectionMode(for: app.id, to: .multi, identifier: app.persistenceIdentifier)
+        engine.volumeState.setSelectedDeviceUIDs(for: app.id, to: ["headphones", "speakers"], identifier: app.persistenceIdentifier)
+
+        engine.serviceRestartWillBeginForTests()
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.serviceRestartDidCompleteForTests()
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertEqual(engine.volumeState.getSelectedDeviceUIDs(for: app.id), ["speakers"])
+        XCTAssertEqual(settings.getSelectedDeviceUIDs(for: app.persistenceIdentifier), ["speakers"])
+        XCTAssertNil(settings.getDeviceRouting(for: app.persistenceIdentifier))
+    }
+
+    func testRecreationFinalizeReconcilesEmptyMultiModeSelectionToSingleFallback() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let settings = SettingsManager(directory: tempDir)
+        let engine = AudioEngine(
+            settingsManager: settings,
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .zero
+        engine.fastHealthCheckIntervals = []
+
+        let app = makeFakeApp(pid: 19006, name: "Spotify", bundleID: "com.spotify.multiempty")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(1), uid: "headphones", name: "Headphones", icon: nil),
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.volumeState.setDeviceSelectionMode(for: app.id, to: .multi, identifier: app.persistenceIdentifier)
+        engine.volumeState.setSelectedDeviceUIDs(for: app.id, to: ["headphones"], identifier: app.persistenceIdentifier)
+
+        engine.serviceRestartWillBeginForTests()
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(2), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        engine.serviceRestartDidCompleteForTests()
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertEqual(engine.volumeState.getSelectedDeviceUIDs(for: app.id), [])
+        XCTAssertEqual(settings.getSelectedDeviceUIDs(for: app.persistenceIdentifier), [])
+        XCTAssertEqual(engine.appDeviceRoutingSnapshotForTests(), [app.id: "speakers"])
+        XCTAssertEqual(engine.followsDefaultSnapshotForTests(), [app.id])
+        XCTAssertNil(settings.getDeviceRouting(for: app.persistenceIdentifier))
+    }
 }
