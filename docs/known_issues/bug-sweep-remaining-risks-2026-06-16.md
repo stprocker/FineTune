@@ -14,6 +14,7 @@ Fixed in this pass:
 - App-row volume feedback loop on external volume updates.
 - Empty single-mode device UID during mode-change tap creation.
 - Tap-recreation re-entry and routing-suppression lifetime during coreaudiod restart recovery.
+- H4b permission-driven tap recreation downgrade ordering: permission loss is recorded before the second recreate, so final constructed taps use unmuted source audio.
 - Signal-handler HAL destruction risk, resolved by removing the signal-handler aggregate cleanup path and relying on normal teardown plus startup orphan cleanup.
 
 Still open:

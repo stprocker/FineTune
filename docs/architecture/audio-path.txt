@@ -519,19 +519,19 @@ When coreaudiod restarts, **every AudioObjectID in the system becomes invalid**.
 kAudioHardwarePropertyServiceRestarted fires
   |
   v
-1. Cancel any previous restart task (reentrancy guard)
-2. Set isRecreatingTaps = true (suppress device notifications)
-3. Snapshot current routing state (in-memory + persisted)
-4. Cancel all in-flight device switches
-5. Destroy all taps (their IDs are garbage now anyway)
-6. Wait 1.5 seconds (serviceRestartDelay) for coreaudiod to stabilize
-7. Recreate all taps from persisted settings
-8. If permission not yet confirmed this session, probe for audio inline
-9. Restore routing snapshot (prevents spurious notifications
-   during recreation from corrupting the routing table)
-10. Clear isRecreatingTaps flag
-11. Set recreationEndedAt for 2-second grace period
-    (catches late-arriving debounced notifications)
+1. Fire onServiceRestartWillBegin before the monitor reads CoreAudio
+2. Open one recreation transaction: suppress notifications, snapshot routing/selection,
+   and cancel in-flight device switches
+3. Refresh the monitor's device list off the main actor and emit restart-time churn
+   (AudioEngine drops these callbacks while the transaction is active)
+4. Coalesce the restarted event into the active transaction
+5. Drain the cancelled switch tasks before restoring state
+6. Wait serviceRestartDelay for coreaudiod to stabilize
+7. Destroy and recreate taps from current settings
+8. Probe permission inline; if permission is no longer confirmed, downgrade and recreate again
+9. Await finalizeTransaction(): restore the pre-churn snapshot, then reconcile any restored
+   routes/selections whose devices are now absent against the current device list
+10. Clear isRecreatingTaps and set recreationEndedAt for the grace period
 ```
 
 From the user's perspective: audio cuts out for ~2 seconds, then everything comes back exactly as it was.

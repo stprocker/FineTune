@@ -491,7 +491,7 @@ final class AudioEngine {
         taps.removeAll()
         appliedPIDs.removeAll()
         lastHealthSnapshots.removeAll()
-        applyPersistedSettings()
+        applyPersistedSettings(for: apps, bypassTapCreationBackoff: true)
     }
 
     private func finalizeTransaction() async {
@@ -1211,38 +1211,42 @@ final class AudioEngine {
         settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: deviceUID)
 
         if let tap = taps[app.id] {
-            switchTasks[app.id] = Task {
-                do {
-                    try await tap.switchDevice(to: deviceUID)
-                    // Restore saved volume/mute state after device switch
-                    tap.volume = self.volumeState.getVolume(for: app.id)
-                    tap.isMuted = self.volumeState.getMute(for: app.id)
-                    // Update device volume/mute for VU meter after switch
-                    if let device = self.deviceMonitor.device(for: deviceUID) {
-                        tap.currentDeviceVolume = self.deviceVolumeMonitor.volumes[device.id] ?? 1.0
-                        tap.isDeviceMuted = self.deviceVolumeMonitor.muteStates[device.id] ?? false
+            runSwitchTask(
+                pid: app.id,
+                operation: {
+                    do {
+                        try await tap.switchDevice(to: deviceUID)
+                        return Result<Void, Error>.success(())
+                    } catch {
+                        return Result<Void, Error>.failure(error)
                     }
-                    self.logger.debug("Switched \(app.name) to device: \(deviceUID)")
-                } catch {
-                    // Don't revert routing if cancelled — a newer switch has already
-                    // updated appDeviceRouting and will handle the transition.
-                    guard !Task.isCancelled else {
-                        self.logger.debug("Switch cancelled for \(app.name) (superseded by newer switch)")
-                        return
-                    }
-                    self.logger.error("Failed to switch device for \(app.name): \(error.localizedDescription)")
-                    // Revert routing state so UI reflects where audio is actually playing
-                    if let previousDeviceUID {
-                        self.appDeviceRouting[app.id] = previousDeviceUID
-                        self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: previousDeviceUID)
-                        self.logger.info("Reverted \(app.name) routing to: \(previousDeviceUID)")
-                    } else {
-                        self.appDeviceRouting.removeValue(forKey: app.id)
-                        self.settingsManager.clearDeviceRouting(for: app.persistenceIdentifier)
+                },
+                commit: { result in
+                    switch result {
+                    case .success:
+                        // Restore saved volume/mute state after device switch
+                        tap.volume = self.volumeState.getVolume(for: app.id)
+                        tap.isMuted = self.volumeState.getMute(for: app.id)
+                        // Update device volume/mute for VU meter after switch
+                        if let device = self.deviceMonitor.device(for: deviceUID) {
+                            tap.currentDeviceVolume = self.deviceVolumeMonitor.volumes[device.id] ?? 1.0
+                            tap.isDeviceMuted = self.deviceVolumeMonitor.muteStates[device.id] ?? false
+                        }
+                        self.logger.debug("Switched \(app.name) to device: \(deviceUID)")
+                    case .failure(let error):
+                        self.logger.error("Failed to switch device for \(app.name): \(error.localizedDescription)")
+                        // Revert routing state so UI reflects where audio is actually playing
+                        if let previousDeviceUID {
+                            self.appDeviceRouting[app.id] = previousDeviceUID
+                            self.settingsManager.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: previousDeviceUID)
+                            self.logger.info("Reverted \(app.name) routing to: \(previousDeviceUID)")
+                        } else {
+                            self.appDeviceRouting.removeValue(forKey: app.id)
+                            self.settingsManager.clearDeviceRouting(for: app.persistenceIdentifier)
+                        }
                     }
                 }
-                self.switchTasks.removeValue(forKey: app.id)
-            }
+            )
         } else {
             ensureTapExists(for: app, deviceUID: deviceUID, reason: .routing, bypassBackoff: true)
             // If tap creation failed, revert routing so UI matches reality
@@ -1416,7 +1420,7 @@ final class AudioEngine {
         }
     }
 
-    private func applyPersistedSettings(for apps: [AudioApp]) {
+    private func applyPersistedSettings(for apps: [AudioApp], bypassTapCreationBackoff: Bool = false) {
         for app in apps {
             guard !appliedPIDs.contains(app.id) else { continue }
             guard settingsManager.hasCustomSettings(for: app.persistenceIdentifier) else {
@@ -1449,7 +1453,12 @@ final class AudioEngine {
             }
 
             // Always create tap for audio apps (always-on strategy)
-            ensureTapExists(for: app, deviceUIDs: startupDeviceUIDs, reason: .startup)
+            ensureTapExists(
+                for: app,
+                deviceUIDs: startupDeviceUIDs,
+                reason: .startup,
+                bypassBackoff: bypassTapCreationBackoff
+            )
 
             // Mark as applied regardless of tap outcome to prevent retry storm:
             // without this, every onAppsChanged fires the full sequence again

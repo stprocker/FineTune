@@ -5,9 +5,13 @@ import AudioToolbox
 @MainActor
 final class ServiceRestartCoordinatorTests: XCTestCase {
 
-    func testEmitRestartEventsFiresWillBeginBeforeChurnAndRestarted() {
+    func testServiceRestartFiresWillBeginBeforeDeviceReadChurnAndRestarted() async {
         let monitor = AudioDeviceMonitor()
-        var events: [String] = []
+        let events = ThreadSafeEventLog()
+
+        monitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(1), uid: "old-output", name: "Old Output", icon: nil),
+        ])
 
         monitor.onServiceRestartWillBegin = {
             events.append("willBegin")
@@ -18,29 +22,30 @@ final class ServiceRestartCoordinatorTests: XCTestCase {
         monitor.onDeviceConnected = { uid, _ in
             events.append("outputConnected:\(uid)")
         }
-        monitor.onInputDeviceDisconnected = { uid, _ in
-            events.append("inputDisconnected:\(uid)")
-        }
-        monitor.onInputDeviceConnected = { uid, _ in
-            events.append("inputConnected:\(uid)")
-        }
         monitor.onServiceRestarted = {
             events.append("restarted")
         }
 
-        monitor.emitRestartEvents(
-            previousOutput: ["old-output"],
-            currentOutput: ["new-output"],
-            previousInput: ["old-input"],
-            currentInput: ["new-input"]
-        )
+        await monitor.serviceRestartedForTests {
+            events.append("read")
+            return [
+                AudioDeviceMonitor.DeviceData(
+                    id: AudioDeviceID(2),
+                    uid: "new-output",
+                    name: "New Output",
+                    iconSymbol: "speaker",
+                    inputIconSymbol: "mic",
+                    hasOutput: true,
+                    hasInput: false
+                ),
+            ]
+        }
 
-        XCTAssertEqual(events, [
+        XCTAssertEqual(events.snapshot(), [
             "willBegin",
+            "read",
             "outputDisconnected:old-output",
             "outputConnected:new-output",
-            "inputDisconnected:old-input",
-            "inputConnected:new-input",
             "restarted",
         ])
     }
@@ -70,7 +75,13 @@ final class ServiceRestartCoordinatorTests: XCTestCase {
     }
 
     func testProbeDrivenPermissionDowngradeCoalescesWithinActiveTransaction() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let settings = SettingsManager(directory: tempDir)
         let engine = AudioEngine(
+            settingsManager: settings,
             defaultOutputDeviceUIDProvider: { "speakers" },
             isProcessRunningProvider: { _ in false }
         )
@@ -79,12 +90,27 @@ final class ServiceRestartCoordinatorTests: XCTestCase {
         engine.fastHealthCheckIntervals = []
         engine.setPermissionConfirmedForTests(true)
 
+        let app = makeFakeApp(pid: 19007, name: "Spotify", bundleID: "com.spotify.permission-downgrade")
+        engine.updateDisplayedAppsStateForTests(activeApps: [app])
+        engine.deviceMonitor.setOutputDevicesForTests([
+            AudioDevice(id: AudioDeviceID(1), uid: "speakers", name: "Speakers", icon: nil),
+        ])
+        settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "speakers")
+
+        var observedMuteOriginal: [Bool] = []
+        engine.onTapConstructedForTests = { constructedApp, muteOriginal in
+            if constructedApp.id == app.id {
+                observedMuteOriginal.append(muteOriginal)
+            }
+        }
+
         engine.serviceRestartWillBeginForTests()
         engine.serviceRestartDidCompleteForTests()
         await engine.waitForRecreationTransactionForTests()
 
         XCTAssertFalse(engine.permissionConfirmedForTests)
         XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+        XCTAssertEqual(observedMuteOriginal, [true, false])
     }
 
     func testCoalescedRestartDoesNotClearSuppressionBeforeActiveTransactionCompletes() async {
@@ -327,5 +353,22 @@ final class ServiceRestartCoordinatorTests: XCTestCase {
         XCTAssertEqual(engine.appDeviceRoutingSnapshotForTests(), [app.id: "speakers"])
         XCTAssertEqual(engine.followsDefaultSnapshotForTests(), [app.id])
         XCTAssertNil(settings.getDeviceRouting(for: app.persistenceIdentifier))
+    }
+}
+
+private final class ThreadSafeEventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [String] = []
+
+    func append(_ event: String) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
     }
 }

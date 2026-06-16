@@ -275,7 +275,9 @@ final class AudioDeviceMonitor {
         }
     }
 
-    private func handleServiceRestartedAsync() async {
+    private func handleServiceRestartedAsync(
+        readDeviceData: @escaping @Sendable () -> [DeviceData] = { AudioDeviceMonitor.readDeviceDataFromCoreAudio() }
+    ) async {
         logger.warning("coreaudiod service restarted - refreshing device list")
         onServiceRestartWillBegin?()
 
@@ -288,7 +290,9 @@ final class AudioDeviceMonitor {
         // CRITICAL: Run CoreAudio reads OFF the main thread.
         // During coreaudiod restart, these calls can block for seconds.
         // Running them on MainActor would freeze the UI.
-        let deviceData = await Task.detached { Self.readDeviceDataFromCoreAudio() }.value
+        let deviceData = await Task.detached {
+            readDeviceData()
+        }.value
 
         // Back on MainActor -- update state
         let (outputList, inputList) = createAudioDevicesWithInput(from: deviceData)
@@ -316,8 +320,7 @@ final class AudioDeviceMonitor {
             previousOutputNames: outputDeviceNames,
             currentOutputNames: currentOutputNames,
             previousInputNames: inputDeviceNames,
-            currentInputNames: currentInputNames,
-            includeWillBegin: false
+            currentInputNames: currentInputNames
         )
     }
 
@@ -329,13 +332,8 @@ final class AudioDeviceMonitor {
         previousOutputNames: [String: String] = [:],
         currentOutputNames: [String: String] = [:],
         previousInputNames: [String: String] = [:],
-        currentInputNames: [String: String] = [:],
-        includeWillBegin: Bool = true
+        currentInputNames: [String: String] = [:]
     ) {
-        if includeWillBegin {
-            onServiceRestartWillBegin?()
-        }
-
         let disconnectedOutputUIDs = previousOutput.subtracting(currentOutput)
         for uid in disconnectedOutputUIDs.sorted() {
             let name = previousOutputNames[uid] ?? uid
@@ -431,7 +429,7 @@ final class AudioDeviceMonitor {
     }
 
     /// Intermediate struct for device data read on background thread
-    private struct DeviceData: Sendable {
+    struct DeviceData: Sendable {
         let id: AudioDeviceID
         let uid: String
         let name: String
@@ -545,6 +543,12 @@ final class AudioDeviceMonitor {
             inputDevicesByUID: deviceCache.inputDevicesByUID,
             inputDevicesByID: deviceCache.inputDevicesByID
         )
+    }
+
+    /// Test-only hook to drive the production restart handler without CoreAudio reads.
+    @MainActor
+    func serviceRestartedForTests(readDeviceData: @escaping @Sendable () -> [DeviceData]) async {
+        await handleServiceRestartedAsync(readDeviceData: readDeviceData)
     }
 
     deinit {
