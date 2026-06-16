@@ -218,6 +218,22 @@ final class SettingsManager {
         scheduleSave()
     }
 
+    func snapshotSelectionState() -> (modes: [String: DeviceSelectionMode], uids: [String: [String]]) {
+        (
+            modes: settings.appDeviceSelectionMode,
+            uids: settings.appSelectedDeviceUIDs
+        )
+    }
+
+    func restoreSelectionState(_ snapshot: (modes: [String: DeviceSelectionMode], uids: [String: [String]])) {
+        guard settings.appDeviceSelectionMode != snapshot.modes
+            || settings.appSelectedDeviceUIDs != snapshot.uids
+        else { return }
+        settings.appDeviceSelectionMode = snapshot.modes
+        settings.appSelectedDeviceUIDs = snapshot.uids
+        scheduleSave()
+    }
+
     func hasCustomSettings(for identifier: String) -> Bool {
         settings.appDeviceRouting[identifier] != nil
             || settings.appVolumes[identifier] != nil

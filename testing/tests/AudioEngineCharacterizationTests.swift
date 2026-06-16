@@ -261,4 +261,51 @@ final class AudioEngineCharacterizationTests: XCTestCase {
         XCTAssertEqual(engine.startupTapDelay, .zero)
         XCTAssertTrue(engine.fastHealthCheckIntervals.isEmpty)
     }
+
+    // MARK: - Recreation Snapshot
+
+    func testTransactionSnapshotRestoreRoundTripsRoutingAndSelectionState() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let settings = SettingsManager(directory: tempDir)
+        let engine = AudioEngine(
+            settingsManager: settings,
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+
+        let spotify = makeFakeApp(pid: 18001, name: "Spotify", bundleID: "com.spotify")
+        let chrome = makeFakeApp(pid: 18002, name: "Chrome", bundleID: "com.chrome")
+        engine.updateDisplayedAppsStateForTests(activeApps: [spotify, chrome])
+
+        engine.appDeviceRouting[spotify.id] = "headphones"
+        settings.setDeviceRouting(for: spotify.persistenceIdentifier, deviceUID: "headphones")
+        settings.setDeviceRouting(for: chrome.persistenceIdentifier, deviceUID: "speakers")
+        engine.volumeState.setDeviceSelectionMode(for: spotify.id, to: .multi, identifier: spotify.persistenceIdentifier)
+        engine.volumeState.setSelectedDeviceUIDs(for: spotify.id, to: ["headphones", "speakers"], identifier: spotify.persistenceIdentifier)
+        engine.markFollowsDefaultForTests([chrome.id])
+
+        engine.captureTransactionSnapshotForTests()
+
+        engine.appDeviceRouting[spotify.id] = "display"
+        settings.setDeviceRouting(for: spotify.persistenceIdentifier, deviceUID: "display")
+        settings.clearDeviceRouting(for: chrome.persistenceIdentifier)
+        engine.volumeState.setDeviceSelectionMode(for: spotify.id, to: .single, identifier: spotify.persistenceIdentifier)
+        engine.volumeState.setSelectedDeviceUIDs(for: spotify.id, to: ["display"], identifier: spotify.persistenceIdentifier)
+        engine.markFollowsDefaultForTests([])
+
+        engine.restoreTransactionSnapshotForTests()
+
+        XCTAssertEqual(engine.appDeviceRoutingSnapshotForTests(), [spotify.id: "headphones"])
+        XCTAssertEqual(engine.followsDefaultSnapshotForTests(), [chrome.id])
+        XCTAssertEqual(settings.getDeviceRouting(for: spotify.persistenceIdentifier), "headphones")
+        XCTAssertEqual(settings.getDeviceRouting(for: chrome.persistenceIdentifier), "speakers")
+        XCTAssertEqual(engine.volumeState.getDeviceSelectionMode(for: spotify.id), .multi)
+        XCTAssertEqual(engine.volumeState.getSelectedDeviceUIDs(for: spotify.id), Set(["headphones", "speakers"]))
+        XCTAssertEqual(settings.getDeviceSelectionMode(for: spotify.persistenceIdentifier), .multi)
+        XCTAssertEqual(settings.getSelectedDeviceUIDs(for: spotify.persistenceIdentifier), Set(["headphones", "speakers"]))
+    }
 }

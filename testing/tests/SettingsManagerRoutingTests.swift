@@ -170,6 +170,29 @@ final class SettingsManagerRoutingTests: XCTestCase {
                        "Snapshot should be a value copy, not affected by later mutations")
     }
 
+    func testSelectionSnapshotRestoreRoundTripsModeAndUIDs() {
+        settings.setDeviceSelectionMode(for: "com.spotify", to: .multi)
+        settings.setSelectedDeviceUIDs(for: "com.spotify", to: ["speakers", "headphones"])
+        settings.setDeviceSelectionMode(for: "com.chrome", to: .single)
+        settings.setSelectedDeviceUIDs(for: "com.chrome", to: ["airpods"])
+
+        let snapshot = settings.snapshotSelectionState()
+
+        settings.setDeviceSelectionMode(for: "com.spotify", to: .single)
+        settings.setSelectedDeviceUIDs(for: "com.spotify", to: ["display"])
+        settings.setDeviceSelectionMode(for: "com.new-app", to: .multi)
+        settings.setSelectedDeviceUIDs(for: "com.new-app", to: ["dock"])
+
+        settings.restoreSelectionState(snapshot)
+
+        XCTAssertEqual(settings.getDeviceSelectionMode(for: "com.spotify"), .multi)
+        XCTAssertEqual(settings.getSelectedDeviceUIDs(for: "com.spotify"), Set(["speakers", "headphones"]))
+        XCTAssertEqual(settings.getDeviceSelectionMode(for: "com.chrome"), .single)
+        XCTAssertEqual(settings.getSelectedDeviceUIDs(for: "com.chrome"), Set(["airpods"]))
+        XCTAssertNil(settings.getDeviceSelectionMode(for: "com.new-app"))
+        XCTAssertNil(settings.getSelectedDeviceUIDs(for: "com.new-app"))
+    }
+
     // MARK: - hasCustomSettings
 
     func testHasCustomSettingsWithRouting() {

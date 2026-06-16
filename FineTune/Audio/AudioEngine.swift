@@ -95,9 +95,16 @@ final class AudioEngine {
     private var tapCreationBlockedUntil: [pid_t: Date] = [:]
     private let tapCreationBackoffBase: TimeInterval = 0.35
     private let tapCreationBackoffMax: TimeInterval = 4.0
-    /// Routing snapshot taken before recreation events.
-    /// Restored after recreation to prevent spurious notifications from corrupting persisted routing.
-    private var routingSnapshot: (memory: [pid_t: String], persisted: [String: String])?
+    /// State snapshot taken before recreation events.
+    /// Restored after recreation to prevent spurious notifications from corrupting routing/selection.
+    private struct RecreationSnapshot {
+        let appDeviceRouting: [pid_t: String]
+        let followsDefault: Set<pid_t>
+        let persistedRouting: [String: String]
+        let persistedSelection: (modes: [String: DeviceSelectionMode], uids: [String: [String]])
+        let inMemorySelection: [pid_t: (mode: DeviceSelectionMode, uids: Set<String>)]
+    }
+    private var recreationSnapshot: RecreationSnapshot?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "AudioEngine")
     /// Test-only hook for observing tap-creation attempts.
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
@@ -136,24 +143,30 @@ final class AudioEngine {
         isRecreatingTaps || Date().timeIntervalSince(recreationEndedAt) < recreationGracePeriod
     }
 
-    /// Captures a snapshot of both in-memory and persisted routing state.
-    /// Call before any recreation event to preserve routing.
-    private func snapshotRouting() {
-        routingSnapshot = (
-            memory: appDeviceRouting,
-            persisted: settingsManager.snapshotDeviceRoutings()
+    /// Captures a snapshot of in-memory and persisted routing/selection state.
+    /// Call before any recreation event to preserve user routing.
+    private func captureTransactionSnapshot() {
+        recreationSnapshot = RecreationSnapshot(
+            appDeviceRouting: appDeviceRouting,
+            followsDefault: followsDefault,
+            persistedRouting: settingsManager.snapshotDeviceRoutings(),
+            persistedSelection: settingsManager.snapshotSelectionState(),
+            inMemorySelection: volumeState.snapshotSelectionState()
         )
-        logger.debug("[SNAPSHOT] Captured routing: \(self.appDeviceRouting.count) in-memory, \(self.routingSnapshot?.persisted.count ?? 0) persisted")
+        logger.debug("[SNAPSHOT] Captured routing: \(self.appDeviceRouting.count) in-memory, \(self.recreationSnapshot?.persistedRouting.count ?? 0) persisted")
     }
 
-    /// Restores routing state from the most recent snapshot, then discards it.
+    /// Restores transaction state from the most recent snapshot, then discards it.
     /// Call after recreation completes to undo any spurious notification side-effects.
-    private func restoreRouting() {
-        guard let snapshot = routingSnapshot else { return }
-        appDeviceRouting = snapshot.memory
-        settingsManager.restoreDeviceRoutings(snapshot.persisted)
-        routingSnapshot = nil
-        logger.debug("[SNAPSHOT] Restored routing: \(snapshot.memory.count) in-memory, \(snapshot.persisted.count) persisted")
+    private func restoreTransactionSnapshot() {
+        guard let snapshot = recreationSnapshot else { return }
+        appDeviceRouting = snapshot.appDeviceRouting
+        followsDefault = snapshot.followsDefault
+        settingsManager.restoreDeviceRoutings(snapshot.persistedRouting)
+        settingsManager.restoreSelectionState(snapshot.persistedSelection)
+        volumeState.restoreSelectionState(snapshot.inMemorySelection)
+        recreationSnapshot = nil
+        logger.debug("[SNAPSHOT] Restored routing: \(snapshot.appDeviceRouting.count) in-memory, \(snapshot.persistedRouting.count) persisted")
     }
 
     // MARK: - Permission Confirmation
@@ -366,7 +379,7 @@ final class AudioEngine {
         serviceRestartTask?.cancel()
 
         isRecreatingTaps = true
-        snapshotRouting()
+        captureTransactionSnapshot()
 
         // Cancel all in-flight switches
         for task in switchTasks.values { task.cancel() }
@@ -411,7 +424,7 @@ final class AudioEngine {
                 self.recreateAllTaps()
             }
 
-            self.restoreRouting()
+            self.restoreTransactionSnapshot()
             self.isRecreatingTaps = false
             self.recreationEndedAt = Date()
         }
@@ -1498,7 +1511,7 @@ final class AudioEngine {
         // MainActor work (e.g., debounced device-change notifications) from firing
         // routeAllApps between this call and the Task body executing.
         isRecreatingTaps = true
-        snapshotRouting()
+        captureTransactionSnapshot()
         Task { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (pid, tap) in taps {
@@ -1511,7 +1524,7 @@ final class AudioEngine {
             appliedPIDs.removeAll()
             lastHealthSnapshots.removeAll()
             applyPersistedSettings()
-            restoreRouting()
+            restoreTransactionSnapshot()
             isRecreatingTaps = false
             recreationEndedAt = Date()
         }
@@ -1890,6 +1903,31 @@ final class AudioEngine {
     @MainActor
     func setPauseEligibilityForTests(_ pids: Set<pid_t>?) {
         pauseEligiblePIDsForTests = pids
+    }
+
+    @MainActor
+    func captureTransactionSnapshotForTests() {
+        captureTransactionSnapshot()
+    }
+
+    @MainActor
+    func restoreTransactionSnapshotForTests() {
+        restoreTransactionSnapshot()
+    }
+
+    @MainActor
+    func appDeviceRoutingSnapshotForTests() -> [pid_t: String] {
+        appDeviceRouting
+    }
+
+    @MainActor
+    func followsDefaultSnapshotForTests() -> Set<pid_t> {
+        followsDefault
+    }
+
+    @MainActor
+    func markFollowsDefaultForTests(_ pids: Set<pid_t>) {
+        followsDefault = pids
     }
 
     // MARK: - Input Device Lock

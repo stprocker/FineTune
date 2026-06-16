@@ -116,6 +116,25 @@ final class VolumeState {
         return nil
     }
 
+    func snapshotSelectionState() -> [pid_t: (mode: DeviceSelectionMode, uids: Set<String>)] {
+        states.mapValues { state in
+            (mode: state.deviceSelectionMode, uids: state.selectedDeviceUIDs)
+        }
+    }
+
+    func restoreSelectionState(_ snapshot: [pid_t: (mode: DeviceSelectionMode, uids: Set<String>)]) {
+        for pid in Set(states.keys).subtracting(snapshot.keys) {
+            states[pid]?.deviceSelectionMode = .single
+            states[pid]?.selectedDeviceUIDs = []
+        }
+        for (pid, selection) in snapshot {
+            guard var state = states[pid] else { continue }
+            state.deviceSelectionMode = selection.mode
+            state.selectedDeviceUIDs = selection.uids
+            states[pid] = state
+        }
+    }
+
     // MARK: - Cleanup
 
     func removeVolume(for pid: pid_t) {
