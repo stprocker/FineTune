@@ -68,9 +68,16 @@ final class AudioEngine {
     /// Grace period (seconds) after recreation ends during which device-change
     /// notifications are still suppressed. Covers the debounce + async dispatch latency.
     private let recreationGracePeriod: TimeInterval = 2.0
-    /// Stored task for `handleServiceRestarted` — cancelled on re-entry to prevent
-    /// overlapping delayed tasks from clearing `isRecreatingTaps` prematurely.
-    private var serviceRestartTask: Task<Void, Never>?
+    private enum TapRecreationReason: Hashable {
+        case serviceRestart
+        case permissionRecovery
+        case permissionDowngrade
+    }
+    private var recreationTask: Task<Void, Never>?
+    private var isRecreationTransactionActive = false
+    private var coalescedRecreationReasons: Set<TapRecreationReason> = []
+    private var switchTasksToDrainForRecreation: [Task<Void, Never>] = []
+    private var recreationTransactionCount = 0
     private var diagnosticPollTask: Task<Void, Never>?
     private var pauseRecoveryPollTask: Task<Void, Never>?
     /// Snapshot of tap diagnostics from the previous health check cycle.
@@ -291,6 +298,10 @@ final class AudioEngine {
                 self?.handleServiceRestarted()
             }
 
+            deviceMonitor.onServiceRestartWillBegin = { [weak self] in
+                self?.handleServiceRestartWillBegin()
+            }
+
             // Input device connect/disconnect monitoring
             deviceMonitor.onInputDeviceDisconnected = { [weak self] deviceUID, deviceName in
                 self?.logger.info("Input device disconnected: \(deviceName) (\(deviceUID))")
@@ -368,66 +379,111 @@ final class AudioEngine {
 
     // MARK: - Health & Diagnostics
 
-    /// Handles coreaudiod restart by destroying all taps and recreating them.
-    /// When coreaudiod restarts (e.g., after system audio permission is granted),
-    /// all AudioObjectIDs become invalid. We must tear down everything and start fresh.
+    private func handleServiceRestartWillBegin() {
+        openRecreationTransaction(reason: .serviceRestart)
+    }
+
+    /// Handles coreaudiod restart by requesting the already-open recreation transaction.
+    /// When coreaudiod restarts, all AudioObjectIDs become invalid and must be recreated.
     private func handleServiceRestarted() {
-        logger.warning("[SERVICE-RESTART] coreaudiod restarted — destroying all taps and recreating")
+        requestTapRecreation(reason: .serviceRestart)
+    }
 
-        // Cancel any previous restart task to prevent overlapping delayed tasks
-        // from clearing isRecreatingTaps prematurely (reentrancy guard).
-        serviceRestartTask?.cancel()
+    private func requestTapRecreation(reason: TapRecreationReason) {
+        if isRecreationTransactionActive {
+            coalescedRecreationReasons.insert(reason)
+            startRecreationTaskIfNeeded()
+            return
+        }
 
+        openRecreationTransaction(reason: reason)
+        startRecreationTaskIfNeeded()
+    }
+
+    private func openRecreationTransaction(reason: TapRecreationReason) {
+        guard !isRecreationTransactionActive else {
+            coalescedRecreationReasons.insert(reason)
+            return
+        }
+
+        logger.warning("[RECREATE] Opening tap recreation transaction")
+        isRecreationTransactionActive = true
         isRecreatingTaps = true
+        recreationTransactionCount += 1
+        coalescedRecreationReasons = [reason]
         captureTransactionSnapshot()
+        switchTasksToDrainForRecreation = Array(switchTasks.values)
+        for task in switchTasksToDrainForRecreation {
+            task.cancel()
+        }
+    }
 
-        // Cancel all in-flight switches
-        for task in switchTasks.values { task.cancel() }
-        switchTasks.removeAll()
+    private func startRecreationTaskIfNeeded() {
+        guard recreationTask == nil else { return }
+        recreationTask = Task { @MainActor [weak self] in
+            await self?.runRecreationTransaction()
+        }
+    }
 
-        // Destroy all existing taps (their AudioObjectIDs are now invalid)
-        for (pid, tap) in taps {
-            let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
-            logger.info("[SERVICE-RESTART] Destroying stale tap for \(appName)")
-            tap.invalidate()
+    private func runRecreationTransaction() async {
+        defer {
+            recreationTask = nil
+            isRecreationTransactionActive = false
+            coalescedRecreationReasons.removeAll()
+            switchTasksToDrainForRecreation.removeAll()
+            isRecreatingTaps = false
+            recreationEndedAt = Date()
+        }
+
+        let tasksToDrain = switchTasksToDrainForRecreation
+        switchTasksToDrainForRecreation.removeAll()
+        for task in tasksToDrain {
+            await task.value
+        }
+
+        logger.info("[RECREATE] Waiting for coreaudiod to stabilize...")
+        try? await Task.sleep(for: serviceRestartDelay)
+        guard !Task.isCancelled else { return }
+
+        await recreateTapsForCurrentSettings()
+
+        let probeDelay: Duration = fastHealthCheckIntervals.isEmpty ? .zero : .milliseconds(500)
+        try? await Task.sleep(for: probeDelay)
+        guard !Task.isCancelled else { return }
+
+        let confirmed = taps.values.contains { Self.shouldConfirmPermission(from: $0.diagnostics) }
+        if confirmed {
+            if !permissionConfirmed {
+                permissionConfirmed = true
+                logger.info("[RECREATE] Permission confirmed inline — upgrading to .mutedWhenTapped")
+                upgradeTapsToMutedWhenTapped()
+            }
+        } else if permissionConfirmed {
+            permissionConfirmed = false
+            logger.warning("[RECREATE] Permission not re-confirmed — downgrading to .unmuted")
+            requestTapRecreation(reason: .permissionDowngrade)
+            await recreateTapsForCurrentSettings()
+        }
+
+        await finalizeTransaction()
+    }
+
+    private func recreateTapsForCurrentSettings() async {
+        await withTaskGroup(of: Void.self) { group in
+            for (pid, tap) in taps {
+                let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
+                logger.info("[RECREATE] Destroying tap for \(appName)")
+                group.addTask { await tap.invalidateAsync() }
+            }
         }
         taps.removeAll()
         appliedPIDs.removeAll()
         lastHealthSnapshots.removeAll()
+        applyPersistedSettings()
+    }
 
-        // Wait for coreaudiod to stabilize, then recreate all taps.
-        // Always re-verifies permission after restart because permission can be
-        // revoked externally (System Settings, tccutil reset) which triggers a
-        // coreaudiod restart. If permission was lost, downgrades to .unmuted so
-        // audio passes through unprocessed rather than silence.
-        serviceRestartTask = Task { @MainActor [weak self] in
-            self?.logger.info("[SERVICE-RESTART] Waiting for coreaudiod to stabilize...")
-            try? await Task.sleep(for: self?.serviceRestartDelay ?? .milliseconds(1500))
-            guard let self, !Task.isCancelled else { return }
-            self.logger.info("[SERVICE-RESTART] Recreating taps (permissionConfirmed=\(self.permissionConfirmed))")
-            self.applyPersistedSettings()
-
-            // Probe for audio data after recreation to verify permission is still granted.
-            // Covers both first-launch (not yet confirmed) and mid-session revocation.
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            let confirmed = self.taps.values.contains { Self.shouldConfirmPermission(from: $0.diagnostics) }
-            if confirmed {
-                if !self.permissionConfirmed {
-                    self.permissionConfirmed = true
-                    self.logger.info("[SERVICE-RESTART] Permission confirmed inline — upgrading to .mutedWhenTapped")
-                    self.upgradeTapsToMutedWhenTapped()
-                }
-            } else if self.permissionConfirmed {
-                self.permissionConfirmed = false
-                self.logger.warning("[SERVICE-RESTART] Permission not re-confirmed after restart — downgrading to .unmuted")
-                self.recreateAllTaps()
-            }
-
-            self.restoreTransactionSnapshot()
-            self.isRecreatingTaps = false
-            self.recreationEndedAt = Date()
-        }
+    private func finalizeTransaction() async {
+        restoreTransactionSnapshot()
     }
 
     /// Tears down a tap for the given PID: invalidates it, removes from tracking dictionaries.
@@ -885,8 +941,11 @@ final class AudioEngine {
         pauseRecoveryPollTask = nil
         for task in pendingCleanup.values { task.cancel() }
         pendingCleanup.removeAll()
-        serviceRestartTask?.cancel()
-        serviceRestartTask = nil
+        recreationTask?.cancel()
+        recreationTask = nil
+        isRecreationTransactionActive = false
+        coalescedRecreationReasons.removeAll()
+        switchTasksToDrainForRecreation.removeAll()
         for task in switchTasks.values { task.cancel() }
         switchTasks.removeAll()
         for tap in taps.values {
@@ -1507,27 +1566,7 @@ final class AudioEngine {
     /// Uses async destruction to ensure CoreAudio resources are fully torn down before
     /// creating new taps, preventing resource conflicts with the old taps.
     private func recreateAllTaps() {
-        // Set flag synchronously BEFORE entering the Task to prevent any interleaved
-        // MainActor work (e.g., debounced device-change notifications) from firing
-        // routeAllApps between this call and the Task body executing.
-        isRecreatingTaps = true
-        captureTransactionSnapshot()
-        Task { @MainActor in
-            await withTaskGroup(of: Void.self) { group in
-                for (pid, tap) in taps {
-                    let appName = apps.first(where: { $0.id == pid })?.name ?? "PID:\(pid)"
-                    logger.info("[RECREATE] Destroying tap for \(appName)")
-                    group.addTask { await tap.invalidateAsync() }
-                }
-            }
-            taps.removeAll()
-            appliedPIDs.removeAll()
-            lastHealthSnapshots.removeAll()
-            applyPersistedSettings()
-            restoreTransactionSnapshot()
-            isRecreatingTaps = false
-            recreationEndedAt = Date()
-        }
+        requestTapRecreation(reason: .permissionRecovery)
     }
 
     /// Upgrades all active taps to `.mutedWhenTapped` in place using live reconfiguration.
@@ -1928,6 +1967,58 @@ final class AudioEngine {
     @MainActor
     func markFollowsDefaultForTests(_ pids: Set<pid_t>) {
         followsDefault = pids
+    }
+
+    var recreationTransactionCountForTests: Int {
+        recreationTransactionCount
+    }
+
+    var isInRecreationTransactionForTests: Bool {
+        isRecreationTransactionActive
+    }
+
+    var suppressesDeviceNotificationsForTests: Bool {
+        shouldSuppressDeviceNotifications
+    }
+
+    var activeSwitchTaskCountForTests: Int {
+        switchTasks.count
+    }
+
+    var permissionConfirmedForTests: Bool {
+        permissionConfirmed
+    }
+
+    func muteOriginalForTests(pid: pid_t) -> Bool? {
+        taps[pid]?.muteOriginal
+    }
+
+    func setPermissionConfirmedForTests(_ value: Bool) {
+        permissionConfirmed = value
+    }
+
+    func serviceRestartWillBeginForTests() {
+        handleServiceRestartWillBegin()
+    }
+
+    func serviceRestartDidCompleteForTests() {
+        handleServiceRestarted()
+    }
+
+    func permissionRecoveryRecreationForTests() {
+        requestTapRecreation(reason: .permissionRecovery)
+    }
+
+    func deviceDisconnectedForTests(uid: String, name: String) {
+        handleDeviceDisconnected(uid, name: name)
+    }
+
+    func deviceConnectedForTests(uid: String, name: String) {
+        handleDeviceConnected(uid, name: name)
+    }
+
+    func waitForRecreationTransactionForTests() async {
+        await recreationTask?.value
     }
 
     // MARK: - Input Device Lock

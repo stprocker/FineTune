@@ -43,4 +43,68 @@ final class ServiceRestartCoordinatorTests: XCTestCase {
             "restarted",
         ])
     }
+
+    func testRestartAndPermissionTriggersCoalesceIntoOneTransaction() async {
+        let engine = AudioEngine(
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .milliseconds(50)
+        engine.fastHealthCheckIntervals = []
+
+        engine.serviceRestartWillBeginForTests()
+        engine.serviceRestartDidCompleteForTests()
+        engine.serviceRestartDidCompleteForTests()
+        engine.permissionRecoveryRecreationForTests()
+
+        XCTAssertTrue(engine.isInRecreationTransactionForTests)
+        XCTAssertTrue(engine.suppressesDeviceNotificationsForTests)
+        XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertFalse(engine.isInRecreationTransactionForTests)
+        XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+    }
+
+    func testProbeDrivenPermissionDowngradeCoalescesWithinActiveTransaction() async {
+        let engine = AudioEngine(
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .zero
+        engine.fastHealthCheckIntervals = []
+        engine.setPermissionConfirmedForTests(true)
+
+        engine.serviceRestartWillBeginForTests()
+        engine.serviceRestartDidCompleteForTests()
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertFalse(engine.permissionConfirmedForTests)
+        XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+    }
+
+    func testCoalescedRestartDoesNotClearSuppressionBeforeActiveTransactionCompletes() async {
+        let engine = AudioEngine(
+            defaultOutputDeviceUIDProvider: { "speakers" },
+            isProcessRunningProvider: { _ in false }
+        )
+        defer { engine.stop() }
+        engine.serviceRestartDelay = .milliseconds(50)
+        engine.fastHealthCheckIntervals = []
+
+        engine.serviceRestartWillBeginForTests()
+        engine.serviceRestartDidCompleteForTests()
+        engine.serviceRestartDidCompleteForTests()
+
+        XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+        XCTAssertTrue(engine.suppressesDeviceNotificationsForTests)
+
+        await engine.waitForRecreationTransactionForTests()
+
+        XCTAssertFalse(engine.isInRecreationTransactionForTests)
+        XCTAssertEqual(engine.recreationTransactionCountForTests, 1)
+    }
 }
