@@ -30,6 +30,17 @@ final class AudioProcessMonitor {
     /// nil means we haven't tried to resolve it yet, .none means it's unavailable.
     private static var responsibilityFuncCache: ResponsibilityFunc??
 
+    private struct AudioProcessData: Sendable {
+        let objectID: AudioObjectID
+        let pid: pid_t
+        let bundleID: String?
+    }
+
+    private struct AudioProcessSnapshot: Sendable {
+        let processIDs: [AudioObjectID]
+        let processInfos: [AudioProcessData]
+    }
+
     /// Gets the "responsible" PID for a process using Apple's private API.
     /// This is what Activity Monitor uses to show the correct parent for XPC services.
     /// Falls back gracefully if the private API is unavailable (e.g., future macOS versions).
@@ -107,7 +118,9 @@ final class AudioProcessMonitor {
         )
 
         // Initial refresh
-        refresh()
+        Task { [weak self] in
+            await self?.refreshAsync()
+        }
 
         // Safety poll for pause/resume transitions that don't reliably trigger listeners.
         refreshTask?.cancel()
@@ -135,119 +148,65 @@ final class AudioProcessMonitor {
         refreshTask = nil
     }
 
-    private func refresh() {
-        do {
-            let processIDs = try AudioObjectID.readProcessList()
-            let runningApps = NSWorkspace.shared.runningApplications
-            let myPID = ProcessInfo.processInfo.processIdentifier
-
-            var apps: [AudioApp] = []
-
-            for objectID in processIDs {
-                guard objectID.readProcessIsRunning() else { continue }
-                guard let pid = try? objectID.readProcessPID(), pid != myPID else { continue }
-
-                // Try to find the parent app (for helper processes like Safari Graphics and Media)
-                let directApp = runningApps.first { $0.processIdentifier == pid }
-
-                // Check if it's a real app bundle (.app), not an XPC service (.xpc)
-                let isRealApp = directApp?.bundleURL?.pathExtension == "app"
-                let resolvedApp = isRealApp ? directApp : findResponsibleApp(for: pid, in: runningApps)
-
-                // Use resolved app's info, fall back to Core Audio bundle ID
-                let name = resolvedApp?.localizedName
-                    ?? objectID.readProcessBundleID()?.components(separatedBy: ".").last
-                    ?? "Unknown"
-                let icon = resolvedApp?.icon
-                    ?? NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
-                    ?? NSImage()
-                let bundleID = resolvedApp?.bundleIdentifier ?? objectID.readProcessBundleID()
-
-                let app = AudioApp(
-                    id: pid,
-                    objectID: objectID,
-                    name: name,
-                    icon: icon,
-                    bundleID: bundleID
-                )
-                apps.append(app)
-            }
-
-            // Update per-process listeners
-            updateProcessListeners(for: processIDs)
-
-            let sorted = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            // Only update if the app list actually changed (avoids unnecessary @Observable notifications)
-            if sorted.map(\.id) != activeApps.map(\.id) {
-                activeApps = sorted
-                onAppsChanged?(activeApps)
-            }
-
-        } catch {
-            logger.error("Failed to refresh process list: \(error.localizedDescription)")
-        }
-    }
-
-    /// Async version that does CoreAudio reads on background thread
-    private func refreshAsync() async {
-        // Read process list on background thread (current thread)
-        guard let processIDs = try? AudioObjectID.readProcessList() else { return }
-        let myPID = Foundation.ProcessInfo.processInfo.processIdentifier
-
-        // Collect process info on background thread
-        struct AudioProcessData {
-            let objectID: AudioObjectID
-            let pid: pid_t
-            let bundleID: String?
-            let isRunning: Bool
-        }
-
+    private nonisolated static func readProcessSnapshot(myPID: pid_t) throws -> AudioProcessSnapshot {
+        let processIDs = try AudioObjectID.readProcessList()
         var processInfos: [AudioProcessData] = []
+
         for objectID in processIDs {
-            let isRunning = objectID.readProcessIsRunning()
-            guard isRunning else { continue }
+            guard objectID.readProcessIsRunning() else { continue }
             guard let pid = try? objectID.readProcessPID(), pid != myPID else { continue }
             let bundleID = objectID.readProcessBundleID()
-            processInfos.append(AudioProcessData(objectID: objectID, pid: pid, bundleID: bundleID, isRunning: isRunning))
+            processInfos.append(AudioProcessData(objectID: objectID, pid: pid, bundleID: bundleID))
         }
 
-        // Do app resolution and UI updates on MainActor
-        await MainActor.run { [weak self] in
-            guard let self else { return }
+        return AudioProcessSnapshot(processIDs: processIDs, processInfos: processInfos)
+    }
 
-            let runningApps = NSWorkspace.shared.runningApplications
-            var apps: [AudioApp] = []
+    /// Async version that does CoreAudio reads on a background thread.
+    private func refreshAsync() async {
+        let myPID = Foundation.ProcessInfo.processInfo.processIdentifier
+        let snapshot: AudioProcessSnapshot
+        do {
+            snapshot = try await Task.detached(priority: .userInitiated) {
+                try Self.readProcessSnapshot(myPID: myPID)
+            }.value
+        } catch {
+            logger.error("Failed to refresh process list: \(error.localizedDescription)")
+            return
+        }
 
-            for info in processInfos {
-                let directApp = runningApps.first { $0.processIdentifier == info.pid }
-                let isRealApp = directApp?.bundleURL?.pathExtension == "app"
-                let resolvedApp = isRealApp ? directApp : self.findResponsibleApp(for: info.pid, in: runningApps)
+        let runningApps = NSWorkspace.shared.runningApplications
+        var apps: [AudioApp] = []
 
-                let name = resolvedApp?.localizedName
-                    ?? info.bundleID?.components(separatedBy: ".").last
-                    ?? "Unknown"
-                let icon = resolvedApp?.icon
-                    ?? NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
-                    ?? NSImage()
-                let bundleID = resolvedApp?.bundleIdentifier ?? info.bundleID
+        for info in snapshot.processInfos {
+            let directApp = runningApps.first { $0.processIdentifier == info.pid }
+            let isRealApp = directApp?.bundleURL?.pathExtension == "app"
+            let resolvedApp = isRealApp ? directApp : findResponsibleApp(for: info.pid, in: runningApps)
 
-                let app = AudioApp(
-                    id: info.pid,
-                    objectID: info.objectID,
-                    name: name,
-                    icon: icon,
-                    bundleID: bundleID
-                )
-                apps.append(app)
-            }
+            let name = resolvedApp?.localizedName
+                ?? info.bundleID?.components(separatedBy: ".").last
+                ?? "Unknown"
+            let icon = resolvedApp?.icon
+                ?? NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
+                ?? NSImage()
+            let bundleID = resolvedApp?.bundleIdentifier ?? info.bundleID
 
-            self.updateProcessListeners(for: processIDs)
-            let sorted = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            // Only update if the app list actually changed (avoids unnecessary @Observable notifications)
-            if sorted.map(\.id) != self.activeApps.map(\.id) {
-                self.activeApps = sorted
-                self.onAppsChanged?(self.activeApps)
-            }
+            let app = AudioApp(
+                id: info.pid,
+                objectID: info.objectID,
+                name: name,
+                icon: icon,
+                bundleID: bundleID
+            )
+            apps.append(app)
+        }
+
+        updateProcessListeners(for: snapshot.processIDs)
+        let sorted = apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Only update if the app list actually changed (avoids unnecessary @Observable notifications)
+        if sorted.map(\.id) != activeApps.map(\.id) {
+            activeApps = sorted
+            onAppsChanged?(activeApps)
         }
     }
 

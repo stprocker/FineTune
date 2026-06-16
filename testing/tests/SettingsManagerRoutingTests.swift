@@ -187,6 +187,16 @@ final class SettingsManagerRoutingTests: XCTestCase {
         XCTAssertTrue(settings.hasCustomSettings(for: "com.spotify"))
     }
 
+    func testHasCustomSettingsWithDeviceSelectionModeOnly() {
+        settings.setDeviceSelectionMode(for: "com.spotify", to: .multi)
+        XCTAssertTrue(settings.hasCustomSettings(for: "com.spotify"))
+    }
+
+    func testHasCustomSettingsWithSelectedDeviceUIDsOnly() {
+        settings.setSelectedDeviceUIDs(for: "com.spotify", to: ["speakers", "headphones"])
+        XCTAssertTrue(settings.hasCustomSettings(for: "com.spotify"))
+    }
+
     func testHasCustomSettingsReturnsFalseWhenEmpty() {
         XCTAssertFalse(settings.hasCustomSettings(for: "com.unknown"))
     }
@@ -345,6 +355,24 @@ final class SettingsManagerRoutingTests: XCTestCase {
 
         let reloaded = SettingsManager(directory: tempDir)
         XCTAssertTrue(reloaded.getCustomEQPresets().isEmpty)
+    }
+
+    func testDecodedCustomEQPresetNormalizesLegacyBandGains() throws {
+        let json = """
+        {
+          "id": "11111111-1111-1111-1111-111111111111",
+          "name": "Legacy",
+          "bandGains": [99, -99, 3],
+          "updatedAt": 0
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+
+        let preset = try decoder.decode(CustomEQPreset.self, from: data)
+
+        XCTAssertEqual(preset.bandGains, [12, -12, 3, 0, 0, 0, 0, 0, 0, 0])
     }
 
     func testResolveEQPresetSelectionPrefersBuiltInOverCustom() {

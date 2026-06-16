@@ -21,7 +21,7 @@ final class MenuBarPopupViewModel {
     private(set) var isEQAnimating = false
 
     /// Track popup visibility to pause VU meter polling when hidden.
-    var isPopupVisible = true
+    var isPopupVisible = false
 
     /// Which device tab is selected (false = output, true = input)
     var showingInputDevices = false
@@ -167,18 +167,22 @@ final class MenuBarPopupViewModel {
     // MARK: - App Activation
 
     /// Activates an app, bringing it to foreground and restoring minimized windows.
-    func activateApp(pid: pid_t, bundleID: String?) {
-        let runningApp = NSWorkspace.shared.runningApplications.first { $0.processIdentifier == pid }
-        runningApp?.activate()
+    func activateApp(pid: pid_t, bundleID _: String?) {
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == pid }) else {
+            return
+        }
 
-        if let bundleID {
-            let script = NSAppleScript(source: """
-                tell application id "\(bundleID)"
-                    reopen
-                    activate
-                end tell
-                """)
-            script?.executeAndReturnError(nil)
+        guard let bundleURL = runningApp.bundleURL else {
+            runningApp.activate()
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { app, _ in
+            DispatchQueue.main.async {
+                app?.activate()
+            }
         }
     }
 }

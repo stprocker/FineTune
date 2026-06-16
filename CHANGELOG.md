@@ -2,6 +2,26 @@
 
 ## [Unreleased] - 2026-02-15
 
+### Bug Sweep Reliability Fixes (2026-06-16)
+
+#### Changed
+- Fixed first-launch onboarding red-X handling so closing the onboarding window goes through the same complete-once path as Continue.
+- Moved `AudioProcessMonitor` CoreAudio process-list reads off the main actor and made startup refresh asynchronous.
+- Normalized decoded EQ settings and custom EQ presets so legacy/corrupt band arrays are clamped, padded, and truncated before UI use.
+- Hardened `EQPanelView` against malformed band arrays by driving sliders from normalized gains.
+- Restored persisted multi-device routing mode and selected device UIDs during startup settings application.
+- Enforced `maxVolumeBoost` in active, inactive, and URL-driven volume writes.
+- Removed synchronous AppleScript app activation from the main actor.
+- Made popover/menu-bar dismissal and popup visibility state update on the main thread with explicit show/dismiss lifecycle hooks.
+- Prevented volume slider programmatic updates from re-persisting external state while preserving explicit unmute-from-zero volume restore.
+
+#### Tests
+- Added regression coverage for EQ decode normalization, custom preset decode normalization, multi-device custom-settings detection, and startup multi-device restore.
+
+#### Verified
+- `swift test`
+- `xcodebuild -project finetune_fork.xcodeproj -scheme FineTune -configuration Debug -destination 'platform=macOS' build`
+
 ### EQ Panel Flat Reset Bar (2026-02-15)
 
 #### Added

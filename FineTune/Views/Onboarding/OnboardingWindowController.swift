@@ -3,12 +3,14 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class OnboardingWindowController {
+final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let onComplete: () -> Void
+    private var didComplete = false
 
     init(onComplete: @escaping () -> Void) {
         self.onComplete = onComplete
+        super.init()
     }
 
     func show() {
@@ -30,6 +32,7 @@ final class OnboardingWindowController {
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
+        window.delegate = self
         window.contentView = hostingView
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -41,8 +44,23 @@ final class OnboardingWindowController {
     }
 
     private func dismiss() {
-        window?.close()
+        complete(closeWindow: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        complete(closeWindow: false)
+    }
+
+    private func complete(closeWindow: Bool) {
+        guard !didComplete else { return }
+        didComplete = true
+
+        let currentWindow = window
         window = nil
+        currentWindow?.delegate = nil
+        if closeWindow {
+            currentWindow?.close()
+        }
         onComplete()
     }
 }

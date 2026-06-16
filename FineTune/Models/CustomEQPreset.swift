@@ -24,6 +24,23 @@ struct CustomEQPreset: Codable, Equatable, Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case bandGains
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let decodedName = try container.decodeIfPresent(String.self, forKey: .name) ?? "Custom"
+        self.name = decodedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let decodedGains = try container.decodeIfPresent([Float].self, forKey: .bandGains) ?? EQSettings.flat.bandGains
+        self.bandGains = EQSettings(bandGains: decodedGains).clampedGains
+        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
+    }
+
     var eqSettings: EQSettings {
         EQSettings(bandGains: bandGains, isEnabled: true)
     }

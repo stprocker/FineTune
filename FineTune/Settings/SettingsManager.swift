@@ -223,6 +223,8 @@ final class SettingsManager {
             || settings.appVolumes[identifier] != nil
             || settings.appMutes[identifier] != nil
             || settings.appEQSettings[identifier] != nil
+            || settings.appDeviceSelectionMode[identifier] != nil
+            || settings.appSelectedDeviceUIDs[identifier] != nil
     }
 
     // MARK: - System Sounds Settings
@@ -254,7 +256,10 @@ final class SettingsManager {
     }
 
     func setEQSettings(_ eqSettings: EQSettings, for appIdentifier: String) {
-        settings.appEQSettings[appIdentifier] = eqSettings
+        settings.appEQSettings[appIdentifier] = EQSettings(
+            bandGains: eqSettings.clampedGains,
+            isEnabled: eqSettings.isEnabled
+        )
         scheduleSave()
     }
 

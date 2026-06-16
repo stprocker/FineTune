@@ -212,10 +212,14 @@ final class MenuBarStatusController: NSObject {
         panel.makeKeyAndOrderFront(nil)
         panel.alphaValue = 1.0
         statusItem?.button?.highlight(true)
+        popupViewModel?.isPopupVisible = true
+        audioEngine.deviceVolumeMonitor.refreshDefaultDevice()
 
         // Dismiss when user clicks outside the panel
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.dismissPanel()
+            DispatchQueue.main.async {
+                self?.dismissPanel()
+            }
         }
     }
 
@@ -226,6 +230,7 @@ final class MenuBarStatusController: NSObject {
         }
         panel?.orderOut(nil)
         statusItem?.button?.highlight(false)
+        popupViewModel?.isPopupVisible = false
     }
 
     private func createPanel() -> KeyablePanel {

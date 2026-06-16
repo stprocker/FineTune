@@ -24,7 +24,7 @@ struct EQPanelView: View {
     @State private var errorMessage: String?
 
     private var resolvedSelection: EQPresetSelection {
-        resolveEQPresetSelection(bandGains: settings.bandGains, customPresets: customPresets)
+        resolveEQPresetSelection(bandGains: settings.clampedGains, customPresets: customPresets)
     }
 
     private var customPresetLimitReached: Bool {
@@ -42,7 +42,7 @@ struct EQPanelView: View {
     }
 
     private var canResetToFlat: Bool {
-        settings.bandGains != EQSettings.flat.bandGains
+        settings.clampedGains != EQSettings.flat.bandGains
     }
 
     var body: some View {
@@ -111,13 +111,15 @@ struct EQPanelView: View {
 
             // 10-band sliders
             HStack(spacing: 22) {
-                ForEach(0..<10, id: \.self) { index in
+                ForEach(0..<EQSettings.bandCount, id: \.self) { index in
                     EQSliderView(
                         frequency: frequencyLabels[index],
                         gain: Binding(
-                            get: { settings.bandGains[index] },
+                            get: { settings.clampedGains[index] },
                             set: { newValue in
-                                settings.bandGains[index] = newValue
+                                var normalizedGains = settings.clampedGains
+                                normalizedGains[index] = newValue
+                                settings.bandGains = normalizedGains
                                 onSettingsChanged(settings)
                             }
                         )
@@ -230,7 +232,7 @@ struct EQPanelView: View {
 
     private func overwrite(with preset: CustomEQPreset) {
         do {
-            try onOverwriteCustomPreset(preset.id, settings.bandGains)
+            try onOverwriteCustomPreset(preset.id, settings.clampedGains)
             activeOverlay = nil
         } catch {
             errorMessage = customPresetErrorMessage(for: error)
@@ -239,7 +241,7 @@ struct EQPanelView: View {
 
     private func saveCurrentAsNew() {
         do {
-            try onSaveCustomPreset(saveName, settings.bandGains)
+            try onSaveCustomPreset(saveName, settings.clampedGains)
             activeOverlay = nil
         } catch {
             errorMessage = customPresetErrorMessage(for: error)

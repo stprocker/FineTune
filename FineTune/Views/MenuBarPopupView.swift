@@ -75,14 +75,6 @@ struct MenuBarPopupView: View {
         .frame(width: DesignTokens.Dimensions.popupWidth)
         .darkGlassBackground()
         .environment(\.colorScheme, .dark)
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-            viewModel.isPopupVisible = true
-            // Re-sync default device in case of missed listener updates
-            deviceVolumeMonitor.refreshDefaultDevice()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
-            viewModel.isPopupVisible = false
-        }
         .onChange(of: viewModel.localAppSettings) { _, _ in
             viewModel.syncSettings()
         }

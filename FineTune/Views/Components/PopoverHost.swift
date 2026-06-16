@@ -99,7 +99,9 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
 
             // Global monitor: clicks in OTHER apps (dismisses panel)
             globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-                self?.dismissPanel()
+                DispatchQueue.main.async {
+                    self?.dismissPanel()
+                }
             }
 
             // Dismiss when app loses focus (Command-Tab, click other app, quit, etc.)

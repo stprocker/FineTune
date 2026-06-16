@@ -524,4 +524,24 @@ final class ApplyPersistedSettingsFallbackTests: XCTestCase {
 
         engine.stop()
     }
+
+    func testApplyPersistedSettingsLoadsMultiDeviceSelectionState() {
+        let settings = SettingsManager(directory: tempDir)
+        let engine = AudioEngine(
+            settingsManager: settings,
+            defaultOutputDeviceUIDProvider: { "speakers" }
+        )
+
+        let app = makeFakeApp()
+        settings.setVolume(for: app.persistenceIdentifier, to: 0.7)
+        settings.setDeviceSelectionMode(for: app.persistenceIdentifier, to: .multi)
+        settings.setSelectedDeviceUIDs(for: app.persistenceIdentifier, to: ["speakers", "headphones"])
+
+        engine.applyPersistedSettingsForTests(apps: [app])
+
+        XCTAssertEqual(engine.getDeviceSelectionMode(for: app), .multi)
+        XCTAssertEqual(engine.getSelectedDeviceUIDs(for: app), ["speakers", "headphones"])
+
+        engine.stop()
+    }
 }

@@ -227,6 +227,7 @@ struct AppRow: View {
                             // Unmute: restore to default if at 0
                             if sliderValue == 0 {
                                 sliderValue = defaultUnmuteVolume
+                                onVolumeChange(VolumeMapping.sliderToGain(defaultUnmuteVolume))
                             }
                             onMuteChange(false)
                         } else {
@@ -246,6 +247,7 @@ struct AppRow: View {
                     .frame(width: DesignTokens.Dimensions.sliderWidth)
                     .opacity(showMutedIcon ? 0.5 : 1.0)
                     .onChange(of: sliderValue) { _, newValue in
+                        guard isEditing else { return }
                         let gain = VolumeMapping.sliderToGain(newValue)
                         onVolumeChange(gain)
                     }

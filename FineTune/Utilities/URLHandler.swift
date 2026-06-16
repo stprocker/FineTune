@@ -49,9 +49,11 @@ final class URLHandler {
 
     /// Set volumes for one or more apps
     /// URL format: finetune://set-volumes?app=com.a&volume=100&app=com.b&volume=50
-    /// Volume is percentage: 0 to 200 (capped). volume=100 -> gain 1.0, volume=200 -> gain 2.0
+    /// Volume is percentage capped by Settings > max volume boost. volume=100 -> gain 1.0.
     private func handleSetVolumes(queryItems: [URLQueryItem]) {
-        let maxPercent = 200
+        let configuredMax = audioEngine.settingsManager.appSettings.maxVolumeBoost
+        let maxBoost = configuredMax.isFinite && configuredMax > 0 ? configuredMax : 2.0
+        let maxPercent = Int(round(maxBoost * 100))
 
         var pairs: [(identifier: String, volume: Int)] = []
         var currentApp: String?
@@ -99,7 +101,7 @@ final class URLHandler {
                 logger.info("Set volume for \(app.name) to \(volumePercent)%")
             } else {
                 // App not active - persist via settingsManager for when it launches
-                audioEngine.settingsManager.setVolume(for: identifier, to: gain)
+                audioEngine.setVolumeForInactive(identifier: identifier, to: gain)
                 logger.info("Set volume for inactive app \(identifier) to \(volumePercent)%")
             }
         }

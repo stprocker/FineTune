@@ -685,7 +685,7 @@ final class AudioEngine {
 
     /// Set volume for an inactive app by persistence identifier.
     func setVolumeForInactive(identifier: String, to volume: Float) {
-        settingsManager.setVolume(for: identifier, to: volume)
+        settingsManager.setVolume(for: identifier, to: clampedUserVolume(volume))
     }
 
     /// Get mute state for an inactive app by persistence identifier.
@@ -905,10 +905,18 @@ final class AudioEngine {
 
     // MARK: - Volume & EQ
 
+    private func clampedUserVolume(_ volume: Float) -> Float {
+        let safeVolume = volume.isFinite ? volume : 1.0
+        let configuredMax = settingsManager.appSettings.maxVolumeBoost
+        let maxBoost = configuredMax.isFinite && configuredMax > 0 ? configuredMax : 2.0
+        return min(max(safeVolume, 0), maxBoost)
+    }
+
     func setVolume(for app: AudioApp, to volume: Float) {
-        volumeState.setVolume(for: app.id, to: volume, identifier: app.persistenceIdentifier)
+        let clampedVolume = clampedUserVolume(volume)
+        volumeState.setVolume(for: app.id, to: clampedVolume, identifier: app.persistenceIdentifier)
         ensureTapForUserInteractionIfNeeded(for: app, trigger: "volume")
-        taps[app.id]?.volume = volume
+        taps[app.id]?.volume = clampedVolume
     }
 
     func getVolume(for app: AudioApp) -> Float {
@@ -980,7 +988,11 @@ final class AudioEngine {
         let deviceUIDs: [String]
         switch mode {
         case .single:
-            deviceUIDs = [appDeviceRouting[app.id] ?? (try? defaultOutputDeviceUIDProvider()) ?? ""]
+            guard let uid = appDeviceRouting[app.id] ?? (try? defaultOutputDeviceUIDProvider()),
+                  !uid.isEmpty else {
+                return
+            }
+            deviceUIDs = [uid]
         case .multi:
             let uids = volumeState.getSelectedDeviceUIDs(for: app.id)
                 .filter { deviceMonitor.device(for: $0) != nil }
@@ -1236,6 +1248,8 @@ final class AudioEngine {
             // Load saved volume and mute state
             let savedVolume = volumeState.loadSavedVolume(for: app.id, identifier: app.persistenceIdentifier)
             let savedMute = volumeState.loadSavedMute(for: app.id, identifier: app.persistenceIdentifier)
+            _ = volumeState.loadSavedDeviceSelectionMode(for: app.id, identifier: app.persistenceIdentifier)
+            _ = volumeState.loadSavedSelectedDeviceUIDs(for: app.id, identifier: app.persistenceIdentifier)
 
             // Always create tap for audio apps (always-on strategy)
             ensureTapExists(for: app, deviceUID: deviceUID, reason: .startup)

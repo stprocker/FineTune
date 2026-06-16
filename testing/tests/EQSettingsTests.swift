@@ -149,4 +149,23 @@ final class EQSettingsTests: XCTestCase {
         XCTAssertEqual(decoded.bandGains, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         XCTAssertTrue(decoded.isEnabled)
     }
+
+    func testDecodingPadsLegacyShortBandGains() throws {
+        let json = """
+        {"bandGains":[1,2,3],"isEnabled":true}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(EQSettings.self, from: data)
+        XCTAssertEqual(decoded.bandGains, [1, 2, 3, 0, 0, 0, 0, 0, 0, 0])
+    }
+
+    func testDecodingClampsAndTruncatesInvalidBandGains() throws {
+        let json = """
+        {"bandGains":[-20,-12,0,12,20,1,2,3,4,5,6],"isEnabled":false}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(EQSettings.self, from: data)
+        XCTAssertEqual(decoded.bandGains, [-12, -12, 0, 12, 12, 1, 2, 3, 4, 5])
+        XCTAssertFalse(decoded.isEnabled)
+    }
 }
