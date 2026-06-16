@@ -35,7 +35,6 @@ struct TapResources {
 
         // Step 3: Destroy aggregate device
         if aggregateDeviceID.isValid {
-            CrashGuard.untrackDevice(aggregateDeviceID)
             AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
         }
         aggregateDeviceID = .unknown
@@ -78,7 +77,6 @@ struct TapResources {
 
             // Step 3: Destroy aggregate device
             if capturedAggregateID.isValid {
-                CrashGuard.untrackDevice(capturedAggregateID)
                 AudioHardwareDestroyAggregateDevice(capturedAggregateID)
             }
 

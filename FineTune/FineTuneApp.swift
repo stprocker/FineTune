@@ -28,10 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Clean up any orphaned aggregate devices from a previous crash,
-        // then install crash signal handlers for this session
+        // Clean up any orphaned aggregate devices from a previous crash.
         OrphanedTapCleanup.destroyOrphanedDevices()
-        CrashGuard.install()
 
         let settings = SettingsManager()
         self.settings = settings

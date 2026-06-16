@@ -10,10 +10,15 @@ private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "Or
 enum OrphanedTapCleanup {
     /// Destroys any aggregate devices named "FineTune-*" left over from a previous session.
     /// Call on startup before creating any new taps.
-    static func destroyOrphanedDevices() {
+    static func destroyOrphanedDevices(
+        readDevices: () throws -> [AudioDeviceID] = { try AudioObjectID.readDeviceList() },
+        readTransportType: (AudioDeviceID) -> TransportType = { $0.readTransportType() },
+        readDeviceName: (AudioDeviceID) -> String? = { try? $0.readDeviceName() },
+        destroyAggregateDevice: (AudioDeviceID) -> OSStatus = { AudioHardwareDestroyAggregateDevice($0) }
+    ) {
         let devices: [AudioDeviceID]
         do {
-            devices = try AudioObjectID.readDeviceList()
+            devices = try readDevices()
         } catch {
             logger.error("[CLEANUP] Failed to read device list: \(error.localizedDescription)")
             return
@@ -22,13 +27,13 @@ enum OrphanedTapCleanup {
         var destroyedCount = 0
 
         for device in devices {
-            let transportType = device.readTransportType()
+            let transportType = readTransportType(device)
             guard transportType == .aggregate else { continue }
 
-            guard let name = try? device.readDeviceName(),
+            guard let name = readDeviceName(device),
                   name.hasPrefix("FineTune-") else { continue }
 
-            let err = AudioHardwareDestroyAggregateDevice(device)
+            let err = destroyAggregateDevice(device)
             if err == noErr {
                 destroyedCount += 1
                 logger.info("[CLEANUP] Destroyed orphaned aggregate device: \(name) (ID \(device))")

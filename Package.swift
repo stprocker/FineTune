@@ -80,6 +80,7 @@ let package = Package(
                 "DefaultDeviceBehaviorTests.swift",
                 "DeviceRoutingTests.swift",
                 "IntegrationTestHelpers.swift",
+                "OrphanedTapCleanupTests.swift",
                 "ProcessTapControllerTests.swift",
                 "ServiceRestartCoordinatorTests.swift",
                 "SettingsManagerRoutingTests.swift",
