@@ -1,6 +1,7 @@
 // testing/tests/AudioEngineCharacterizationTests.swift
 import XCTest
 import AppKit
+import AudioToolbox
 @testable import FineTuneIntegration
 @testable import FineTuneCore
 
@@ -307,5 +308,41 @@ final class AudioEngineCharacterizationTests: XCTestCase {
         XCTAssertEqual(engine.volumeState.getSelectedDeviceUIDs(for: spotify.id), Set(["headphones", "speakers"]))
         XCTAssertEqual(settings.getDeviceSelectionMode(for: spotify.persistenceIdentifier), .multi)
         XCTAssertEqual(settings.getSelectedDeviceUIDs(for: spotify.persistenceIdentifier), Set(["headphones", "speakers"]))
+    }
+
+    func testTapConstructionUsesPermissionConfirmedForMuteOriginal() {
+        func observedMuteOriginal(permissionConfirmed: Bool, pid: pid_t) -> Bool? {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("FineTuneTests-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let settings = SettingsManager(directory: tempDir)
+            let engine = AudioEngine(
+                settingsManager: settings,
+                defaultOutputDeviceUIDProvider: { "speakers" },
+                isProcessRunningProvider: { _ in false }
+            )
+            defer { engine.stop() }
+            engine.deviceMonitor.setOutputDevicesForTests([
+                AudioDevice(id: AudioDeviceID(1), uid: "speakers", name: "Speakers", icon: nil),
+            ])
+            engine.setPermissionConfirmedForTests(permissionConfirmed)
+
+            let app = makeFakeApp(pid: pid, name: "Spotify", bundleID: "com.spotify.\(pid)")
+            settings.setDeviceRouting(for: app.persistenceIdentifier, deviceUID: "speakers")
+
+            var observed: Bool?
+            engine.onTapConstructedForTests = { constructedApp, muteOriginal in
+                if constructedApp.id == app.id {
+                    observed = muteOriginal
+                }
+            }
+
+            engine.applyPersistedSettingsForTests(apps: [app])
+            return observed
+        }
+
+        XCTAssertEqual(observedMuteOriginal(permissionConfirmed: false, pid: 20001), false)
+        XCTAssertEqual(observedMuteOriginal(permissionConfirmed: true, pid: 20002), true)
     }
 }

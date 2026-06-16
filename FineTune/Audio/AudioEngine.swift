@@ -117,6 +117,8 @@ final class AudioEngine {
     var onTapCreationAttemptForTests: ((AudioApp, String) -> Void)?
     /// Test-only hook for observing the full requested tap target set.
     var onTapCreationDeviceUIDsAttemptForTests: ((AudioApp, [String]) -> Void)?
+    /// Test-only hook for observing constructor-time mute behavior before activation.
+    var onTapConstructedForTests: ((AudioApp, Bool) -> Void)?
 
     // MARK: - Injectable Timing
 
@@ -1477,7 +1479,9 @@ final class AudioEngine {
         onTapCreationAttemptForTests?(app, deviceUID)
         onTapCreationDeviceUIDsAttemptForTests?(app, deviceUIDs)
 
-        let tap = ProcessTapController(app: app, targetDeviceUIDs: deviceUIDs, deviceMonitor: deviceMonitor)
+        let muteOriginal = permissionConfirmed
+        let tap = ProcessTapController(app: app, targetDeviceUIDs: deviceUIDs, deviceMonitor: deviceMonitor, muteOriginal: muteOriginal)
+        onTapConstructedForTests?(app, muteOriginal)
         tap.volume = volumeState.getVolume(for: app.id)
         tap.isMuted = volumeState.getMute(for: app.id)
 
