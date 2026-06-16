@@ -47,6 +47,9 @@ final class AudioDeviceMonitor {
     /// All AudioObjectIDs (taps, aggregates) become invalid and must be recreated.
     var onServiceRestarted: (() -> Void)?
 
+    /// Called synchronously before restart-time device churn is emitted.
+    var onServiceRestartWillBegin: (() -> Void)?
+
     // MARK: - Input Devices
 
     private(set) var inputDevices: [AudioDevice] = []
@@ -274,6 +277,7 @@ final class AudioDeviceMonitor {
 
     private func handleServiceRestartedAsync() async {
         logger.warning("coreaudiod service restarted - refreshing device list")
+        onServiceRestartWillBegin?()
 
         // Capture MainActor state before going to background
         let previousOutputUIDs = knownDeviceUIDs
@@ -302,39 +306,64 @@ final class AudioDeviceMonitor {
             inputDevicesByID: Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.id, $0) })
         )
 
-        // Output device disconnect/connect events
-        let disconnectedOutputUIDs = previousOutputUIDs.subtracting(knownDeviceUIDs)
-        for uid in disconnectedOutputUIDs {
-            let name = outputDeviceNames[uid] ?? uid
+        let currentOutputNames = Dictionary(uniqueKeysWithValues: outputDevices.map { ($0.uid, $0.name) })
+        let currentInputNames = Dictionary(uniqueKeysWithValues: inputDevices.map { ($0.uid, $0.name) })
+        emitRestartEvents(
+            previousOutput: previousOutputUIDs,
+            currentOutput: knownDeviceUIDs,
+            previousInput: previousInputUIDs,
+            currentInput: knownInputDeviceUIDs,
+            previousOutputNames: outputDeviceNames,
+            currentOutputNames: currentOutputNames,
+            previousInputNames: inputDeviceNames,
+            currentInputNames: currentInputNames,
+            includeWillBegin: false
+        )
+    }
+
+    func emitRestartEvents(
+        previousOutput: Set<String>,
+        currentOutput: Set<String>,
+        previousInput: Set<String>,
+        currentInput: Set<String>,
+        previousOutputNames: [String: String] = [:],
+        currentOutputNames: [String: String] = [:],
+        previousInputNames: [String: String] = [:],
+        currentInputNames: [String: String] = [:],
+        includeWillBegin: Bool = true
+    ) {
+        if includeWillBegin {
+            onServiceRestartWillBegin?()
+        }
+
+        let disconnectedOutputUIDs = previousOutput.subtracting(currentOutput)
+        for uid in disconnectedOutputUIDs.sorted() {
+            let name = previousOutputNames[uid] ?? uid
             logger.info("Output device disconnected after restart: \(name) (\(uid))")
             onDeviceDisconnected?(uid, name)
         }
 
-        let connectedOutputUIDs = knownDeviceUIDs.subtracting(previousOutputUIDs)
-        for uid in connectedOutputUIDs {
-            if let device = deviceCache.devicesByUID[uid] {
-                logger.info("Output device connected after restart: \(device.name) (\(uid))")
-                onDeviceConnected?(uid, device.name)
-            }
+        let connectedOutputUIDs = currentOutput.subtracting(previousOutput)
+        for uid in connectedOutputUIDs.sorted() {
+            let name = currentOutputNames[uid] ?? uid
+            logger.info("Output device connected after restart: \(name) (\(uid))")
+            onDeviceConnected?(uid, name)
         }
 
-        // Input device disconnect/connect events
-        let disconnectedInputUIDs = previousInputUIDs.subtracting(knownInputDeviceUIDs)
-        for uid in disconnectedInputUIDs {
-            let name = inputDeviceNames[uid] ?? uid
+        let disconnectedInputUIDs = previousInput.subtracting(currentInput)
+        for uid in disconnectedInputUIDs.sorted() {
+            let name = previousInputNames[uid] ?? uid
             logger.info("Input device disconnected after restart: \(name) (\(uid))")
             onInputDeviceDisconnected?(uid, name)
         }
 
-        let connectedInputUIDs = knownInputDeviceUIDs.subtracting(previousInputUIDs)
-        for uid in connectedInputUIDs {
-            if let device = deviceCache.inputDevicesByUID[uid] {
-                logger.info("Input device connected after restart: \(device.name) (\(uid))")
-                onInputDeviceConnected?(uid, device.name)
-            }
+        let connectedInputUIDs = currentInput.subtracting(previousInput)
+        for uid in connectedInputUIDs.sorted() {
+            let name = currentInputNames[uid] ?? uid
+            logger.info("Input device connected after restart: \(name) (\(uid))")
+            onInputDeviceConnected?(uid, name)
         }
 
-        // Notify listeners that coreaudiod restarted (taps/aggregates are now invalid)
         onServiceRestarted?()
     }
 

@@ -81,6 +81,7 @@ let package = Package(
                 "DeviceRoutingTests.swift",
                 "IntegrationTestHelpers.swift",
                 "ProcessTapControllerTests.swift",
+                "ServiceRestartCoordinatorTests.swift",
                 "SettingsManagerRoutingTests.swift",
                 "StartupAudioInterruptionTests.swift",
                 "SingleInstanceGuardTests.swift",
