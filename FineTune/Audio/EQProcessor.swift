@@ -69,9 +69,17 @@ final class EQProcessor: @unchecked Sendable {
         _isEnabled = settings.isEnabled
         _currentSettings = settings
 
-        let maxBoost = settings.clampedGains.max() ?? 0
-        let preampDB = -max(maxBoost, 0)
-        _preampScalar = Float(pow(10.0, Double(preampDB) / 20.0))
+        // Headroom strategy: do NOT pre-attenuate by the boost amount.
+        //
+        // The previous behavior reduced the whole signal by the largest band
+        // boost (e.g. a +12 dB boost applied a -12 dB preamp), so a boosted
+        // band only climbed back to unity while everything else got quieter.
+        // Net effect: "cranking the bass just makes it quieter." Instead, leave
+        // the level alone and let the post-EQ SoftLimiter (asymptotic, ceiling
+        // 1.0) absorb any peaks that boosting pushes above unity. That way
+        // boosting a band actually makes that band louder, the way a normal
+        // graphic EQ behaves.
+        _preampScalar = 1.0
 
         let coefficients = BiquadMath.coefficientsForAllBands(
             gains: settings.clampedGains,
