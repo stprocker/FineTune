@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Must happen before OrphanedTapCleanup, which would destroy
         // the running instance's live aggregate devices.
         if SingleInstanceGuard.shouldTerminateCurrentInstance() {
-            logger.warning("Another FineTune instance detected; terminating this process.")
+            logger.warning("Another FineTune Fork instance detected; terminating this process.")
             NSApplication.shared.terminate(nil)
             return
         }
@@ -75,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // instead of letting CoreAudio trigger the system dialog
             let alert = NSAlert()
             alert.messageText = "Audio Permission Required"
-            alert.informativeText = "FineTune needs the \"Screen & System Audio Recording\" permission to capture and control per-app audio.\n\nPlease enable it in System Settings → Privacy & Security → Screen & System Audio Recording, then relaunch FineTune."
+            alert.informativeText = "FineTune Fork needs the \"Screen & System Audio Recording\" permission to capture and control per-app audio.\n\nPlease enable it in System Settings → Privacy & Security → Screen & System Audio Recording, then relaunch FineTune Fork."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open System Settings")
             alert.addButton(withTitle: "Continue Anyway")

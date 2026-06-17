@@ -133,7 +133,7 @@ struct MenuBarPopupView: View {
         // Quit button
         HStack {
             Spacer()
-            Button("Quit FineTune") {
+            Button("Quit FineTune Fork") {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(.plain)
@@ -536,7 +536,7 @@ struct MenuBarPopupView: View {
             Divider()
                 .padding(.vertical, DesignTokens.Spacing.xs)
 
-            Button("Quit FineTune") {}
+            Button("Quit FineTune Fork") {}
                 .buttonStyle(.plain)
                 .foregroundStyle(DesignTokens.Colors.textTertiary)
                 .font(DesignTokens.Typography.caption)

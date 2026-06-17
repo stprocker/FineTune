@@ -25,7 +25,7 @@ struct SettingsToggleRow: View {
         SettingsToggleRow(
             icon: "power",
             title: "Launch at Login",
-            description: "Start FineTune when you log in",
+            description: "Start FineTune Fork when you log in",
             isOn: .constant(true)
         )
 

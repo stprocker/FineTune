@@ -149,7 +149,7 @@ final class MenuBarStatusController: NSObject {
         testItem.target = self
         menu.addItem(testItem)
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit FineTune", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit FineTune Fork", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
         button.performClick(nil)
         statusItem?.menu = nil

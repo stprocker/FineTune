@@ -47,7 +47,7 @@ struct SettingsRowView<Control: View>: View {
         SettingsRowView(
             icon: "power",
             title: "Launch at Login",
-            description: "Start FineTune when you log in"
+            description: "Start FineTune Fork when you log in"
         ) {
             Toggle("", isOn: .constant(true))
                 .toggleStyle(.switch)

@@ -48,7 +48,7 @@ struct SettingsView: View {
             SettingsToggleRow(
                 icon: "power",
                 title: "Launch at Login",
-                description: "Start FineTune when you log in",
+                description: "Start FineTune Fork when you log in",
                 isOn: $settings.launchAtLogin
             )
 
@@ -118,7 +118,7 @@ struct SettingsView: View {
             SettingsRowView(
                 icon: "arrow.triangle.2.circlepath",
                 title: "Startup Routing",
-                description: "How customized apps choose devices when FineTune launches"
+                description: "How customized apps choose devices when FineTune Fork launches"
             ) {
                 Menu {
                     ForEach(StartupRoutingPolicy.allCases) { policy in
