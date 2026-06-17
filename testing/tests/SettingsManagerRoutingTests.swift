@@ -355,9 +355,10 @@ final class SettingsManagerRoutingTests: XCTestCase {
     }
 
     func testLegacySettingsWithoutCustomEQPresetsLoadsWithEmptyList() throws {
-        let fineTuneDir = tempDir.appendingPathComponent("FineTune")
-        try FileManager.default.createDirectory(at: fineTuneDir, withIntermediateDirectories: true)
-        let legacyURL = fineTuneDir.appendingPathComponent("settings.json")
+        let legacyDir = tempDir.appendingPathComponent("FineTune")
+        let forkDir = tempDir.appendingPathComponent("FineTune Fork")
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        let legacyURL = legacyDir.appendingPathComponent("settings.json")
         let legacyJSON = """
         {
           "version": 5,
@@ -376,8 +377,58 @@ final class SettingsManagerRoutingTests: XCTestCase {
         """
         try legacyJSON.data(using: .utf8)!.write(to: legacyURL, options: .atomic)
 
-        let reloaded = SettingsManager(directory: tempDir)
+        // Fork manager with no fork file yet → migrates the legacy file forward,
+        // and a v5 file (no customEQPresets key) decodes to an empty preset list.
+        let reloaded = SettingsManager(directory: forkDir, legacyDirectory: legacyDir)
         XCTAssertTrue(reloaded.getCustomEQPresets().isEmpty)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: forkDir.appendingPathComponent("settings.json").path),
+            "migration should create the fork settings file"
+        )
+    }
+
+    func testLegacySettingsMigrateForwardCarryingData() throws {
+        let legacyDir = tempDir.appendingPathComponent("FineTune")
+        let forkDir = tempDir.appendingPathComponent("FineTune Fork")
+
+        // Seed the legacy location with real data via a manager pointed at it.
+        let legacy = SettingsManager(directory: legacyDir)
+        _ = try legacy.saveCustomEQPreset(name: "Legacy", bandGains: Array(repeating: 3, count: EQSettings.bandCount))
+        legacy.setEQSettings(EQSettings(bandGains: [6, 5, 4, 0, 0, 0, 0, 0, 0, 0]), for: "com.test.app")
+        legacy.flushSync()
+
+        // Fresh fork location → migration carries the data forward.
+        let fork = SettingsManager(directory: forkDir, legacyDirectory: legacyDir)
+        XCTAssertEqual(fork.getCustomEQPresets().map(\.name), ["Legacy"])
+        XCTAssertEqual(fork.getEQSettings(for: "com.test.app").bandGains.first, 6)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: forkDir.appendingPathComponent("settings.json").path),
+            "fork settings file should be created by migration"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: legacyDir.appendingPathComponent("settings.json").path),
+            "migration must be non-destructive: legacy file preserved"
+        )
+    }
+
+    func testExistingForkSettingsAreNotClobberedByLegacy() throws {
+        let legacyDir = tempDir.appendingPathComponent("FineTune")
+        let forkDir = tempDir.appendingPathComponent("FineTune Fork")
+
+        // Fork already has its own settings.
+        let fork1 = SettingsManager(directory: forkDir, legacyDirectory: legacyDir)
+        _ = try fork1.saveCustomEQPreset(name: "Fork", bandGains: Array(repeating: 0, count: EQSettings.bandCount))
+        fork1.flushSync()
+
+        // A legacy file also exists.
+        let legacy = SettingsManager(directory: legacyDir)
+        _ = try legacy.saveCustomEQPreset(name: "Legacy", bandGains: Array(repeating: 0, count: EQSettings.bandCount))
+        legacy.flushSync()
+
+        // Re-open the fork: migration must be skipped because the fork file exists.
+        let fork2 = SettingsManager(directory: forkDir, legacyDirectory: legacyDir)
+        XCTAssertEqual(fork2.getCustomEQPresets().map(\.name), ["Fork"])
     }
 
     func testDecodedCustomEQPresetNormalizesLegacyBandGains() throws {

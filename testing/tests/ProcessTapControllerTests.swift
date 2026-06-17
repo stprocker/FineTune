@@ -1,6 +1,7 @@
 // testing/tests/ProcessTapControllerTests.swift
 import XCTest
 import AppKit
+import Accelerate
 @testable import FineTuneIntegration
 @testable import FineTuneCore
 
@@ -338,5 +339,57 @@ final class ProcessTapControllerTests: XCTestCase {
         )
         // Controller created successfully with custom queue
         XCTAssertNotNil(controller)
+    }
+
+    // MARK: - EQ boost loudness (regression: "cranking the bass got quieter")
+
+    /// The EQ must NOT pre-attenuate the signal when bands are boosted. Previously
+    /// it applied a preamp of pow(10, -maxBoost/20), so boosting only restored
+    /// unity while everything else dropped — perceived as "quieter". The fix pins
+    /// the preamp at unity regardless of boost.
+    func testEQBoostDoesNotPreAttenuate() {
+        let eq = EQProcessor(sampleRate: 48_000)
+        eq.updateSettings(EQSettings(bandGains: [12, 12, 6, 0, 0, 0, 0, 0, 0, 0]))
+        XCTAssertEqual(eq.preampScalar, 1.0, accuracy: 1e-6,
+            "Boosting must not pre-attenuate; preamp scalar should stay at unity")
+    }
+
+    /// End-to-end through the production order (preamp × samples, then EQ): a
+    /// boosted low band must make a low-frequency tone clearly LOUDER than flat.
+    func testBassBoostMakesLowFrequencyLouder() {
+        let sampleRate = 48_000.0
+        let freq = 62.5            // band index 1 centre frequency
+        let frames = 8_192
+        let amplitude: Float = 0.2 // low enough that +12 dB stays under the limiter
+
+        func rmsThroughEQ(_ settings: EQSettings) -> Float {
+            let eq = EQProcessor(sampleRate: sampleRate)
+            eq.updateSettings(settings)
+
+            var buf = [Float](repeating: 0, count: frames * 2)  // stereo interleaved
+            for i in 0..<frames {
+                let s = amplitude * Float(sin(2.0 * Double.pi * freq * Double(i) / sampleRate))
+                buf[i * 2] = s
+                buf[i * 2 + 1] = s
+            }
+
+            // Production order: apply the EQ preamp scalar, then EQ in place.
+            var preamp = eq.preampScalar
+            buf.withUnsafeMutableBufferPointer { p in
+                vDSP_vsmul(p.baseAddress!, 1, &preamp, p.baseAddress!, 1, vDSP_Length(p.count))
+                eq.process(input: p.baseAddress!, output: p.baseAddress!, frameCount: frames)
+            }
+
+            // RMS over the steady-state second half (skip filter settling).
+            var sumSq: Float = 0
+            for i in (frames)..<(frames * 2) { sumSq += buf[i] * buf[i] }
+            return (sumSq / Float(frames)).squareRoot()
+        }
+
+        let flatRMS = rmsThroughEQ(EQSettings(bandGains: Array(repeating: 0, count: 10)))
+        let boostRMS = rmsThroughEQ(EQSettings(bandGains: [12, 12, 0, 0, 0, 0, 0, 0, 0, 0]))
+
+        XCTAssertGreaterThan(boostRMS, flatRMS * 1.5,
+            "Boosting the low bands must make a low tone clearly louder (flat=\(flatRMS), boost=\(boostRMS))")
     }
 }

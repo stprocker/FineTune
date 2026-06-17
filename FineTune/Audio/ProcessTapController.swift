@@ -1368,7 +1368,10 @@ final class ProcessTapController {
             let outputSamples = outputData.assumingMemoryBound(to: Float.self)
             let sampleCount = Int(outputBuffers[0].mDataByteSize) / MemoryLayout<Float>.size
             let frameCount = sampleCount / 2  // Stereo frames
-            // Pre-EQ gain reduction for headroom management
+            // Apply the EQ preamp scalar. It is now unity: EQProcessor no longer
+            // pre-attenuates on boost (that made boosting quieter). Peaks pushed
+            // above unity are absorbed by the post-EQ SoftLimiter below. Kept as a
+            // seam in case a headroom strategy is reintroduced.
             var preamp = eqProcessor.preampScalar
             vDSP_vsmul(outputSamples, 1, &preamp, outputSamples, 1, vDSP_Length(sampleCount))
             eqProcessor.process(
@@ -1539,7 +1542,10 @@ final class ProcessTapController {
             let outputSamples = outputData.assumingMemoryBound(to: Float.self)
             let sampleCount = Int(outputBuffers[0].mDataByteSize) / MemoryLayout<Float>.size
             let frameCount = sampleCount / 2  // Stereo frames
-            // Pre-EQ gain reduction for headroom management
+            // Apply the EQ preamp scalar. It is now unity: EQProcessor no longer
+            // pre-attenuates on boost (that made boosting quieter). Peaks pushed
+            // above unity are absorbed by the post-EQ SoftLimiter below. Kept as a
+            // seam in case a headroom strategy is reintroduced.
             var preamp = eqProcessor.preampScalar
             vDSP_vsmul(outputSamples, 1, &preamp, outputSamples, 1, vDSP_Length(sampleCount))
             eqProcessor.process(

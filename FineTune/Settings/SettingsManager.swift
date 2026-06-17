@@ -134,6 +134,9 @@ final class SettingsManager {
     private var settings: Settings
     private var saveTask: Task<Void, Never>?
     private let settingsURL: URL
+    /// Pre-fork in-container location (Application Support/FineTune). nil when a
+    /// directory is injected without an explicit legacy directory (tests).
+    private let legacySettingsURL: URL?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "SettingsManager")
 
     struct Settings: Codable {
@@ -152,10 +155,18 @@ final class SettingsManager {
         var pinnedAppInfo: [String: PinnedAppInfo] = [:]
     }
 
-    init(directory: URL? = nil) {
-        let baseDir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("FineTune Fork")
+    init(directory: URL? = nil, legacyDirectory: URL? = nil) {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let baseDir = directory ?? appSupport.appendingPathComponent("FineTune Fork")
         self.settingsURL = baseDir.appendingPathComponent("settings.json")
+
+        // Legacy ("FineTune") location used before the fork rename. Auto-derived
+        // only for the production (non-injected) path; tests inject it explicitly.
+        let legacyBase = legacyDirectory ?? (directory == nil ? appSupport.appendingPathComponent("FineTune") : nil)
+        self.legacySettingsURL = legacyBase?.appendingPathComponent("settings.json")
+
         self.settings = Settings()
+        migrateLegacySettingsIfNeeded()
         loadFromDisk()
     }
 
@@ -469,6 +480,27 @@ final class SettingsManager {
     }
 
     // MARK: - Persistence
+
+    /// One-time, in-container migration: if the new settings file does not exist
+    /// but a legacy ("FineTune") file does in the same Application Support root,
+    /// copy it forward so existing preferences survive the fork rename.
+    ///
+    /// Non-destructive (the legacy file is left intact). Note this cannot recover
+    /// settings from a *different* sandbox container (e.g. after a bundle-identifier
+    /// change) — the sandbox forbids reading another app's container.
+    private func migrateLegacySettingsIfNeeded() {
+        guard let legacyURL = legacySettingsURL else { return }
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: settingsURL.path),
+              fm.fileExists(atPath: legacyURL.path) else { return }
+        do {
+            try fm.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: legacyURL, to: settingsURL)
+            logger.info("Migrated legacy settings forward to \(self.settingsURL.lastPathComponent)")
+        } catch {
+            logger.error("Legacy settings migration failed: \(error.localizedDescription)")
+        }
+    }
 
     private func loadFromDisk() {
         guard FileManager.default.fileExists(atPath: settingsURL.path) else { return }
