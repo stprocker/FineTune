@@ -4,7 +4,7 @@ import UserNotifications
 import ScreenCaptureKit
 import os
 
-private let logger = Logger(subsystem: "com.finetuneapp.FineTune", category: "App")
+private let logger = Logger(subsystem: "com.finetuneapp.FineTuneFork", category: "App")
 
 /// AppDelegate handles menu bar setup via NSApplicationDelegateAdaptor.
 /// This ensures the NSStatusItem is created through the standard AppKit lifecycle,

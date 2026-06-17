@@ -15,7 +15,7 @@ final class URLHandler {
     func handleURL(_ url: URL) {
         logger.info("Received URL: \(url.absoluteString)")
 
-        guard url.scheme == "finetune" else {
+        guard url.scheme == "finetunefork" else {
             logger.warning("Unknown URL scheme: \(url.scheme ?? "nil")")
             return
         }

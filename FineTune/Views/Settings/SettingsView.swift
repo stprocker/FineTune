@@ -251,7 +251,7 @@ struct SettingsView: View {
         let yearText = startYear == currentYear ? "\(startYear)" : "\(startYear)-\(currentYear)"
 
         return VStack(spacing: DesignTokens.Spacing.xs) {
-            Text("FineTune v\(version)")
+            Text("FineTune Fork v\(version)")
                 .font(DesignTokens.Typography.caption)
                 .foregroundStyle(DesignTokens.Colors.textSecondary)
 

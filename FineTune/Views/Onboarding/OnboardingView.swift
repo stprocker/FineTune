@@ -12,10 +12,10 @@ struct OnboardingView: View {
                 .resizable()
                 .frame(width: 80, height: 80)
 
-            Text("Welcome to FineTune")
+            Text("Welcome to FineTune Fork")
                 .font(.system(size: 24, weight: .bold))
 
-            Text("FineTune needs the **Screen & System Audio Recording** permission to capture and control per-app audio.")
+            Text("FineTune Fork needs the **Screen & System Audio Recording** permission to capture and control per-app audio.")
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 340)

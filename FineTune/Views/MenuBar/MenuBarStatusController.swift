@@ -103,13 +103,13 @@ final class MenuBarStatusController: NSObject {
     private func applyIcon(style: MenuBarIconStyle, to button: NSStatusBarButton) {
         if style.isSystemSymbol {
             // SF Symbol icon
-            if let image = NSImage(systemSymbolName: style.iconName, accessibilityDescription: "FineTune") {
+            if let image = NSImage(systemSymbolName: style.iconName, accessibilityDescription: "FineTune Fork") {
                 image.isTemplate = true
                 button.image = image
                 logger.info("[MENUBAR] Applied SF Symbol '\(style.iconName)', size=\(image.size.width)x\(image.size.height)")
             } else {
                 // Fallback if symbol name is invalid
-                button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
+                button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune Fork")
                 logger.error("[MENUBAR] Invalid SF Symbol name '\(style.iconName)'; using fallback")
             }
         } else {
@@ -119,7 +119,7 @@ final class MenuBarStatusController: NSObject {
                 button.image = image
                 logger.info("[MENUBAR] Applied asset '\(style.iconName)', size=\(image.size.width)x\(image.size.height)")
             } else {
-                button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune")
+                button.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "FineTune Fork")
                 logger.error("[MENUBAR] Asset '\(style.iconName)' MISSING; using fallback symbol")
             }
         }
